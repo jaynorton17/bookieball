@@ -1,0 +1,22 @@
+[
+  { "team_id": "midnite", "name": "Midnite", "url": "https://www.midnite.com", "ball_color": "#00A651", "ring_color": "#000000", "text_color": "#FFFFFF" },
+  { "team_id": "livescorebet", "name": "LiveScore Bet", "url": "https://www.livescorebet.com", "ball_color": "#FF7A00", "ring_color": "#000000", "text_color": "#FFFFFF" },
+  { "team_id": "galabingo", "name": "Gala Bingo", "url": "https://www.galabingo.com", "ball_color": "#FFD400", "ring_color": "#1E4AA8", "text_color": "#000000" },
+  { "team_id": "foxybingo", "name": "Foxy Bingo", "url": "https://www.foxybingo.com", "ball_color": "#7A2DFF", "ring_color": "#FF7A00", "text_color": "#FFFFFF" },
+  { "team_id": "coral", "name": "Coral", "url": "https://www.coral.co.uk", "ball_color": "#1E73FF", "ring_color": "#0B2E6B", "text_color": "#FFFFFF" },
+  { "team_id": "ladbrokes", "name": "Ladbrokes", "url": "https://www.ladbrokes.com", "ball_color": "#E10600", "ring_color": "#FFFFFF", "text_color": "#FFFFFF" },
+  { "team_id": "mrq", "name": "Mr Q", "url": "https://www.mrq.com", "ball_color": "#FFFFFF", "ring_color": "#0B2E6B", "text_color": "#0B2E6B" },
+  { "team_id": "bwin", "name": "Bwin", "url": "https://www.bwin.com", "ball_color": "#000000", "ring_color": "#FFD400", "text_color": "#FFD400" },
+  { "team_id": "skybet", "name": "Sky Bet", "url": "https://www.skybet.com", "ball_color": "#E10600", "ring_color": "#1E73FF", "text_color": "#FFFFFF" },
+  { "team_id": "skyvegas", "name": "Sky Vegas", "url": "https://www.skyvegas.com", "ball_color": "#1E73FF", "ring_color": "#E10600", "text_color": "#FFFFFF" },
+  { "team_id": "paddypower", "name": "Paddy Power", "url": "https://www.paddypower.com", "ball_color": "#00A651", "ring_color": "#FFFFFF", "text_color": "#FFFFFF" },
+  { "team_id": "virgingames", "name": "Virgin Games", "url": "https://www.virgingames.com", "ball_color": "#E10600", "ring_color": "#F2F2F2", "text_color": "#FFFFFF" },
+  { "team_id": "jackpotjoy", "name": "Jackpot Joy", "url": "https://www.jackpotjoy.com", "ball_color": "#1E73FF", "ring_color": "#FFFFFF", "text_color": "#FFFFFF" },
+  { "team_id": "doublebubble", "name": "Double Bubble Casino", "url": "https://www.doublebubblebingo.com", "ball_color": "#FF4FB6", "ring_color": "#C2185B", "text_color": "#FFFFFF" },
+  { "team_id": "monopolycasino", "name": "Monopoly Casino", "url": "https://www.monopolycasino.com", "ball_color": "#0B2E6B", "ring_color": "#FFFFFF", "text_color": "#FFFFFF" },
+  { "team_id": "rainbowriches", "name": "Rainbow Riches", "url": "https://www.rainbowrichescasino.com", "ball_color": "#0B6B3A", "ring_color": "#66CC66", "text_color": "#FFFFFF" },
+  { "team_id": "ballycasino", "name": "Bally Casino", "url": "https://www.ballycasino.co.uk", "ball_color": "#FFFFFF", "ring_color": "#8B0000", "text_color": "#8B0000" },
+  { "team_id": "tombola", "name": "Tombola", "url": "https://www.tombola.co.uk", "ball_color": "#00A651", "ring_color": "#FFFFFF", "text_color": "#FFFFFF" },
+  { "team_id": "grpcasino", "name": "GRP Casino", "url": "https://www.grpcasino.com", "ball_color": "#000000", "ring_color": "#FFD400", "text_color": "#FFD400" },
+  { "team_id": "casino888", "name": "888 Casino", "url": "https://www.888casino.com", "ball_color": "#0B6B3A", "ring_color": "#000000", "text_color": "#FFFFFF" }
+]
