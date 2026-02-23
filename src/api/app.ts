@@ -19,6 +19,7 @@ import {
   getCupDrawStarted,
   getCupDebug,
   getCupRoundStatus,
+  getCupTieFixtures,
   getCupBracket,
   getAllTimeLeagues,
   getLeagueFixtures,
@@ -1366,6 +1367,17 @@ export function createApp(): express.Express {
       const state = getState(db);
       const debug = getCupDebug(db, state.currentSeason, state.currentGw);
       res.json(debug);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/admin/cup/ties', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const ties = getCupTieFixtures(db, state.currentSeason, state.currentGw);
+      res.json(ties);
     } finally {
       db.close();
     }

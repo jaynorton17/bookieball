@@ -606,6 +606,20 @@ export const api = {
         createdAt: string;
       }>;
     }>('/admin/cup/debug'),
+  cupTies: () =>
+    request<Array<{
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/cup/ties'),
   setCupTieBreakMode: (mode: 'random' | 'lower_team_id') =>
     request<{ ok: boolean; mode: 'random' | 'lower_team_id' }>('/admin/cup/tie-break-mode', { method: 'POST', body: JSON.stringify({ mode }) }),
   setCupWinner: (fixtureId: number, winnerTeamId: number | null) =>

@@ -15,6 +15,7 @@ const MasterLeaguePage = lazy(() => import('./pages/MasterLeaguePage').then((mod
 const AllTimeLeaguesPage = lazy(() => import('./pages/AllTimeLeaguesPage').then((module) => ({ default: module.AllTimeLeaguesPage })));
 const MatchdayPage = lazy(() => import('./pages/MatchdayPage').then((module) => ({ default: module.MatchdayPage })));
 const ReportingPage = lazy(() => import('./pages/ReportingPage').then((module) => ({ default: module.ReportingPage })));
+const PenaltyShootoutPage = lazy(() => import('./pages/PenaltyShootoutPage').then((module) => ({ default: module.PenaltyShootoutPage })));
 
 export function App() {
   const location = useLocation();
@@ -77,6 +78,7 @@ export function App() {
             <Route path="/insights" element={<InsightsPage />} />
             <Route path="/matchday" element={<MatchdayPage />} />
             <Route path="/reporting" element={<ReportingPage />} />
+            <Route path="/penalty-shootout" element={<PenaltyShootoutPage />} />
             <Route path="/trophy-room" element={<TrophyRoomPage />} />
           </Routes>
         </Suspense>

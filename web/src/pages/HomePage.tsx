@@ -32,6 +32,11 @@ const dashboardTiles: DashboardTile[] = [
     description: 'Manual add, edit, and review every entry across gameweeks.',
   },
   {
+    to: '/penalty-shootout',
+    title: 'Penalty Shootout',
+    description: 'Run a sandbox shootout to preview the tie-break flow.',
+  },
+  {
     to: '/trophy-room',
     title: 'Trophy Room',
     description: 'Cup and division winners by season.',

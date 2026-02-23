@@ -1520,6 +1520,423 @@ button {
   z-index: 20;
 }
 
+.penalty-modal-card {
+  width: min(840px, 94vw);
+  border-radius: 18px;
+  border: 1px solid rgba(123, 180, 220, 0.4);
+  background: linear-gradient(135deg, rgba(10, 25, 44, 0.98), rgba(7, 16, 30, 0.96));
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+  padding: 1.2rem 1.3rem;
+  display: grid;
+  gap: 1rem;
+  color: #e7f3ff;
+}
+
+.penalty-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.penalty-modal-header h3 {
+  margin: 0;
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.penalty-modal-count {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 221, 167, 0.5);
+  background: rgba(120, 82, 26, 0.32);
+  padding: 0.18rem 0.5rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffe9c3;
+}
+
+.penalty-tie-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.penalty-tie-item {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.penalty-tie-item.active {
+  border-color: rgba(255, 209, 136, 0.62);
+  background: rgba(255, 209, 136, 0.12);
+}
+
+.penalty-tie-item strong {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.penalty-tie-metrics {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(219, 232, 253, 0.82);
+}
+
+.penalty-shootout-card {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.penalty-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.penalty-header h3 {
+  margin: 0;
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.penalty-phase {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 209, 136, 0.6);
+  background: rgba(120, 82, 26, 0.36);
+  color: #ffe9c3;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.16rem 0.5rem;
+}
+
+.penalty-scoreboard {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.penalty-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(120px, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.penalty-team-name {
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(219, 232, 253, 0.72);
+}
+
+.penalty-team-sub {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.penalty-team-score {
+  font-size: 1.6rem;
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  letter-spacing: 0.08em;
+}
+
+.penalty-circles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.penalty-circle {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.penalty-circle.goal {
+  border-color: rgba(126, 240, 182, 0.8);
+  background: rgba(37, 173, 109, 0.78);
+  box-shadow: 0 0 8px rgba(72, 226, 158, 0.45);
+}
+
+.penalty-circle.miss {
+  border-color: rgba(255, 152, 152, 0.72);
+  background: rgba(196, 63, 63, 0.78);
+  box-shadow: 0 0 8px rgba(255, 120, 120, 0.4);
+}
+
+.penalty-status {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(219, 232, 253, 0.84);
+}
+
+.penalty-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.penalty-graphic {
+  display: flex;
+  justify-content: center;
+}
+
+.penalty-goal {
+  position: relative;
+  width: min(360px, 86vw);
+  height: 170px;
+  border: 2px solid rgba(210, 232, 255, 0.9);
+  border-bottom-width: 4px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(12, 24, 44, 0.95), rgba(6, 14, 26, 0.95));
+}
+
+.penalty-crowd {
+  position: absolute;
+  inset: 0;
+  height: 60%;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0 6px, transparent 6px 18px),
+    linear-gradient(90deg, color-mix(in srgb, var(--crowd-home, #6fb4ff) 45%, transparent) 0%, color-mix(in srgb, var(--crowd-away, #ffb86f) 45%, transparent) 100%);
+  opacity: 0.55;
+}
+
+.penalty-banners {
+  position: absolute;
+  top: 10px;
+  left: 8%;
+  right: 8%;
+  height: 10px;
+  background: repeating-linear-gradient(90deg, var(--crowd-home, #6fb4ff) 0 14px, var(--crowd-away, #ffb86f) 14px 28px);
+  border-radius: 999px;
+  opacity: 0.8;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.25);
+}
+
+.penalty-net {
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 16px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 14px);
+  opacity: 0.6;
+}
+
+.penalty-keeper {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  width: 32px;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--keeper-color, #f5d47a), var(--keeper-trim, #c9973a));
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+}
+
+.penalty-ball {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f4f7ff;
+  box-shadow: 0 0 8px rgba(213, 232, 255, 0.8);
+  opacity: 0;
+  transform: translateX(-50%);
+}
+
+.penalty-outcome {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  font-size: 1.4rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(10, 20, 32, 0.75);
+  color: #f6f8ff;
+}
+
+.penalty-outcome.goal {
+  border-color: rgba(126, 240, 182, 0.8);
+  color: #d5ffe9;
+  box-shadow: 0 0 12px rgba(72, 226, 158, 0.4);
+}
+
+.penalty-outcome.saved {
+  border-color: rgba(255, 152, 152, 0.72);
+  color: #ffe2e2;
+  box-shadow: 0 0 12px rgba(255, 120, 120, 0.4);
+}
+
+.penalty-goal[data-dive="left"] .penalty-keeper {
+  animation: penaltyDiveLeft 0.6s ease-out forwards;
+}
+
+.penalty-goal[data-dive="center"] .penalty-keeper {
+  animation: penaltyDiveCenter 0.6s ease-out forwards;
+}
+
+.penalty-goal[data-dive="right"] .penalty-keeper {
+  animation: penaltyDiveRight 0.6s ease-out forwards;
+}
+
+.penalty-goal[data-shot="left"] .penalty-ball {
+  animation: penaltyShotLeft 0.7s ease-out forwards;
+}
+
+.penalty-goal[data-shot="center"] .penalty-ball {
+  animation: penaltyShotCenter 0.7s ease-out forwards;
+}
+
+.penalty-goal[data-shot="right"] .penalty-ball {
+  animation: penaltyShotRight 0.7s ease-out forwards;
+}
+
+.penalty-goal[data-outcome="SAVED"][data-shot="left"] .penalty-ball,
+.penalty-goal[data-outcome="saved"][data-shot="left"] .penalty-ball {
+  animation: penaltyShotLeftSaved 0.7s ease-out forwards;
+}
+
+.penalty-goal[data-outcome="SAVED"][data-shot="center"] .penalty-ball,
+.penalty-goal[data-outcome="saved"][data-shot="center"] .penalty-ball {
+  animation: penaltyShotCenterSaved 0.7s ease-out forwards;
+}
+
+.penalty-goal[data-outcome="SAVED"][data-shot="right"] .penalty-ball,
+.penalty-goal[data-outcome="saved"][data-shot="right"] .penalty-ball {
+  animation: penaltyShotRightSaved 0.7s ease-out forwards;
+}
+
+@keyframes penaltyDiveLeft {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    transform: translate(-220%, -20%) scale(0.92) rotate(-14deg);
+  }
+}
+
+@keyframes penaltyDiveCenter {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    transform: translateX(-50%) translateY(-22%) scale(1.05);
+  }
+}
+
+@keyframes penaltyDiveRight {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    transform: translate(120%, -20%) scale(0.92) rotate(14deg);
+  }
+}
+
+@keyframes penaltyShotLeft {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-220%, -140%) scale(0.7);
+  }
+}
+
+@keyframes penaltyShotLeftSaved {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-190%, -35%) scale(0.8);
+  }
+}
+
+@keyframes penaltyShotCenter {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-150%) scale(0.7);
+  }
+}
+
+@keyframes penaltyShotCenterSaved {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-40%) scale(0.8);
+  }
+}
+
+@keyframes penaltyShotRight {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(140%, -140%) scale(0.7);
+  }
+}
+
+@keyframes penaltyShotRightSaved {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(90%, -35%) scale(0.8);
+  }
+}
+
+.penalty-fixture-meta {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .countdown {
   font-size: clamp(4rem, 18vw, 12rem);
   color: var(--accent);
@@ -5081,40 +5498,6 @@ td {
   text-transform: uppercase;
 }
 
-.studio-voice-pill {
-  appearance: none;
-  cursor: pointer;
-  font: inherit;
-}
-
-.studio-voice-pill:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.studio-camera-pill.state-speaking {
-  border-color: rgba(143, 236, 198, 0.6);
-  background: rgba(38, 118, 87, 0.42);
-  color: #d7ffe9;
-}
-
-.studio-camera-pill.state-muted {
-  border-color: rgba(255, 214, 132, 0.58);
-  background: rgba(120, 82, 26, 0.48);
-  color: #ffe9c3;
-}
-
-.studio-camera-pill.state-awaiting {
-  border-color: rgba(255, 214, 132, 0.72);
-  background: rgba(120, 82, 26, 0.62);
-  color: #ffe9c3;
-}
-
-.studio-camera-pill.state-unavailable {
-  border-color: rgba(255, 173, 173, 0.68);
-  background: rgba(131, 38, 57, 0.46);
-  color: #ffe2e9;
-}
 
 .studio-header-status {
   display: inline-flex;
@@ -8394,10 +8777,6 @@ td {
     justify-content: flex-start;
   }
 
-  .studio-control-group.voice {
-    padding-top: 0.34rem;
-  }
-
   .studio-bracket-grid {
     grid-template-columns: 1fr;
   }
@@ -8626,5 +9005,100 @@ td {
 
   .studio-ticker-label {
     justify-self: start;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Graphics pack: stinger overlay styles for segment transitions and team
+   spotlights. This overlay appears briefly when a new segment starts or when
+   a team spotlight is initiated. It features a gradient sweep, scan lines,
+   and bold title typography with gold accents. */
+.stinger-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Hide overflow so the sweep effect stays within the frame */
+  overflow: hidden;
+  background:
+    linear-gradient(120deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.65) 50%, rgba(0, 0, 0, 0.85) 100%),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.08) 0 2px, transparent 2px 4px);
+  opacity: 0;
+  animation: stinger-fade-in 0.4s forwards, stinger-fade-out 0.5s forwards 2.0s;
+}
+
+/* Add a sweeping light bar across the overlay for extra impact */
+.stinger-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: stinger-sweep 2.3s linear forwards;
+  pointer-events: none;
+}
+
+@keyframes stinger-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.stinger-content {
+  text-align: center;
+  padding: 1rem 2rem;
+}
+
+.stinger-title {
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  font-size: 3rem;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin: 0;
+}
+
+.stinger-team {
+  font-size: 2.4rem;
+  color: var(--text);
+  margin: 0.4rem 0 0;
+}
+
+.stinger-subline {
+  font-size: 1.2rem;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+@keyframes stinger-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stinger-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
   }
 }

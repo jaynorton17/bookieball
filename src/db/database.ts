@@ -2186,18 +2186,15 @@ function resolveCupFixtureWinner(db: Database.Database, fixtureId: number): numb
   let winner = fixture.home_team_id;
   if (away.profit > home.profit) {
     winner = fixture.away_team_id;
-  } else if (away.profit === home.profit) {
+  } else if (away.profit < home.profit) {
+    winner = fixture.home_team_id;
+  } else {
     if (away.spins > home.spins) {
       winner = fixture.away_team_id;
-    } else if (away.spins === home.spins) {
-      const tieBreakMode = getCupTieBreakMode(db);
-      if (tieBreakMode === 'random') {
-        if (Math.random() > 0.5) {
-          winner = fixture.away_team_id;
-        }
-      } else {
-        winner = Math.min(fixture.home_team_id, fixture.away_team_id);
-      }
+    } else if (away.spins < home.spins) {
+      winner = fixture.home_team_id;
+    } else {
+      return null;
     }
   }
 
@@ -2355,6 +2352,97 @@ export function ensureCupProgress(db: Database.Database, season: SeasonId, upToG
       }
     }
   }
+}
+
+export function getCupTieFixtures(
+  db: Database.Database,
+  season: SeasonId,
+  gw: string,
+): Array<{
+  fixtureId: number;
+  gw: string;
+  roundName: string;
+  homeTeamId: number;
+  homeTeamName: string;
+  awayTeamId: number;
+  awayTeamName: string;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+}> {
+  const fixtures = db
+    .prepare(
+      `
+      SELECT id, round_name, home_team_id, away_team_id, winner_team_id
+      FROM cup_fixtures
+      WHERE season = ? AND gw = ?
+      ORDER BY id
+      `,
+    )
+    .all(season, gw) as Array<{
+    id: number;
+    round_name: string;
+    home_team_id: number | null;
+    away_team_id: number | null;
+    winner_team_id: number | null;
+  }>;
+
+  if (fixtures.length === 0) {
+    return [];
+  }
+
+  const teamRows = db.prepare('SELECT id, name FROM teams').all() as Array<{ id: number; name: string }>;
+  const teamNameById = new Map(teamRows.map((row) => [row.id, row.name]));
+  const hasEntry = db.prepare('SELECT COUNT(*) as c FROM entries WHERE season = ? AND gw = ? AND team_id = ?');
+
+  const ties: Array<{
+    fixtureId: number;
+    gw: string;
+    roundName: string;
+    homeTeamId: number;
+    homeTeamName: string;
+    awayTeamId: number;
+    awayTeamName: string;
+    homeProfit: number;
+    awayProfit: number;
+    homeSpins: number;
+    awaySpins: number;
+  }> = [];
+
+  fixtures.forEach((fixture) => {
+    if (fixture.winner_team_id) {
+      return;
+    }
+    if (!fixture.home_team_id || !fixture.away_team_id) {
+      return;
+    }
+    const homeCount = hasEntry.get(season, gw, fixture.home_team_id) as { c: number };
+    const awayCount = hasEntry.get(season, gw, fixture.away_team_id) as { c: number };
+    if (homeCount.c === 0 || awayCount.c === 0) {
+      return;
+    }
+    const homePerf = getTeamGwPerformance(db, season, gw, fixture.home_team_id);
+    const awayPerf = getTeamGwPerformance(db, season, gw, fixture.away_team_id);
+    if (homePerf.profit !== awayPerf.profit || homePerf.spins !== awayPerf.spins) {
+      return;
+    }
+    ties.push({
+      fixtureId: fixture.id,
+      gw,
+      roundName: fixture.round_name,
+      homeTeamId: fixture.home_team_id,
+      homeTeamName: teamNameById.get(fixture.home_team_id) ?? 'Home',
+      awayTeamId: fixture.away_team_id,
+      awayTeamName: teamNameById.get(fixture.away_team_id) ?? 'Away',
+      homeProfit: Number(homePerf.profit.toFixed(2)),
+      awayProfit: Number(awayPerf.profit.toFixed(2)),
+      homeSpins: Number(homePerf.spins),
+      awaySpins: Number(awayPerf.spins),
+    });
+  });
+
+  return ties;
 }
 
 export function getCupRoundStatus(db: Database.Database, season: SeasonId, upToGw: string): Array<{

@@ -620,31 +620,6 @@ function truncateLine(value: string, maxLength = 140): string {
   return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function normalizeVoiceText(value: string): string {
-  const expandSeasonCode = (text: string): string =>
-    text.replace(/\bS\s*(\d+)\b/gi, (_match, num) => {
-      const valueNum = Number(num);
-      if (!Number.isFinite(valueNum)) {
-        return `season ${num}`;
-      }
-      return `${ordinalWord(valueNum)} season`;
-    });
-  return expandSeasonCode(value)
-    .replace(/\bGW\s*(\d+)\b/gi, 'game week $1')
-    .replace(/pts(\d+)/gi, 'points $1')
-    .replace(/(\d+)\s*pts\b/gi, '$1 points')
-    .replace(/\bpts\b/gi, 'points')
-    .replace(/\bpft\b/gi, 'profit')
-    .replace(/\b(?:\+|-)0\.00\b/gi, 'zero')
-    .replace(/\b0\.00\b/gi, 'zero')
-    .replace(/(\d+)\s*W\b/gi, '$1 wins')
-    .replace(/(\d+)\s*D\b/gi, '$1 draws')
-    .replace(/(\d+)\s*L\b/gi, '$1 losses')
-    .replace(/\bW\b/g, 'win')
-    .replace(/\bD\b/g, 'draw')
-    .replace(/\bL\b/g, 'loss');
-}
-
 function normalizeTeamKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -1077,7 +1052,6 @@ export function SkyStudioPanel({
   movements,
   tickerItems,
   broadcastPackages = [],
-  spotlightPulse = null,
   scoreUpdateAlert = null,
   focusTeamId = null,
   skySportsNews = false,
@@ -1096,14 +1070,8 @@ export function SkyStudioPanel({
   const [pinnedStoryTwo, setPinnedStoryTwo] = useState('');
   const [allTimeIntermission, setAllTimeIntermission] = useState<{ mode: AllTimeLeagueMode; sequence: number } | null>(null);
   const [ssnTableCycleComplete, setSsnTableCycleComplete] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<'auto' | 'default'>('auto');
-  const [voiceSpeaking, setVoiceSpeaking] = useState(false);
-  const [voiceUnlocked, setVoiceUnlocked] = useState(false);
-  const [voiceRoster, setVoiceRoster] = useState<{ jess: SpeechSynthesisVoice | null; sydney: SpeechSynthesisVoice | null }>({
-    jess: null,
-    sydney: null,
-  });
+  const [ssnSpotlightGroup, setSsnSpotlightGroup] = useState<'top' | 'lower'>('top');
+  const [ssnSpotlightActive, setSsnSpotlightActive] = useState(false);
   const [rotationState, setRotationState] = useState<StudioRotationState>({
     phase: 'teams',
     teamRunIndex: 0,
@@ -1117,13 +1085,11 @@ export function SkyStudioPanel({
   const previousBagTailTeamIdsRef = useRef<number[]>([]);
   const previousResolvedCountRef = useRef(resolvedCount);
   const previousCycleRef = useRef(0);
-  const voiceKeyRef = useRef('');
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const spotlightPulseIdRef = useRef<number | null>(null);
   const allTimeSpotlightCounterRef = useRef(0);
   const allTimeModeIndexRef = useRef(0);
   const allTimeSegmentSequenceRef = useRef(0);
   const ssnPostTableQueuedRef = useRef(false);
+  const ssnSpotlightCycleRef = useRef(0);
   const scoreUpdateQueuedRef = useRef<number | null>(null);
   const allTimeRotationRef = useRef<{
     phase: StudioPhase;
@@ -1133,11 +1099,77 @@ export function SkyStudioPanel({
   const studioPanelRef = useRef<HTMLElement | null>(null);
   const [lastSpotlightDivisionId, setLastSpotlightDivisionId] = useState<string | undefined>(undefined);
   const [lastSpotlightTeamId, setLastSpotlightTeamId] = useState<number | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Graphics pack: stinger overlay
+  // This overlay displays during segment transitions (Kickoff Show, Table Round,
+  // Cup Draw, All-Time Leagues) and when a new team spotlight begins. It
+  // briefly covers the studio panel with a gradient sweep and title block.
+  const [stinger, setStinger] = useState<{
+    label: string;
+    subline: string;
+    teamName?: string;
+  } | null>(null);
+  const stingerTimerRef = useRef<any>(null);
+  const prevSegmentRef = useRef<string | null>(null);
+  const prevFocusTeamRef = useRef<number | null>(null);
+
+  const triggerStinger = useCallback(
+    (data: { label: string; subline: string; teamName?: string }) => {
+      // Clear any existing timers
+      if (stingerTimerRef.current) {
+        clearTimeout(stingerTimerRef.current);
+      }
+      setStinger(data);
+      // Hide after ~2.3 seconds
+      stingerTimerRef.current = setTimeout(() => {
+        setStinger(null);
+      }, 2300);
+    },
+    [],
+  );
+
+  // Watch for changes in the leading broadcast package label to trigger stingers
+  useEffect(() => {
+    if (!broadcastPackages || broadcastPackages.length === 0) {
+      return;
+    }
+    const firstLabel = broadcastPackages[0]?.label;
+    const segmentLabels = ['Kickoff Show', 'Table Round', 'Cup Draw', 'All-Time Leagues'];
+    if (firstLabel && segmentLabels.includes(firstLabel) && prevSegmentRef.current !== firstLabel) {
+      // Customise sublines per segment to give viewers context
+      const sublineMap: Record<string, string> = {
+        'Kickoff Show': 'Kickoff Coverage',
+        'Table Round': 'League Spotlight',
+        'Cup Draw': 'Cup Draw Live',
+        'All-Time Leagues': 'All-Time Rankings',
+      };
+      const subline = sublineMap[firstLabel] ?? 'Studio Desk Live';
+      triggerStinger({ label: firstLabel, subline });
+      prevSegmentRef.current = firstLabel;
+    }
+  }, [broadcastPackages, triggerStinger]);
+
+  // Watch for team spotlight changes via focusTeamId to trigger stingers
+  useEffect(() => {
+    if (!focusTeamId) {
+      return;
+    }
+    if (prevFocusTeamRef.current !== focusTeamId) {
+      let teamName: string | undefined;
+      if (teams && Array.isArray(teams)) {
+        // Attempt to match the team by id; fallback gracefully
+        const match: any = (teams as any).find((t: any) => t.teamId === focusTeamId);
+        teamName = match?.teamName;
+      }
+      triggerStinger({ label: 'Team Spotlight', subline: 'Storyline Loading', teamName });
+      prevFocusTeamRef.current = focusTeamId;
+    }
+  }, [focusTeamId, teams, triggerStinger]);
   const [teamShuffleCycle, setTeamShuffleCycle] = useState(0);
   const leanMode = presentationMode === 'lean';
   const focusLock = Boolean(focusTeamId);
   const skySportsNewsMode = Boolean(skySportsNews);
-  const voiceSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
   const renderScoreParts = useCallback((score: string) => {
     const match = score.match(/(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)/);
     if (!match) {
@@ -1157,39 +1189,6 @@ export function SkyStudioPanel({
     }
     setSsnTableCycleComplete((prev) => (prev ? prev : true));
   }, [skySportsNewsMode]);
-
-  useEffect(() => {
-    if (!voiceSupported) {
-      return;
-    }
-    const pickVoiceByKeywords = (voices: SpeechSynthesisVoice[], keywords: string[]): SpeechSynthesisVoice | null => {
-      const lowered = keywords.map((keyword) => keyword.toLowerCase());
-      return voices.find((voice) => lowered.some((keyword) => (
-        voice.name.toLowerCase().includes(keyword)
-        || voice.voiceURI.toLowerCase().includes(keyword)
-      ))) ?? null;
-    };
-    const selectVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length === 0) {
-        return;
-      }
-      const english = voices.filter((voice) => /^en[-_]/i.test(voice.lang));
-      const female = pickVoiceByKeywords(english, ['female', 'woman', 'girl']);
-      const male = pickVoiceByKeywords(english, ['male', 'man', 'boy']);
-      const fallbackPrimary = english[0] ?? voices[0] ?? null;
-      const sydneyVoice = male ?? fallbackPrimary;
-      const jessVoice = female ?? english.find((voice) => voice.name !== sydneyVoice?.name) ?? voices.find((voice) => voice.name !== sydneyVoice?.name) ?? sydneyVoice;
-      setVoiceRoster({ jess: jessVoice, sydney: sydneyVoice });
-    };
-    selectVoices();
-    window.speechSynthesis.onvoiceschanged = selectVoices;
-    return () => {
-      if (window.speechSynthesis.onvoiceschanged === selectVoices) {
-        window.speechSynthesis.onvoiceschanged = null;
-      }
-    };
-  }, [voiceMode, voiceSupported]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1229,23 +1228,11 @@ export function SkyStudioPanel({
     if (storedPinnedStoryTwo) {
       setPinnedStoryTwo(storedPinnedStoryTwo);
     }
-    const storedVoiceEnabled = safeLocalStorageRead('bookieball_voice_enabled');
-    if (storedVoiceEnabled === '1') {
-      setVoiceEnabled(true);
-    }
-    const storedVoiceMode = safeLocalStorageRead('bookieball_voice_mode');
-    if (storedVoiceMode === 'default' || storedVoiceMode === 'auto') {
-      setVoiceMode(storedVoiceMode);
-    }
   }, []);
 
   useEffect(() => {
     safeLocalStorageWrite('bookieball_auto_scroll_enabled', autoScrollEnabled ? '1' : '0');
   }, [autoScrollEnabled]);
-
-  useEffect(() => {
-    safeLocalStorageWrite('bookieball_voice_mode', voiceMode);
-  }, [voiceMode]);
 
   useEffect(() => {
     safeLocalStorageWrite('bookieball_layout_mode', layoutMode);
@@ -1266,10 +1253,6 @@ export function SkyStudioPanel({
   useEffect(() => {
     safeLocalStorageWrite('bookieball_table_focus_mode', tableFocusMode);
   }, [tableFocusMode]);
-
-  useEffect(() => {
-    safeLocalStorageWrite('bookieball_voice_enabled', voiceEnabled ? '1' : '0');
-  }, [voiceEnabled]);
 
   useEffect(() => {
     if (!pinnedStoryOne) {
@@ -2863,8 +2846,31 @@ export function SkyStudioPanel({
     });
   }, [fixtureGroups, teamTableSnapshotByName]);
 
+  const ssnDeskSlide = useMemo<StudioSlide>(() => {
+    const spotlightLabel = ssnSpotlightGroup === 'top'
+      ? 'Champions & Premier spotlights next'
+      : 'Division 1–3 spotlights next';
+    return {
+      id: `ssn-desk-${currentGw}-${ssnSpotlightGroup}`,
+      label: 'Sky Sports News • Desk',
+      durationMs: 14000,
+      narration: `Sky Sports News desk. Division tables and fixtures rolling. ${spotlightLabel}.`,
+      tone: 'system',
+      content: (
+        <div className="studio-movement-slide">
+          <span className="studio-kicker">Sky Sports News</span>
+          <h3>Division Tables &amp; Fixtures</h3>
+          <p>Tables first, then fixtures and scores. Cup snapshot, master league, and all-time boards follow.</p>
+        </div>
+      ),
+    };
+  }, [currentGw, ssnSpotlightGroup]);
+
   const supportSlides = useMemo<StudioSlide[]>(
     () => {
+      if (skySportsNewsMode) {
+        return ssnSpotlightActive ? [] : [ssnDeskSlide];
+      }
       const ordered = orderSupportSlides(
         [
           ...broadcastPackageSlides,
@@ -2907,6 +2913,9 @@ export function SkyStudioPanel({
       shockOfGwSlides,
       teamOfDaySlides,
       whyMattersSlides,
+      skySportsNewsMode,
+      ssnDeskSlide,
+      ssnSpotlightActive,
     ],
   );
   const allTimeIntermissionSlide = useMemo(
@@ -3012,6 +3021,64 @@ export function SkyStudioPanel({
       ),
     };
   }, [currentGw, skySportsNewsMode, ssnCupFixtures, ssnCupGroup, ssnCupGwLabel, ssnCupRoundLabel, ssnIsWeekOne]);
+  const ssnMasterGroup = useMemo(
+    () => fixtureGroups.find((group) => group.id.startsWith('master-'))
+      ?? fixtureGroups.find((group) => /master league/i.test(group.title)),
+    [fixtureGroups],
+  );
+  const ssnMasterSlide = useMemo<StudioSlide | null>(() => {
+    if (!skySportsNewsMode) {
+      return null;
+    }
+    if (!ssnMasterGroup && masterLeagueRows.length === 0) {
+      return null;
+    }
+    const masterFixtures = ssnMasterGroup?.fixtures ?? [];
+    const topRows = masterLeagueRows.slice(0, 8);
+    const headline = topRows.length > 0
+      ? `Master League table check. ${topRows[0]?.teamName ?? 'Leader'} on top.`
+      : 'Master League snapshot.';
+    return {
+      id: `ssn-master-${currentGw}`,
+      label: `Master League • ${currentGw}`,
+      durationMs: 20000,
+      narration: headline,
+      tone: 'fixtures',
+      content: (
+        <div className="studio-fixtures-slide">
+          <div className="studio-fixtures-head">
+            <span className="studio-kicker">Master League</span>
+            <h3>{currentGw} • Master League</h3>
+            <p>Table snapshot with the current fixture board.</p>
+          </div>
+          <div className="studio-rivalry-grid">
+            {topRows.map((row) => (
+              <article key={`ssn-master-row-${row.teamId}`} className="studio-rivalry-card">
+                <span>{formatRank(row.rank)} {row.teamName}</span>
+                <strong>{row.points} pts • {formatSigned(row.profit)} profit</strong>
+              </article>
+            ))}
+          </div>
+          {masterFixtures.length > 0 && (
+            <div className="studio-fixtures-list studio-scroll-panel">
+              {masterFixtures.map((fixture) => (
+                <article key={`ssn-master-${fixture.id}`} className="studio-fixture-row">
+                  <div className="studio-fixture-main">
+                    <strong>{fixture.fixture}</strong>
+                    <span className="studio-comp-badge master">Master</span>
+                  </div>
+                  <div className="studio-fixture-meta">
+                    {renderScoreParts(fixture.score)}
+                    <span className="studio-inline-result pending">{fixtureStatusLabel(fixture.statusCode)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+    };
+  }, [currentGw, masterLeagueRows, renderScoreParts, skySportsNewsMode, ssnMasterGroup]);
   const ssnAllTimeSlides = useMemo<StudioSlide[]>(() => {
     if (!skySportsNewsMode || allTimeSegmentModes.length === 0) {
       return [];
@@ -3113,6 +3180,27 @@ export function SkyStudioPanel({
     () => tableDivisions.filter((division) => teamDivisionTitles.has(division.title)),
     [tableDivisions, teamDivisionTitles],
   );
+
+  const ssnSpotlightTeamIds = useMemo(() => {
+    const top = new Set<number>();
+    const lower = new Set<number>();
+    teams.forEach((team) => {
+      const league = normalizeTeamKey(team.league ?? '');
+      if (league.includes('champion') || league.includes('premier')) {
+        top.add(team.id);
+      } else if (
+        league.includes('division 1')
+        || league.includes('division 2')
+        || league.includes('division 3')
+        || league.includes('div 1')
+        || league.includes('div 2')
+        || league.includes('div 3')
+      ) {
+        lower.add(team.id);
+      }
+    });
+    return { top, lower };
+  }, [teams]);
 
   const fallbackTeamRunQueue = useMemo(
     () =>
@@ -3218,12 +3306,25 @@ export function SkyStudioPanel({
       focusTeamId,
       previousBagTailTeamIdsRef.current,
     );
-    if (!focusTeamId) {
-      return bag;
+    let filteredBag = bag;
+    if (skySportsNewsMode) {
+      if (!ssnSpotlightActive) {
+        return [];
+      }
+      const targetSet = ssnSpotlightGroup === 'top' ? ssnSpotlightTeamIds.top : ssnSpotlightTeamIds.lower;
+      if (targetSet.size > 0) {
+        const filtered = bag.filter((run) => targetSet.has(run.teamId));
+        if (filtered.length > 0) {
+          filteredBag = filtered;
+        }
+      }
     }
-    const focused = bag.filter((run) => run.teamId === focusTeamId);
-    return focused.length > 0 ? focused : bag;
-  }, [currentGw, fixtureOrderedTeamRunQueue, focusTeamId, teamShuffleCycle]);
+    if (!focusTeamId) {
+      return filteredBag;
+    }
+    const focused = filteredBag.filter((run) => run.teamId === focusTeamId);
+    return focused.length > 0 ? focused : filteredBag;
+  }, [currentGw, fixtureOrderedTeamRunQueue, focusTeamId, skySportsNewsMode, ssnSpotlightActive, ssnSpotlightGroup, ssnSpotlightTeamIds, teamShuffleCycle]);
 
   useEffect(() => {
     setTeamShuffleCycle(0);
@@ -3239,10 +3340,44 @@ export function SkyStudioPanel({
     allTimeRotationRef.current = null;
     setAllTimeIntermission(null);
     setSsnTableCycleComplete(false);
+    setSsnSpotlightGroup('top');
+    setSsnSpotlightActive(false);
+    ssnSpotlightCycleRef.current = 0;
     setColdOpenPending(!focusLock);
     setPendingInterruptSlides([]);
     setActiveInterruptSlide(null);
   }, [currentGw, focusLock, focusTeamId, teamRunSourceKey]);
+
+  useEffect(() => {
+    if (!skySportsNewsMode) {
+      return;
+    }
+    if (teamShuffleCycle <= ssnSpotlightCycleRef.current) {
+      return;
+    }
+    ssnSpotlightCycleRef.current = teamShuffleCycle;
+    setSsnSpotlightGroup((prev) => (prev === 'top' ? 'lower' : 'top'));
+    setSsnTableCycleComplete(false);
+    ssnPostTableQueuedRef.current = false;
+    setSsnSpotlightActive(false);
+  }, [skySportsNewsMode, teamShuffleCycle]);
+
+  useEffect(() => {
+    if (!skySportsNewsMode) {
+      setSsnSpotlightActive(true);
+      return;
+    }
+    if (!ssnTableCycleComplete) {
+      setSsnSpotlightActive(false);
+      return;
+    }
+    if (!ssnPostTableQueuedRef.current) {
+      return;
+    }
+    if (pendingInterruptSlides.length === 0 && !activeInterruptSlide) {
+      setSsnSpotlightActive(true);
+    }
+  }, [activeInterruptSlide, pendingInterruptSlides.length, skySportsNewsMode, ssnTableCycleComplete]);
 
   useEffect(() => {
     if (!skySportsNewsMode || !ssnTableCycleComplete) {
@@ -3251,10 +3386,12 @@ export function SkyStudioPanel({
     if (ssnPostTableQueuedRef.current) {
       return;
     }
-    const postTableSlides = [ssnCupSlide, ...ssnAllTimeSlides].filter(
+    const postTableSlides = [ssnCupSlide, ssnMasterSlide, ...ssnAllTimeSlides].filter(
       (slide): slide is StudioSlide => Boolean(slide),
     );
     if (postTableSlides.length === 0) {
+      ssnPostTableQueuedRef.current = true;
+      setSsnSpotlightActive(true);
       return;
     }
     ssnPostTableQueuedRef.current = true;
@@ -3266,7 +3403,7 @@ export function SkyStudioPanel({
       }
       return [...queue, ...additions];
     });
-  }, [skySportsNewsMode, ssnAllTimeSlides, ssnCupSlide, ssnTableCycleComplete]);
+  }, [skySportsNewsMode, ssnAllTimeSlides, ssnCupSlide, ssnMasterSlide, ssnTableCycleComplete]);
 
   useEffect(() => {
     if (!scoreUpdateAlert) {
@@ -3720,7 +3857,7 @@ export function SkyStudioPanel({
   }, [currentGw, fixtureCount, focusLock, movements, resolvedCount, teamShuffleCycle]);
 
   useEffect(() => {
-    if (focusLock || allTimeSegmentModes.length === 0 || allTimeIntermission) {
+    if (focusLock || skySportsNewsMode || allTimeSegmentModes.length === 0 || allTimeIntermission) {
       return;
     }
     if (!usingTeamPhase || activeTeamSlides.length === 0) {
@@ -3742,6 +3879,7 @@ export function SkyStudioPanel({
     allTimeSegmentModes,
     focusLock,
     rotationState.teamSlideIndex,
+    skySportsNewsMode,
     usingTeamPhase,
   ]);
 
@@ -4054,228 +4192,6 @@ export function SkyStudioPanel({
     const remainderLine = remaining > 0 ? ` ${remaining} more ties confirmed.` : '';
     return `Cup draw confirmed for ${roundName}. ${pairs.join('. ')}.${remainderLine}`.trim();
   }, [cupFixtures]);
-  type StudioVoiceSpeaker = 'sydney' | 'jess' | 'anchor';
-  const voiceSegments = useMemo(() => {
-    const segments: Array<{ speaker: StudioVoiceSpeaker; text: string }> = [];
-    const parseLine = (line: string) => {
-      const trimmed = line.trim();
-      const match = /^(Sydney|Jess):\s*(.+)$/i.exec(trimmed);
-      if (match?.[1] && match?.[2]) {
-        return { speaker: match[1].toLowerCase() === 'jess' ? 'jess' : 'sydney', text: match[2] };
-      }
-      if (trimmed.length > 0) {
-        return { speaker: 'anchor', text: trimmed };
-      }
-      return null;
-    };
-    if (highlightedTeamId !== null) {
-      commentaryData.lines.forEach((line) => {
-        const segment = parseLine(line);
-        if (segment) {
-          segments.push(segment);
-        }
-      });
-      if (focusLock && fixtureVoiceSummary) {
-        segments.push({ speaker: 'sydney', text: fixtureVoiceSummary });
-      }
-      if (focusLock && cupDrawSummary) {
-        segments.push({ speaker: 'sydney', text: cupDrawSummary });
-      }
-      return segments;
-    }
-    const fallback = (activeSlide?.narration ?? activeSlide?.label ?? '').trim();
-    if (fallback) {
-      segments.push({ speaker: 'anchor', text: fallback });
-    }
-    return segments;
-  }, [activeSlide?.label, activeSlide?.narration, commentaryData.lines, cupDrawSummary, fixtureVoiceSummary, focusLock, highlightedTeamId]);
-  const voiceText = useMemo(
-    () => voiceSegments.map((segment) => segment.text).join(' ').trim(),
-    [voiceSegments],
-  );
-  const voiceKey = highlightedTeamId !== null
-    ? `spotlight-${highlightedTeamId}-${voiceSegments.map((segment) => `${segment.speaker}:${segment.text}`).join('|')}`
-    : `slide-${activeSlide?.id ?? 'none'}`;
-  const speakQueue = useCallback((segments: Array<{ speaker: StudioVoiceSpeaker; text: string }>, options?: { interrupt?: boolean; force?: boolean }) => {
-    if (!voiceSupported) {
-      return;
-    }
-    const normalizedSegments = segments
-      .map((segment) => ({
-        speaker: segment.speaker,
-        text: normalizeVoiceText(segment.text).replace(/\s+/g, ' ').trim(),
-      }))
-      .filter((segment) => segment.text.length > 0);
-    if (normalizedSegments.length === 0 || typeof SpeechSynthesisUtterance === 'undefined') {
-      return;
-    }
-    const synthesis = window.speechSynthesis;
-    if (synthesis.paused) {
-      synthesis.resume();
-    }
-    const shouldInterrupt = options?.interrupt === true;
-    const force = options?.force === true;
-    if (!force) {
-      if (!voiceEnabled || !voiceUnlocked) {
-        return;
-      }
-      if (synthesis.speaking || synthesis.pending) {
-        return;
-      }
-    }
-    if (shouldInterrupt && (synthesis.speaking || synthesis.pending)) {
-      synthesis.cancel();
-    }
-    let index = 0;
-    const speakNext = () => {
-      const segment = normalizedSegments[index];
-      if (!segment) {
-        setVoiceSpeaking(false);
-        return;
-      }
-      index += 1;
-      const utterance = new SpeechSynthesisUtterance(segment.text);
-      utterance.rate = 1;
-      utterance.volume = 1;
-      const isJess = segment.speaker === 'jess';
-      utterance.pitch = isJess ? 1.05 : 0.95;
-      if (voiceMode === 'auto') {
-        const voice = isJess ? voiceRoster.jess : voiceRoster.sydney;
-        if (voice) {
-          utterance.voice = voice;
-        }
-      }
-      utterance.onstart = () => setVoiceSpeaking(true);
-      utterance.onend = speakNext;
-      utterance.onerror = speakNext;
-      synthesis.speak(utterance);
-    };
-    speakNext();
-  }, [voiceEnabled, voiceMode, voiceRoster.jess, voiceRoster.sydney, voiceSupported, voiceUnlocked]);
-  useEffect(() => {
-    if (!voiceEnabled || !voiceUnlocked) {
-      return;
-    }
-    if (!voiceText) {
-      return;
-    }
-    if (voiceKeyRef.current === voiceKey) {
-      return;
-    }
-    voiceKeyRef.current = voiceKey;
-    speakQueue(voiceSegments);
-  }, [voiceEnabled, voiceKey, voiceSegments, voiceText, voiceUnlocked, speakQueue]);
-  useEffect(() => {
-    if (!spotlightPulse || !voiceEnabled || !voiceUnlocked) {
-      return;
-    }
-    if (highlightedTeamId === null) {
-      return;
-    }
-    if (spotlightPulse.teamId && spotlightPulse.teamId !== highlightedTeamId) {
-      return;
-    }
-    if (spotlightPulseIdRef.current === spotlightPulse.id) {
-      return;
-    }
-    spotlightPulseIdRef.current = spotlightPulse.id;
-    speakQueue([{ speaker: 'sydney', text: spotlightPulse.message }]);
-  }, [highlightedTeamId, spotlightPulse, voiceEnabled, voiceUnlocked, speakQueue]);
-  const voiceState = !voiceSupported
-    ? 'unavailable'
-    : !voiceEnabled
-      ? 'muted'
-      : voiceSpeaking
-        ? 'speaking'
-        : 'awaiting';
-  const handleVoiceToggle = () => {
-    if (!voiceSupported) {
-      return;
-    }
-    setVoiceEnabled((prev) => {
-      const next = !prev;
-      if (next) {
-        voiceKeyRef.current = '';
-        setVoiceUnlocked(true);
-        speakQueue([{ speaker: 'sydney', text: 'Voice is on.' }], { interrupt: true, force: true });
-      } else {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {
-          // ignore
-        }
-        setVoiceSpeaking(false);
-      }
-      return next;
-    });
-  };
-  const handleSpeakNow = () => {
-    if (!voiceSupported) {
-      return;
-    }
-    setVoiceUnlocked(true);
-    voiceKeyRef.current = '';
-    if (!voiceEnabled) {
-      setVoiceEnabled(true);
-    }
-    if (!voiceText) {
-      speakQueue([{ speaker: 'sydney', text: 'Studio audio check.' }], { interrupt: true, force: true });
-      return;
-    }
-    speakQueue(voiceSegments, { interrupt: true, force: true });
-  };
-  const handleBeep = () => {
-    try {
-      const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) {
-        return;
-      }
-      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-        audioContextRef.current = new AudioContextCtor();
-      }
-      const ctx = audioContextRef.current;
-      if (ctx.state === 'suspended') {
-        void ctx.resume();
-      }
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 880;
-      gain.gain.value = 0.08;
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.18);
-    } catch {
-      // ignore
-    }
-  };
-  const handleTtsTest = () => {
-    if (!voiceSupported) {
-      return;
-    }
-    try {
-      const synthesis = window.speechSynthesis;
-      if (synthesis.paused) {
-        synthesis.resume();
-      }
-      if (synthesis.speaking || synthesis.pending) {
-        synthesis.cancel();
-      }
-      const utterance = new SpeechSynthesisUtterance('This is a studio audio test.');
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      utterance.onstart = () => setVoiceSpeaking(true);
-      const finish = () => setVoiceSpeaking(false);
-      utterance.onend = finish;
-      utterance.onerror = finish;
-      synthesis.speak(utterance);
-      setVoiceUnlocked(true);
-    } catch {
-      // ignore
-    }
-  };
   const playoffPhaseLabel = useMemo(() => {
     if (showPlayoffPanels) {
       return `${currentGw} Playoff Showdown`;
@@ -4546,7 +4462,9 @@ export function SkyStudioPanel({
   const effectiveLayoutMode: StudioLayoutMode = leanMode ? 'table' : layoutMode;
   const effectiveGraphicsMode: StudioGraphicsMode = leanMode ? 'clean' : graphicsMode;
   const allTimeTakeover = Boolean(allTimeIntermissionSlide);
-  const ssnTakeover = skySportsNewsMode && Boolean(presentationActiveSlide?.id?.startsWith('ssn-'));
+  const ssnTakeover = skySportsNewsMode
+    && Boolean(presentationActiveSlide?.id)
+    && /ssn-(cup|master|all-time)/.test(presentationActiveSlide?.id ?? '');
   const fullScreenTakeover = allTimeTakeover || ssnTakeover;
   const ssnShowLiveScores = skySportsNewsMode && ssnTableCycleComplete;
   const tableActiveDivisionId = skySportsNewsMode && !ssnTableCycleComplete ? undefined : activeDivisionId;
@@ -4691,54 +4609,6 @@ export function SkyStudioPanel({
             {studioTruthCue}
           </span>
           <span className="studio-camera-pill">{cameraLabel}</span>
-          {voiceSupported ? (
-            <>
-                <button
-                  type="button"
-                  className={`studio-camera-pill studio-voice-pill state-${voiceState}`}
-                  onClick={handleVoiceToggle}
-                  aria-pressed={voiceEnabled}
-                  title={voiceEnabled ? 'Disable voice' : 'Enable voice'}
-                >
-                  {voiceEnabled ? (voiceSpeaking ? 'Voice Live' : 'Voice On') : 'Voice Off'}
-                </button>
-                <button
-                  type="button"
-                  className="studio-camera-pill studio-voice-pill"
-                  onClick={handleSpeakNow}
-                  disabled={!voiceSupported}
-                  title="Replay commentary"
-                >
-                  Replay
-                </button>
-              <button
-                type="button"
-                className="studio-camera-pill studio-voice-pill"
-                onClick={handleBeep}
-                title="Audio beep test"
-              >
-                Beep
-              </button>
-              <button
-                type="button"
-                className="studio-camera-pill studio-voice-pill"
-                onClick={handleTtsTest}
-                title="TTS test"
-              >
-                TTS Test
-              </button>
-                <button
-                  type="button"
-                  className="studio-camera-pill studio-voice-pill"
-                  onClick={() => setVoiceMode((prev) => (prev === 'auto' ? 'default' : 'auto'))}
-                  title="Toggle voice mode"
-                >
-                  Voice {voiceMode === 'auto' ? 'Auto' : 'Default'}
-                </button>
-            </>
-          ) : (
-            <span className="studio-camera-pill state-unavailable">Voice N/A</span>
-          )}
         </div>
       </header>
 
@@ -4997,6 +4867,18 @@ export function SkyStudioPanel({
       </div>
 
       <TickerBar items={tickerItems} />
+      {/* Stinger overlay for segment transitions and team spotlights */}
+      {stinger && (
+        <div className="stinger-overlay">
+          <div className="stinger-content">
+            <h2 className="stinger-title">{stinger.label}</h2>
+            {stinger.teamName && (
+              <h3 className="stinger-team">{stinger.teamName}</h3>
+            )}
+            <p className="stinger-subline">{stinger.subline}</p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
