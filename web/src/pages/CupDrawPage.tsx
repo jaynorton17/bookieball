@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
+import { CupTabs } from '../components/CompetitionTabs';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
-import { displayDivisionName } from '../lib/divisionLabels';
+import { displayDivisionName, getDivisionOrderForSeason } from '../lib/divisionLabels';
 import { classifyUpset, type TeamRating } from '../lib/leagueUtils';
 
 type SlotBall = {
@@ -76,6 +77,13 @@ const BYE_BALL: SlotBall = {
   ringColor: '#333333',
   textColor: '#111111',
 };
+const TBD_BALL: SlotBall = {
+  label: 'TBD',
+  division: null,
+  ballColor: '#c9d6e6',
+  ringColor: '#2a3a4d',
+  textColor: '#102136',
+};
 
 const GW_ORDER = ['GW2', 'GW3', 'GW4', 'GW5', 'GW6'] as const;
 
@@ -83,9 +91,10 @@ function mapFixtureBall(
   teamName: string | null,
   division: string | null,
   teamMap: Map<string, { ballColor: string; ringColor: string; textColor: string }>,
+  allowBye: boolean,
 ): SlotBall {
   if (!teamName) {
-    return BYE_BALL;
+    return allowBye ? BYE_BALL : TBD_BALL;
   }
   return {
     label: teamName,
@@ -104,15 +113,20 @@ function formatDivision(division: string | null): string {
 }
 
 function matchLabel(fixture: CupFixture): string {
-  const hasResolvedTeams = !!fixture.homeTeam || !!fixture.awayTeam;
-  if (fixture.round === 1 || fixture.gw === 'GW2' || hasResolvedTeams) {
+  const allowBye = fixture.gw === 'GW2';
+  if (fixture.homeTeam && fixture.awayTeam) {
+    return `Match ${fixture.matchNumber}: ${fixture.homeTeam} vs ${fixture.awayTeam}`;
+  }
+  if (allowBye) {
     return `Match ${fixture.matchNumber}: ${fixture.homeTeam ?? 'BYE'} vs ${fixture.awayTeam ?? 'BYE'}`;
   }
-  return `Match ${fixture.matchNumber}: Winner of Match ${fixture.sourceMatchA ?? '?'} vs Winner of Match ${fixture.sourceMatchB ?? '?'}`;
+  const homeLabel = fixture.homeTeam ?? `Winner of Match ${fixture.sourceMatchA ?? '?'}`;
+  const awayLabel = fixture.awayTeam ?? `Winner of Match ${fixture.sourceMatchB ?? '?'}`;
+  return `Match ${fixture.matchNumber}: ${homeLabel} vs ${awayLabel}`;
 }
 
 function shortTeamName(name: string): string {
-  if (name === 'BYE') {
+  if (name === 'BYE' || name === 'TBD') {
     return name;
   }
   if (name.length <= 12) {
@@ -125,8 +139,8 @@ function shortTeamName(name: string): string {
   return `${name.slice(0, 10)}..`;
 }
 
-function divisionRank(division: string | null): number {
-  const order = ['Champions Bookies', 'Premier Bookies', 'Average Bookies', 'Struggling Bookies', 'Awful Bookies'];
+function divisionRank(division: string | null, season: string): number {
+  const order = getDivisionOrderForSeason(season);
   const idx = division ? order.indexOf(division) : -1;
   return idx >= 0 ? idx : 99;
 }
@@ -173,16 +187,28 @@ export function CupDrawPage() {
   const [zoomPct, setZoomPct] = useState(100);
   const [ratings, setRatings] = useState<TeamRating[]>([]);
   const [graphicsMode, setGraphicsMode] = useState<CupGraphicsMode>('studio');
+  const [currentEntries, setCurrentEntries] = useState<Array<{
+    id: number;
+    gw: string;
+    teamId: number;
+    teamName: string;
+    profit: number;
+    spins: number | null;
+  }>>([]);
+  const [currentSeason, setCurrentSeason] = useState('S1');
 
-  const reloadCupMeta = async () => {
-    const [cup, status, debug] = await Promise.all([
+  const reloadCupMeta = async (gwOverride?: string) => {
+    const gwTarget = gwOverride ?? currentGw;
+    const [cup, status, debug, entries] = await Promise.all([
       api.cup(),
       api.cupStatus().catch(() => [] as CupRoundStatus[]),
       api.cupDebug().catch(() => null),
+      api.entries({ gw: gwTarget, limit: 1000 }).catch(() => []),
     ]);
     setCupFixtures(cup);
     setRoundStatus(status);
     setCupDebug(debug);
+    setCurrentEntries(entries);
     if (debug) {
       setTieBreakMode(debug.tieBreakMode);
     }
@@ -209,10 +235,22 @@ export function CupDrawPage() {
 
 
   useEffect(() => {
-    Promise.all([api.state(), api.teams(), api.cup(), api.teamRatings().catch(() => [] as TeamRating[])]).then(async ([state, fetchedTeams, cup, ratings]) => {
-      const status = await api.cupStatus().catch(() => [] as CupRoundStatus[]);
-      const debug = await api.cupDebug().catch(() => null);
+    let active = true;
+    const load = async () => {
+      const state = await api.state();
+      const [fetchedTeams, cup, ratings, entries, status, debug] = await Promise.all([
+        api.teams(),
+        api.cup(),
+        api.teamRatings().catch(() => [] as TeamRating[]),
+        api.entries({ gw: state.currentGw, limit: 1000 }).catch(() => []),
+        api.cupStatus().catch(() => [] as CupRoundStatus[]),
+        api.cupDebug().catch(() => null),
+      ]);
+      if (!active) {
+        return;
+      }
       setCurrentGw(state.currentGw);
+      setCurrentSeason(state.currentSeason);
       setCupDrawStarted(state.cupDrawStarted);
       setCupFixtures(cup);
       setTeams(
@@ -228,6 +266,7 @@ export function CupDrawPage() {
       setRoundStatus(status);
       setCupDebug(debug);
       setRatings(ratings);
+      setCurrentEntries(entries);
       if (debug) {
         setTieBreakMode(debug.tieBreakMode);
       }
@@ -249,12 +288,51 @@ export function CupDrawPage() {
       const gw2 = cup.filter((f) => f.gw === 'GW2');
       const pairs = gw2.map((fixture) => ({
         matchNumber: fixture.matchNumber,
-        home: mapFixtureBall(fixture.homeTeam, fixture.homeDivision, teamMap),
-        away: mapFixtureBall(fixture.awayTeam, fixture.awayDivision, teamMap),
+        home: mapFixtureBall(fixture.homeTeam, fixture.homeDivision, teamMap, fixture.gw === 'GW2'),
+        away: mapFixtureBall(fixture.awayTeam, fixture.awayDivision, teamMap, fixture.gw === 'GW2'),
       }));
       setRevealedPairs(pairs);
-    });
+    };
+    void load();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const refreshLiveCupState = async () => {
+      try {
+        const state = await api.state();
+        if (!active) {
+          return;
+        }
+        setCurrentGw(state.currentGw);
+        setCurrentSeason(state.currentSeason);
+        setCupDrawStarted(state.cupDrawStarted);
+        await reloadCupMeta(state.currentGw);
+      } catch {
+        // Keep the current cup view stable if polling fails transiently.
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshLiveCupState();
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void reloadCupMeta(currentGw);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [currentGw]);
 
   const startDraw = async () => {
     const [state, fetchedTeams, draw] = await Promise.all([api.state(), api.teams(), api.startCupDraw()]);
@@ -285,11 +363,13 @@ export function CupDrawPage() {
     setActiveMatchNumber(null);
     setRevealedPairs([]);
     setActivePair(null);
-    const spinnerPool = [...fetchedTeams.map((team) => team.name), ...Array.from({ length: 12 }, () => 'BYE')];
+    const byeCount = Math.max(0, 32 - fetchedTeams.length);
+    const spinnerPool = [...fetchedTeams.map((team) => team.name), ...Array.from({ length: byeCount }, () => 'BYE')];
 
     for (const fixture of gw2) {
-      const home = mapFixtureBall(fixture.homeTeam, fixture.homeDivision, teamMap);
-      const away = mapFixtureBall(fixture.awayTeam, fixture.awayDivision, teamMap);
+      const allowBye = fixture.gw === 'GW2';
+      const home = mapFixtureBall(fixture.homeTeam, fixture.homeDivision, teamMap, allowBye);
+      const away = mapFixtureBall(fixture.awayTeam, fixture.awayDivision, teamMap, allowBye);
       setActiveMatchNumber(fixture.matchNumber);
 
       setSpinning(true);
@@ -381,6 +461,52 @@ export function CupDrawPage() {
     return map;
   }, [cupFixtures]);
 
+  const resolveCupSideName = useCallback(
+    (fixture: CupFixture, side: 'home' | 'away'): string | null => {
+      const allowBye = fixture.gw === 'GW2';
+      const direct = side === 'home' ? fixture.homeTeam : fixture.awayTeam;
+      if (direct) {
+        return direct;
+      }
+      if (allowBye) {
+        const other = side === 'home' ? fixture.awayTeam : fixture.homeTeam;
+        if (other) {
+          return 'BYE';
+        }
+      }
+      const sourceId = side === 'home' ? fixture.sourceMatchA : fixture.sourceMatchB;
+      if (!sourceId) {
+        return null;
+      }
+      const sourceGw = previousGw(fixture.gw);
+      const sourceFixture = sourceGw ? fixtureLookup.get(fixtureKey(sourceGw, sourceId)) : null;
+      if (!sourceFixture) {
+        return null;
+      }
+      return sourceFixture.winnerTeam ?? null;
+    },
+    [fixtureLookup],
+  );
+
+  const sourceSideLabel = useCallback(
+    (fixture: CupFixture, side: 'home' | 'away'): string | null => {
+      const sourceMatch = side === 'home' ? fixture.sourceMatchA : fixture.sourceMatchB;
+      const sourceGw = previousGw(fixture.gw);
+      if (!sourceMatch || !sourceGw) {
+        return null;
+      }
+      const sourceFixture = fixtureLookup.get(fixtureKey(sourceGw, sourceMatch));
+      if (!sourceFixture) {
+        return `Winner of M${sourceMatch}`;
+      }
+      const allowBye = sourceFixture.gw === 'GW2';
+      const home = sourceFixture.homeTeam ?? (allowBye && sourceFixture.awayTeam ? 'BYE' : 'TBD');
+      const away = sourceFixture.awayTeam ?? (allowBye && sourceFixture.homeTeam ? 'BYE' : 'TBD');
+      return `Winner of ${home} vs ${away}`;
+    },
+    [fixtureLookup],
+  );
+
   const highlightedRoutes = useMemo(() => {
     const left = new Set<string>();
     const right = new Set<string>();
@@ -420,7 +546,7 @@ export function CupDrawPage() {
   const sortedTeams = useMemo(
     () =>
       [...teams].sort((a, b) => {
-        const divisionDiff = divisionRank(a.division) - divisionRank(b.division);
+        const divisionDiff = divisionRank(a.division, currentSeason) - divisionRank(b.division, currentSeason);
         if (divisionDiff !== 0) {
           return divisionDiff;
         }
@@ -441,6 +567,19 @@ export function CupDrawPage() {
     )
   ), [teams]);
 
+  const currentCupFixtures = useMemo(
+    () => cupFixtures.filter((fixture) => fixture.gw === currentGw),
+    [cupFixtures, currentGw],
+  );
+  const currentCupRound = currentCupFixtures[0]?.roundName ?? 'Cup Round';
+  const cupScoreByTeamName = useMemo(() => {
+    const map = new Map<string, number>();
+    currentEntries.forEach((entry) => {
+      map.set(entry.teamName, (map.get(entry.teamName) ?? 0) + entry.profit);
+    });
+    return map;
+  }, [currentEntries]);
+
   const eliminatedTeams = useMemo(() => {
     const eliminated = new Set<string>();
     cupFixtures.forEach((fixture) => {
@@ -457,15 +596,26 @@ export function CupDrawPage() {
     return eliminated;
   }, [cupFixtures]);
   const displayMatchLabel = (fixture: CupFixture): string => {
-    const hasResolvedTeams = !!fixture.homeTeam || !!fixture.awayTeam;
-    if (fixture.gw === 'GW2' || hasResolvedTeams) {
-      const home = fixture.homeTeam ?? 'BYE';
-      const away = fixture.awayTeam ?? 'BYE';
+    const allowBye = fixture.gw === 'GW2';
+    const resolvedHome = resolveCupSideName(fixture, 'home');
+    const resolvedAway = resolveCupSideName(fixture, 'away');
+    if (resolvedHome && resolvedAway) {
+      const homeText = compactNames ? shortTeamName(resolvedHome) : resolvedHome;
+      const awayText = compactNames ? shortTeamName(resolvedAway) : resolvedAway;
+      return `M${fixture.matchNumber}: ${homeText} vs ${awayText}`;
+    }
+    if (allowBye) {
+      const home = resolvedHome ?? fixture.homeTeam ?? 'BYE';
+      const away = resolvedAway ?? fixture.awayTeam ?? 'BYE';
       const homeText = compactNames ? shortTeamName(home) : home;
       const awayText = compactNames ? shortTeamName(away) : away;
       return `M${fixture.matchNumber}: ${homeText} vs ${awayText}`;
     }
-    return `M${fixture.matchNumber}: W${fixture.sourceMatchA ?? '?'} vs W${fixture.sourceMatchB ?? '?'}`;
+    const homeLabel = resolvedHome ?? fixture.homeTeam ?? `W${fixture.sourceMatchA ?? '?'}`;
+    const awayLabel = resolvedAway ?? fixture.awayTeam ?? `W${fixture.sourceMatchB ?? '?'}`;
+    const homeText = compactNames ? shortTeamName(homeLabel) : homeLabel;
+    const awayText = compactNames ? shortTeamName(awayLabel) : awayLabel;
+    return `M${fixture.matchNumber}: ${homeText} vs ${awayText}`;
   };
 
 
@@ -563,9 +713,11 @@ export function CupDrawPage() {
   };
 
   return (
-    <section className={`page cup-page cup-graphics-${graphicsMode}`}>
+    <section className={`page page-wide cup-page cup-graphics-${graphicsMode}`}>
       <h1>Bookie Trophy Draw Studio</h1>
-      <p className="muted">Draw pool: 20 teams + 12 BYE balls.</p>
+      <p className="muted">Draw pool: {teams.length} teams + {Math.max(0, 32 - teams.length)} BYE balls.</p>
+
+      <CupTabs activeId="bookieball-cup" />
 
       <div className="cup-studio-hero">
         <article className="cup-hero-card">
@@ -695,6 +847,71 @@ export function CupDrawPage() {
             </div>
           </div>
 
+        <div className="panel cup-current-fixtures-panel">
+          <div className="panel-header">
+            <h3>Bookie Cup • {currentSeason} {currentGw}</h3>
+            <span className="muted">{currentCupRound} • Live scores</span>
+          </div>
+          {currentCupFixtures.length === 0 ? (
+            <p className="muted">No cup fixtures loaded for {currentGw}.</p>
+          ) : (
+            <div className="trophy-cup-list">
+              {currentCupFixtures.map((fixture) => {
+                const allowBye = fixture.gw === 'GW2';
+                const resolvedHome = resolveCupSideName(fixture, 'home');
+                const resolvedAway = resolveCupSideName(fixture, 'away');
+                const homeName =
+                  resolvedHome ?? fixture.homeTeam ?? sourceSideLabel(fixture, 'home') ?? (allowBye && fixture.awayTeam ? 'BYE' : 'TBD');
+                const awayName =
+                  resolvedAway ?? fixture.awayTeam ?? sourceSideLabel(fixture, 'away') ?? (allowBye && fixture.homeTeam ? 'BYE' : 'TBD');
+                const homeMeta = teamStyleByName.get(homeName);
+                const awayMeta = teamStyleByName.get(awayName);
+                const homeScore = cupScoreByTeamName.get(homeName);
+                const awayScore = cupScoreByTeamName.get(awayName);
+                const score =
+                  homeScore !== undefined && awayScore !== undefined
+                    ? `${homeScore.toFixed(2)} - ${awayScore.toFixed(2)}`
+                    : homeName === 'BYE' || awayName === 'BYE'
+                      ? 'BYE'
+                      : 'Pending';
+                return (
+                  <article key={`cup-live-${fixture.id}`} className="trophy-cup-row">
+                    <div className="trophy-cup-team">
+                      {homeMeta ? (
+                        <TeamBadge
+                          name={homeName}
+                          ballColor={homeMeta.ballColor}
+                          ringColor={homeMeta.ringColor}
+                          textColor={homeMeta.textColor}
+                          size={30}
+                        />
+                      ) : (
+                        <span className="trophy-cup-placeholder">•</span>
+                      )}
+                      <span>{homeName}</span>
+                    </div>
+                    <div className="trophy-cup-score">{score}</div>
+                    <div className="trophy-cup-team">
+                      {awayMeta ? (
+                        <TeamBadge
+                          name={awayName}
+                          ballColor={awayMeta.ballColor}
+                          ringColor={awayMeta.ringColor}
+                          textColor={awayMeta.textColor}
+                          size={30}
+                        />
+                      ) : (
+                        <span className="trophy-cup-placeholder">•</span>
+                      )}
+                      <span>{awayName}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="panel cup-bracket-panel">
             <div className="panel-header">
               <h3>Cup Bracket Tree</h3>
@@ -798,7 +1015,7 @@ export function CupDrawPage() {
               <select value={overrideFixtureId} onChange={(e) => setOverrideFixtureId(Number(e.target.value))}>
                 {overrideFixtures.map((fixture) => (
                   <option key={fixture.id} value={fixture.id}>
-                    M{fixture.matchNumber}: {fixture.homeTeam ?? 'BYE'} vs {fixture.awayTeam ?? 'BYE'}
+                    {matchLabel(fixture)}
                   </option>
                 ))}
               </select>

@@ -17,12 +17,15 @@ type Fixture = {
   result: 'home' | 'away' | 'draw' | 'pending';
 };
 
+type SuperCupFixture = Awaited<ReturnType<typeof api.superCup>>[number];
+
 export function MatchdayPage() {
   const [state, setState] = useState<{ currentSeason: string; currentGw: string } | null>(null);
   const [teams, setTeams] = useState<
     Array<{ id: number; name: string; ballColor: string | null; ringColor: string | null; textColor: string | null }>
   >([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [superCupFixtures, setSuperCupFixtures] = useState<SuperCupFixture[]>([]);
   const [table, setTable] = useState<LeagueTable>({});
   const [ratings, setRatings] = useState<TeamRating[]>([]);
   const [spotlightIndex, setSpotlightIndex] = useState(0);
@@ -32,13 +35,15 @@ export function MatchdayPage() {
       api.state(),
       api.teams(),
       api.leagueFixtures(undefined, true),
+      api.superCup().catch(() => [] as SuperCupFixture[]),
       api.teamRatings().catch(() => []),
       api.leagueTable(),
     ]).then(
-      ([nextState, nextTeams, nextFixtures, nextRatings, nextTable]) => {
+      ([nextState, nextTeams, nextFixtures, nextSuperCupFixtures, nextRatings, nextTable]) => {
         setState({ currentSeason: nextState.currentSeason, currentGw: nextState.currentGw });
         setTeams(nextTeams);
         setFixtures(nextFixtures);
+        setSuperCupFixtures(nextSuperCupFixtures);
         setRatings(nextRatings);
         setTable(nextTable);
       },
@@ -49,6 +54,10 @@ export function MatchdayPage() {
   const currentFixtures = useMemo(
     () => fixtures.filter((fixture) => fixture.gw === (state?.currentGw ?? 'GW1')),
     [fixtures, state?.currentGw],
+  );
+  const currentSuperCup = useMemo(
+    () => superCupFixtures.find((fixture) => fixture.gw === (state?.currentGw ?? 'GW1')) ?? null,
+    [superCupFixtures, state?.currentGw],
   );
 
   useEffect(() => {
@@ -117,7 +126,7 @@ export function MatchdayPage() {
   }, [currentFixtures, shock]);
 
   return (
-    <section className="page">
+    <section className="page page-wide">
       <h1>Matchday Wall</h1>
       <p className="muted">Live overview of the current gameweek.</p>
 
@@ -248,6 +257,45 @@ export function MatchdayPage() {
               <span className="muted">Profit {spotlight.awayProfit} | Spins {spotlight.awaySpins}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {currentSuperCup && (
+        <div className="panel spotlight-card">
+          <div className="spotlight-header">
+            <span className="muted">Super Cup</span>
+            <span className="muted">{currentSuperCup.sourceSeason} winners feed GW1</span>
+          </div>
+          <div className="spotlight-body">
+            <div className="spotlight-team">
+              <TeamBadge
+                name={currentSuperCup.homeTeam}
+                ballColor={teamByName.get(currentSuperCup.homeTeam)?.ballColor ?? null}
+                ringColor={teamByName.get(currentSuperCup.homeTeam)?.ringColor ?? null}
+                textColor={teamByName.get(currentSuperCup.homeTeam)?.textColor ?? null}
+                size={34}
+              />
+              <strong>{currentSuperCup.homeTeam}</strong>
+              <span className="muted">Profit {currentSuperCup.homeProfit} | Spins {currentSuperCup.homeSpins}</span>
+            </div>
+            <div className="spotlight-vs">VS</div>
+            <div className="spotlight-team">
+              <TeamBadge
+                name={currentSuperCup.awayTeam}
+                ballColor={teamByName.get(currentSuperCup.awayTeam)?.ballColor ?? null}
+                ringColor={teamByName.get(currentSuperCup.awayTeam)?.ringColor ?? null}
+                textColor={teamByName.get(currentSuperCup.awayTeam)?.textColor ?? null}
+                size={34}
+              />
+              <strong>{currentSuperCup.awayTeam}</strong>
+              <span className="muted">Profit {currentSuperCup.awayProfit} | Spins {currentSuperCup.awaySpins}</span>
+            </div>
+          </div>
+          <p className="muted" style={{ marginTop: '0.75rem' }}>
+            {currentSuperCup.winnerTeam
+              ? `${currentSuperCup.winnerTeam} won the standalone curtain-raiser on ${currentSuperCup.decidedBy.replace('_', ' ')}.`
+              : `${currentSuperCup.pairingExplanation} It sits outside both cup brackets and carries no Bookie d'Or weight.`}
+          </p>
         </div>
       )}
 

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LeagueTabs } from '../components/CompetitionTabs';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
+import { recentForm } from '../lib/formUtils';
 
 const GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
 
@@ -196,14 +198,31 @@ export function MasterLeaguePage() {
     return { label: '•', className: 'rank-flat' };
   };
 
+  const formForTeam = (teamId: number) => recentForm({
+    fixtures,
+    include: (fixture) =>
+      fixture.result !== 'pending' && (fixture.homeTeamId === teamId || fixture.awayTeamId === teamId),
+    resultOf: (fixture) => {
+      if (fixture.result === 'draw') {
+        return 'D';
+      }
+      const win = (fixture.result === 'home' && fixture.homeTeamId === teamId) || (fixture.result === 'away' && fixture.awayTeamId === teamId);
+      return win ? 'W' : 'L';
+    },
+    getGw: (fixture) => fixture.gw,
+    getSecondarySort: (fixture) => fixture.id,
+  });
+
   return (
-    <section className="page">
+    <section className="page page-wide">
       <h1>Master League</h1>
       <p className="muted">
         {state
           ? `${state.currentSeason} ${state.currentGw} • All teams in one league table.`
           : 'Loading Master League...'}
       </p>
+
+      <LeagueTabs activeId="master" />
 
       <div className="panel">
         <div className="master-league-actions">
@@ -247,55 +266,70 @@ export function MasterLeaguePage() {
         ) : table.length === 0 ? (
           <p className="muted">No table rows yet.</p>
         ) : (
-          <table className="scoreboard-table master-league-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Team</th>
-                <th>P</th>
-                <th>W</th>
-                <th>D</th>
-                <th>L</th>
-                <th>Pts</th>
-                <th>Prof</th>
-                <th>Spins</th>
-                <th>Move</th>
-              </tr>
-            </thead>
-            <tbody>
-              {table.map((row) => {
-                const badge = movementBadge(row.teamId);
-                return (
-                  <tr key={`master-row-${row.teamId}`}>
-                    <td>{row.rank}</td>
-                    <td>
-                      <span className="master-team-cell">
-                        {masterChampionTeamId === row.teamId && (
-                          <span className="champion-c-badge" title="Mathematical champion">C</span>
-                        )}
-                        <TeamBadge
-                          name={row.teamName}
-                          ballColor={row.ballColor}
-                          ringColor={row.ringColor}
-                          textColor={row.textColor}
-                          size={18}
-                        />
-                        <span>{row.teamName}</span>
-                      </span>
-                    </td>
-                    <td>{row.played}</td>
-                    <td>{row.wins}</td>
-                    <td>{row.draws}</td>
-                    <td>{row.losses}</td>
-                    <td>{row.points}</td>
-                    <td>{formatProfit(row.profit)}</td>
-                    <td>{row.spins}</td>
-                    <td><span className={badge.className}>{badge.label}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="scoreboard-table master-league-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Team</th>
+                  <th>PLD</th>
+                  <th>W</th>
+                  <th>L</th>
+                  <th>D</th>
+                  <th>Pts</th>
+                  <th>Spins</th>
+                  <th>Profit</th>
+                  <th>Form (Last 5)</th>
+                  <th>Move</th>
+                </tr>
+              </thead>
+              <tbody>
+                {table.map((row) => {
+                  const badge = movementBadge(row.teamId);
+                  return (
+                    <tr key={`master-row-${row.teamId}`}>
+                      <td>{row.rank}</td>
+                      <td>
+                        <span className="master-team-cell">
+                          {masterChampionTeamId === row.teamId && (
+                            <span className="champion-c-badge" title="Mathematical champion">C</span>
+                          )}
+                          <TeamBadge
+                            name={row.teamName}
+                            ballColor={row.ballColor}
+                            ringColor={row.ringColor}
+                            textColor={row.textColor}
+                            size={18}
+                          />
+                          <span>{row.teamName}</span>
+                        </span>
+                      </td>
+                      <td>{row.played}</td>
+                      <td>{row.wins}</td>
+                      <td>{row.losses}</td>
+                      <td>{row.draws}</td>
+                      <td>{row.points}</td>
+                      <td>{row.spins}</td>
+                      <td>{formatProfit(row.profit)}</td>
+                      <td>
+                        <div className="form-mini-row">
+                          {formForTeam(row.teamId).map((result, index) => (
+                            <span
+                              key={`master-form-${row.teamId}-${index}-${result}`}
+                              className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}
+                            >
+                              {result}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td><span className={badge.className}>{badge.label}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

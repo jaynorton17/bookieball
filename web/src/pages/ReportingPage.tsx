@@ -208,7 +208,7 @@ export function ReportingPage() {
   };
 
   return (
-    <section className="page reporting-page">
+    <section className="page page-wide reporting-page">
       <h1>Reporting Desk</h1>
       <p className="muted">
         {state ? `${state.currentSeason} ${state.currentGw} • Storylines, rivalry desk, snapshots, and export pack.` : 'Loading reporting desk...'}

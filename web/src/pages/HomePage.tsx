@@ -1,84 +1,67 @@
 import { Link } from 'react-router-dom';
 
-type DashboardTile = {
+type MainTile = {
   to: string;
   title: string;
   description: string;
-  className?: string;
 };
 
-const dashboardTiles: DashboardTile[] = [
+const mainTiles: MainTile[] = [
   {
-    to: '/insights',
-    title: 'Insights & Tools',
-    description: 'Operational links for recap and management workflows.',
-    className: 'tile-league',
+    to: '/leagues',
+    title: 'Leagues',
+    description: 'Divisions, Master League, Trio League, Tier League, and All-Time Leagues.',
   },
   {
-    to: '/matchday',
-    title: 'Matchday Wall',
-    description: 'Live gameweek wall: shocks, streaks, spotlight fixtures, and highlight reel.',
-    className: 'tile-league',
+    to: '/cups',
+    title: 'Cups',
+    description: 'Super Cup, BookieBall Cup, and Master Cup competition hubs.',
   },
   {
-    to: '/reporting',
-    title: 'Reporting Desk',
-    description: 'Storylines, rivalry desk, snapshot compare, and downloadable report packs.',
-    className: 'tile-league',
+    to: '/fixtures',
+    title: 'All Fixtures',
+    description: 'Every available league and cup fixture with team, competition, and gameweek drill-down filters.',
   },
   {
-    to: '/entries',
-    title: 'Entry Manager',
-    description: 'Manual add, edit, and review every entry across gameweeks.',
+    to: '/reports',
+    title: 'Interactive Analytics Hub',
+    description: 'Simplified reporting, snapshots, comparisons, and data-first season views.',
   },
   {
-    to: '/penalty-shootout',
-    title: 'Penalty Shootout',
-    description: 'Run a sandbox shootout to preview the tie-break flow.',
+    to: '/gameshow',
+    title: 'Kick-Off Show',
+    description: 'Predictions, studio packages, odds boards, and pre-show rundown.',
+  },
+  {
+    to: '/settings-hub',
+    title: 'Settings',
+    description: 'Admin controls, fixture generation, and penalty tools.',
   },
   {
     to: '/trophy-room',
     title: 'Trophy Room',
-    description: 'Cup and division winners by season.',
+    description: 'Winners archive for live trophies and the home of Bookie d’Or.',
   },
   {
-    to: '/season-finale',
-    title: 'End of Season Presentation',
-    description: 'Finale showcase: awards, promotions, relegations, and standout moments.',
+    to: '/entries',
+    title: 'Manual Entry',
+    description: 'Add and edit gameweek entries manually across all teams.',
   },
 ];
 
 export function HomePage() {
   return (
-    <section className="page">
-      <h1>Welcome to bookieball</h1>
-      <p className="muted">Run your local league + cup gameshow from GW1 to GW8.</p>
+    <section className="page page-dashboard">
+      <h1>bookieball Dashboard</h1>
+      <p className="muted">Main areas for leagues, cups, analytics, settings, archive, and manual updates.</p>
 
-      <div className="dashboard-launch-grid">
-        <div className="tile-grid tile-grid-secondary">
-          <Link to="/sky-sports-news" className="tile tile-featured tile-league">
-            <h2>Sky Sports News Live</h2>
-            <p>Always-on studio desk for team spotlights, fixtures, rivalry notes, and ticker updates.</p>
+      <div className="tile-grid tile-grid-secondary">
+        {mainTiles.map((tile) => (
+          <Link key={tile.to} to={tile.to} className="tile">
+            <h2>{tile.title}</h2>
+            <p>{tile.description}</p>
           </Link>
-          <Link to="/gameshow" className="tile tile-featured tile-league">
-            <h2>Kick-Off Show</h2>
-            <p>Run the full show flow: draw, pick logging, studio broadcast, and recap.</p>
-          </Link>
-          <Link to="/leagues" className="tile tile-featured tile-league">
-            <h2>Leagues Hub</h2>
-            <p>All league views in one place: divisions, master league, and all-time boards.</p>
-          </Link>
-          <Link to="/cup-draw" className="tile tile-featured">
-            <h2>Bookie Cup</h2>
-            <p>Cup draw, bracket progression, knockout winners, and integrity checks.</p>
-          </Link>
-          {dashboardTiles.map((tile) => (
-            <Link key={tile.to} to={tile.to} className={`tile${tile.className ? ` ${tile.className}` : ''}`}>
-              <h2>{tile.title}</h2>
-              <p>{tile.description}</p>
-            </Link>
-          ))}
-        </div>
+        ))}
       </div>
     </section>
   );

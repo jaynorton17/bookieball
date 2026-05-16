@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+// PenaltyShootoutBoard.tsx
+// This component orchestrates a penalty shootout between two teams. It
+// displays a scoreboard, runs the interactive PenaltyShootoutGame and tracks
+// shots, goals, saves and the eventual winner. The board logic is adapted
+// from the original project but drives the new canvas‑based game instead of
+// relying on random guesses.
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { PenaltyShootoutGame, ShotResult } from './PenaltyShootoutGame';
+import { getKeeperKit } from './kitTheme';
 
 export type PenaltyTeam = {
   id: number;
@@ -13,28 +22,28 @@ type PenaltyKick = {
   scored: boolean;
 };
 
-type PenaltyShootoutBoardProps = {
+export type PenaltyShootoutBoardProps = {
   homeTeam: PenaltyTeam;
   awayTeam: PenaltyTeam;
   resetKey?: string | number;
   autoStart?: boolean;
   startLabel?: string;
   confirmLabel?: string;
+  confirmDisabled?: boolean;
   showReset?: boolean;
   onConfirmWinner?: (winner: PenaltyTeam, kicks: PenaltyKick[]) => void;
 };
 
-const buildShootoutStatus = (kicks: PenaltyKick[]) => {
+// Compute shootout status: goals, taken kicks, phase and winner.
+function buildShootoutStatus(kicks: PenaltyKick[]) {
   const homeShots = kicks.filter((kick) => kick.team === 'home');
   const awayShots = kicks.filter((kick) => kick.team === 'away');
   const homeGoals = homeShots.filter((kick) => kick.scored).length;
   const awayGoals = awayShots.filter((kick) => kick.scored).length;
   const homeTaken = homeShots.length;
   const awayTaken = awayShots.length;
-
   let winner: 'home' | 'away' | null = null;
   let phase: 'regular' | 'sudden' = 'regular';
-
   const regularComplete = homeTaken >= 5 && awayTaken >= 5;
   if (!regularComplete) {
     const homeRemaining = 5 - homeTaken;
@@ -45,7 +54,6 @@ const buildShootoutStatus = (kicks: PenaltyKick[]) => {
       winner = 'away';
     }
   }
-
   if (!winner && regularComplete) {
     if (homeTaken !== awayTaken) {
       phase = 'sudden';
@@ -57,13 +65,11 @@ const buildShootoutStatus = (kicks: PenaltyKick[]) => {
       phase = 'sudden';
     }
   }
-
   if (!winner && phase === 'sudden') {
     if (homeTaken === awayTaken && homeTaken > 5 && homeGoals !== awayGoals) {
       winner = homeGoals > awayGoals ? 'home' : 'away';
     }
   }
-
   return {
     homeShots,
     awayShots,
@@ -74,7 +80,7 @@ const buildShootoutStatus = (kicks: PenaltyKick[]) => {
     phase,
     winner,
   };
-};
+}
 
 export function PenaltyShootoutBoard({
   homeTeam,
@@ -83,200 +89,194 @@ export function PenaltyShootoutBoard({
   autoStart = false,
   startLabel = 'Take penalties',
   confirmLabel = 'Confirm winner',
+  confirmDisabled = false,
   showReset = false,
   onConfirmWinner,
 }: PenaltyShootoutBoardProps) {
   const [started, setStarted] = useState(autoStart);
   const [kicks, setKicks] = useState<PenaltyKick[]>([]);
-  const [keeperDive, setKeeperDive] = useState<'left' | 'center' | 'right' | null>(null);
-  const [ballTarget, setBallTarget] = useState<'left' | 'center' | 'right' | null>(null);
   const [lastOutcome, setLastOutcome] = useState<'GOAL' | 'SAVED' | null>(null);
   const [animKey, setAnimKey] = useState(0);
-  const diveTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    setKicks([]);
-    setStarted(autoStart);
-    setKeeperDive(null);
-    setBallTarget(null);
-    setLastOutcome(null);
-    setAnimKey(0);
-    if (diveTimeoutRef.current) {
-      window.clearTimeout(diveTimeoutRef.current);
-      diveTimeoutRef.current = null;
-    }
-  }, [autoStart, homeTeam.id, awayTeam.id, resetKey]);
-
-  useEffect(() => {
-    return () => {
-      if (diveTimeoutRef.current) {
-        window.clearTimeout(diveTimeoutRef.current);
-        diveTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
+  const [shotRequest, setShotRequest] = useState<{ dir: 'left' | 'center' | 'right'; id: number } | null>(null);
+  const [shotInFlight, setShotInFlight] = useState(false);
+  const shotIdRef = useRef(0);
+  const gameRef = useRef(null);
   const status = useMemo(() => buildShootoutStatus(kicks), [kicks]);
   const shooter = kicks.length % 2 === 0 ? 'home' : 'away';
   const winnerTeam = status.winner === 'home' ? homeTeam : status.winner === 'away' ? awayTeam : null;
-  const keeperTeam = shooter === 'home' ? awayTeam : homeTeam;
-  const keeperColor = keeperTeam.ballColor ?? keeperTeam.ringColor ?? '#f5d47a';
-  const keeperTrim = keeperTeam.ringColor ?? keeperTeam.ballColor ?? '#c9973a';
-  const homeColor = homeTeam.ballColor ?? homeTeam.ringColor ?? '#6fb4ff';
-  const awayColor = awayTeam.ballColor ?? awayTeam.ringColor ?? '#ffb86f';
 
-  const maxSlots = Math.max(5, status.homeShots.length, status.awayShots.length);
-
-  const renderCircles = (shots: PenaltyKick[]) =>
-    Array.from({ length: maxSlots }).map((_, index) => {
-      const shot = shots[index];
-      if (!shot) {
-        return <span key={`pending-${index}`} className="penalty-circle pending" />;
-      }
-      return (
-        <span
-          key={`${shot.team}-${index}`}
-          className={`penalty-circle ${shot.scored ? 'goal' : 'miss'}`}
-          title={`${shot.target} • ${shot.scored ? 'Goal' : 'Miss'}`}
-        />
-      );
-    });
-
-  const handleKick = (target: 'left' | 'center' | 'right') => {
-    if (!started || status.winner) {
-      return;
-    }
-    const keeperGuess = (['left', 'center', 'right'] as const)[Math.floor(Math.random() * 3)] ?? 'center';
-    setKeeperDive(keeperGuess);
-    setBallTarget(target);
-    setAnimKey((prev) => prev + 1);
-    if (diveTimeoutRef.current) {
-      window.clearTimeout(diveTimeoutRef.current);
-    }
-    diveTimeoutRef.current = window.setTimeout(() => {
-      setKeeperDive(null);
-      setBallTarget(null);
-      setLastOutcome(null);
-    }, 900);
-    const scored = keeperGuess !== target;
-    setLastOutcome(scored ? 'GOAL' : 'SAVED');
-    setKicks((prev) => [...prev, { team: shooter, target, scored }]);
-  };
-
-  const handleReset = () => {
+  // Reset shootout when resetKey changes or teams change
+  useEffect(() => {
     setKicks([]);
     setStarted(autoStart);
-    setKeeperDive(null);
-    setBallTarget(null);
     setLastOutcome(null);
     setAnimKey(0);
-    if (diveTimeoutRef.current) {
-      window.clearTimeout(diveTimeoutRef.current);
-      diveTimeoutRef.current = null;
+    setShotInFlight(false);
+    setShotRequest(null);
+  }, [autoStart, homeTeam.id, awayTeam.id, resetKey]);
+
+  // Handler for game shot completion
+  const handleShotComplete = (result: ShotResult) => {
+    // Determine shooter team based on kick index
+    const team: 'home' | 'away' = shooter;
+    setKicks((prev) => [...prev, { team, target: result.targetDir, scored: result.scored }]);
+    setLastOutcome(result.scored ? 'GOAL' : 'SAVED');
+    setShotInFlight(false);
+  };
+
+  // Confirm winner callback wrapper
+  const handleConfirmWinner = () => {
+    if (winnerTeam && onConfirmWinner) {
+      onConfirmWinner(winnerTeam, kicks);
     }
   };
 
+  // Kit colours for the keeper are derived from the opposing team's ball colour.
+  const keeperTeam = shooter === 'home' ? awayTeam : homeTeam;
+  const keeperKit = getKeeperKit(keeperTeam.ballColor ?? keeperTeam.ringColor ?? undefined);
+
+  // Colour for the ball is derived from the shooter's team colours
+  const shooterTeam = shooter === 'home' ? homeTeam : awayTeam;
+  const ballColour = shooterTeam.ballColor ?? shooterTeam.ringColor ?? '#ffffff';
+
   return (
-    <div className="penalty-shootout-card">
-      <div className="penalty-header">
+    <div className="penalty-shootout-board" key={animKey}
+      style={{ maxWidth: 640, margin: '0 auto' }}
+    >
+      <h3 style={{ textAlign: 'center' }}>Penalty Shootout</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <div>
-          <h3>Penalty Shootout</h3>
-          <p className="muted">{homeTeam.name} vs {awayTeam.name}</p>
-        </div>
-        {status.phase === 'sudden' && !status.winner && (
-          <span className="penalty-phase">Sudden death</span>
-        )}
-      </div>
-
-      <div className="penalty-scoreboard">
-        <div className="penalty-team-row">
-          <div>
-            <div className="penalty-team-name">Home</div>
-            <div className="penalty-team-sub">{homeTeam.name}</div>
+          <strong>Home</strong>
+          <div>{homeTeam.name}</div>
+          <div>{status.homeGoals}</div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: Math.max(5, status.homeShots.length) }).map((_, idx) => {
+              const shot = status.homeShots[idx];
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    backgroundColor: shot
+                      ? shot.scored
+                        ? '#4caf50'
+                        : '#f44336'
+                      : '#bbb',
+                  }}
+                />
+              );
+            })}
           </div>
-          <div className="penalty-team-score">{status.homeGoals}</div>
-          <div className="penalty-circles">{renderCircles(status.homeShots)}</div>
         </div>
-        <div className="penalty-team-row">
-          <div>
-            <div className="penalty-team-name">Away</div>
-            <div className="penalty-team-sub">{awayTeam.name}</div>
-          </div>
-          <div className="penalty-team-score">{status.awayGoals}</div>
-          <div className="penalty-circles">{renderCircles(status.awayShots)}</div>
-        </div>
-      </div>
-
-      <div className="penalty-graphic">
-        <div
-          key={animKey}
-          className="penalty-goal"
-          data-dive={keeperDive ?? 'idle'}
-          data-shot={ballTarget ?? 'idle'}
-          data-outcome={lastOutcome ?? 'idle'}
-          style={{
-            '--keeper-color': keeperColor,
-            '--keeper-trim': keeperTrim,
-            '--crowd-home': homeColor,
-            '--crowd-away': awayColor,
-          } as React.CSSProperties}
-        >
-          <div className="penalty-crowd" />
-          <div className="penalty-banners" />
-          <div className="penalty-net" />
-          <div className="penalty-keeper" />
-          <div className="penalty-ball" />
-          {lastOutcome && (
-            <div className={`penalty-outcome ${lastOutcome === 'GOAL' ? 'goal' : 'saved'}`}>
-              {lastOutcome}
-            </div>
+        <div style={{ textAlign: 'center' }}>
+          {status.phase === 'sudden' && !status.winner && (
+            <div style={{ fontStyle: 'italic' }}>Sudden death</div>
           )}
+          <div style={{ marginTop: 4 }}>
+            {lastOutcome && (
+              <span
+                style={{
+                  color: lastOutcome === 'GOAL' ? '#4caf50' : '#f44336',
+                  fontWeight: 'bold',
+                }}
+              >
+                {lastOutcome}
+              </span>
+            )}
+          </div>
+          <div style={{ marginTop: 4 }}>
+            {winnerTeam
+              ? `Winner: ${winnerTeam.name}`
+              : started
+              ? `${shooterTeam.name} to take`
+              : 'Ready for penalties'}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <strong>Away</strong>
+          <div>{awayTeam.name}</div>
+          <div>{status.awayGoals}</div>
+          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+            {Array.from({ length: Math.max(5, status.awayShots.length) }).map((_, idx) => {
+              const shot = status.awayShots[idx];
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    backgroundColor: shot
+                      ? shot.scored
+                        ? '#4caf50'
+                        : '#f44336'
+                      : '#bbb',
+                  }}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
-
-      <div className="penalty-status">
-        {winnerTeam
-          ? `Winner: ${winnerTeam.name}`
-          : started
-            ? `${shooter === 'home' ? homeTeam.name : awayTeam.name} to take`
-            : 'Ready for penalties'}
-      </div>
-
-      <div className="penalty-controls">
-        {!started ? (
-          <button type="button" className="action" onClick={() => setStarted(true)}>
-            {startLabel}
-          </button>
-        ) : (
-          <>
-            <button type="button" className="secondary" onClick={() => handleKick('left')} disabled={Boolean(status.winner)}>
-              Left
+      {started ? (
+        <PenaltyShootoutGame
+          ballColour={ballColour}
+          keeperPrimary={keeperKit.primary}
+          keeperTrim={keeperKit.trim}
+          onShotComplete={handleShotComplete}
+          difficulty={0.33}
+          shotRequest={shotRequest}
+          allowPointerShots={false}
+        />
+      ) : (
+        <button onClick={() => setStarted(true)} style={{ padding: '8px 16px' }}>
+          {startLabel}
+        </button>
+      )}
+      {started && !winnerTeam && (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
+          {(['left', 'center', 'right'] as const).map((dir) => (
+            <button
+              key={dir}
+              onClick={() => {
+                if (shotInFlight) return;
+                const nextId = shotIdRef.current + 1;
+                shotIdRef.current = nextId;
+                setShotInFlight(true);
+                setShotRequest({ dir, id: nextId });
+              }}
+              style={{ padding: '6px 12px' }}
+              disabled={shotInFlight}
+            >
+              {dir[0].toUpperCase() + dir.slice(1)}
             </button>
-            <button type="button" className="secondary" onClick={() => handleKick('center')} disabled={Boolean(status.winner)}>
-              Center
-            </button>
-            <button type="button" className="secondary" onClick={() => handleKick('right')} disabled={Boolean(status.winner)}>
-              Right
-            </button>
-          </>
-        )}
-
-        {winnerTeam && onConfirmWinner && (
-          <button
-            type="button"
-            className="action"
-            onClick={() => onConfirmWinner(winnerTeam, kicks)}
-          >
-            {confirmLabel}
-          </button>
-        )}
-
-        {showReset && (
-          <button type="button" className="secondary" onClick={handleReset}>
-            Reset
-          </button>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
+      {winnerTeam && onConfirmWinner && (
+        <button
+          onClick={handleConfirmWinner}
+          style={{ marginTop: 8, padding: '6px 12px' }}
+          disabled={confirmDisabled}
+        >
+          {confirmLabel}
+        </button>
+      )}
+      {showReset && (
+        <button
+          onClick={() => {
+            setKicks([]);
+            setStarted(autoStart);
+            setLastOutcome(null);
+            setAnimKey((prev) => prev + 1);
+          }}
+          style={{ marginTop: 8, padding: '6px 12px' }}
+        >
+          Reset
+        </button>
+      )}
     </div>
   );
 }

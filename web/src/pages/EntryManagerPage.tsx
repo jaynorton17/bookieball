@@ -3,13 +3,76 @@ import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
 
 const GWS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
+const AUTO_STAKE_PROFIT_START_SEASON = 4;
+
+function parseSeasonNumber(season: string): number {
+  const numeric = Number(season.replace('S', ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function isAutoStakeProfitSeason(season: string): boolean {
+  return parseSeasonNumber(season) >= AUTO_STAKE_PROFIT_START_SEASON;
+}
+
+function toSafeNumber(value: number | null | undefined): number {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function stakeProfitContribution(
+  entryType: 'free_spins' | 'bonus',
+  spins: number | null | undefined,
+  stake: number | null | undefined,
+): number {
+  const normalizedStake = toSafeNumber(stake);
+  if (entryType === 'free_spins') {
+    return toSafeNumber(spins) * normalizedStake;
+  }
+  return normalizedStake;
+}
+
+function formatNumberInput(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return Number.isFinite(value) ? String(value) : '';
+}
+
+function parseRequiredNumberInput(value: string, fieldLabel: string): number {
+  if (value.trim() === '') {
+    throw new Error(`${fieldLabel} is required.`);
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${fieldLabel} must be a number.`);
+  }
+  return numeric;
+}
+
+function parseOptionalNumberInput(value: string, fieldLabel: string): number | null {
+  if (value.trim() === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${fieldLabel} must be a number.`);
+  }
+  return numeric;
+}
 
 export function EntryManagerPage() {
   const [state, setState] = useState<{ currentSeason: string; currentGw: string; gwLocked: boolean } | null>(null);
   const [teams, setTeams] = useState<
     Array<{ id: number; teamId: string | null; name: string; url: string; division: string; ballColor: string | null; ringColor: string | null; textColor: string | null }>
   >([]);
-  const [entry, setEntry] = useState({ teamId: 0, profit: 0, spins: 0, stake: 0, notes: '' });
+  const [entry, setEntry] = useState<{ teamId: number; entryType: 'free_spins' | 'bonus'; profit: string; spins: string; stake: string; notes: string }>({
+    teamId: 0,
+    entryType: 'free_spins',
+    profit: '',
+    spins: '',
+    stake: '0.1',
+    notes: '',
+  });
   const [manualMessage, setManualMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [entryLog, setEntryLog] = useState<
     Array<{
@@ -37,9 +100,9 @@ export function EntryManagerPage() {
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
   const [editingEntry, setEditingEntry] = useState<{
     entryType: 'free_spins' | 'bonus';
-    profit: number;
-    spins: number | null;
-    stake: number | null;
+    profit: string;
+    spins: string;
+    stake: string;
     notes: string;
     noWin: boolean;
   } | null>(null);
@@ -111,18 +174,30 @@ export function EntryManagerPage() {
   const submitManual = async () => {
     setManualMessage(null);
     try {
+      const profit = parseRequiredNumberInput(entry.profit, 'Profit');
+      const spins = entry.entryType === 'bonus' ? null : parseRequiredNumberInput(entry.spins, 'Spins');
+      const stake = parseOptionalNumberInput(entry.stake, 'Stake');
+      if (entry.entryType === 'free_spins' && spins <= 0) {
+        throw new Error('Spins must be greater than 0 for free spins entries.');
+      }
       await api.saveEntries([
         {
           teamId: entry.teamId,
-          entryType: 'free_spins',
-          profit: Number(entry.profit),
-          spins: Number(entry.spins),
-          stake: Number(entry.stake),
+          entryType: entry.entryType,
+          profit,
+          spins,
+          stake,
           notes: entry.notes.length ? entry.notes : null,
           noWin: false,
         },
       ]);
       setManualMessage({ type: 'success', text: 'Entry saved.' });
+      setEntry((prev) => ({
+        ...prev,
+        profit: '',
+        spins: prev.entryType === 'bonus' ? '' : '',
+        notes: '',
+      }));
       await reloadEntries();
     } catch (error) {
       setManualMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to save entry' });
@@ -130,12 +205,15 @@ export function EntryManagerPage() {
   };
 
   const startEditEntry = (row: (typeof entryLog)[number]) => {
+    const adjustment = isAutoStakeProfitSeason(row.season)
+      ? stakeProfitContribution(row.entryType, row.spins, row.stake)
+      : 0;
     setEditingEntryId(row.id);
     setEditingEntry({
       entryType: row.entryType,
-      profit: row.profit,
-      spins: row.spins ?? null,
-      stake: row.stake ?? null,
+      profit: formatNumberInput(Number((row.profit - adjustment).toFixed(2))),
+      spins: formatNumberInput(row.spins),
+      stake: formatNumberInput(row.stake),
       notes: row.notes ?? '',
       noWin: row.noWin,
     });
@@ -150,22 +228,32 @@ export function EntryManagerPage() {
     if (!editingEntryId || !editingEntry) {
       return;
     }
-    await api.updateEntry(editingEntryId, {
-      entryType: editingEntry.entryType,
-      profit: Number(editingEntry.profit),
-      spins: editingEntry.entryType === 'bonus' ? null : (editingEntry.spins ?? 0),
-      stake: editingEntry.stake ?? null,
-      notes: editingEntry.notes.length > 0 ? editingEntry.notes : null,
-      noWin: editingEntry.noWin,
-    });
-    cancelEditEntry();
-    await reloadEntries();
+    try {
+      const profit = parseRequiredNumberInput(editingEntry.profit, 'Profit');
+      const spins = editingEntry.entryType === 'bonus' ? null : parseRequiredNumberInput(editingEntry.spins, 'Spins');
+      const stake = parseOptionalNumberInput(editingEntry.stake, 'Stake');
+      if (editingEntry.entryType === 'free_spins' && spins <= 0) {
+        throw new Error('Spins must be greater than 0 for free spins entries.');
+      }
+      await api.updateEntry(editingEntryId, {
+        entryType: editingEntry.entryType,
+        profit,
+        spins,
+        stake,
+        notes: editingEntry.notes.length > 0 ? editingEntry.notes : null,
+        noWin: editingEntry.noWin,
+      });
+      cancelEditEntry();
+      await reloadEntries();
+    } catch (error) {
+      setManualMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to update entry' });
+    }
   };
 
   const teamByName = useMemo(() => new Map(teams.map((team) => [team.name, team])), [teams]);
 
   return (
-    <section className="page">
+    <section className="page page-wide">
       <h1>Entry Manager</h1>
       <p className="muted">Current: {state ? `${state.currentSeason} ${state.currentGw}` : 'Loading...'}</p>
 
@@ -181,16 +269,41 @@ export function EntryManagerPage() {
             </select>
           </label>
           <label>
+            Type
+            <select
+              value={entry.entryType}
+              onChange={(e) => {
+                const nextType = e.target.value as 'free_spins' | 'bonus';
+                setEntry((prev) => ({
+                  ...prev,
+                  entryType: nextType,
+                  spins: nextType === 'bonus' ? '' : prev.spins,
+                  stake: nextType === 'bonus'
+                    ? (prev.stake.trim() === '' ? '0' : prev.stake)
+                    : (prev.stake.trim() === '' || prev.stake === '0' ? '0.1' : prev.stake),
+                }));
+              }}
+            >
+              <option value="free_spins">Free Spins</option>
+              <option value="bonus">Bonus</option>
+            </select>
+          </label>
+          <label>
             Profit
-            <input type="number" value={entry.profit} onChange={(e) => setEntry((prev) => ({ ...prev, profit: Number(e.target.value) }))} />
+            <input type="number" value={entry.profit} onChange={(e) => setEntry((prev) => ({ ...prev, profit: e.target.value }))} />
           </label>
           <label>
             Spins
-            <input type="number" value={entry.spins} onChange={(e) => setEntry((prev) => ({ ...prev, spins: Number(e.target.value) }))} />
+            <input
+              type="number"
+              value={entry.spins}
+              onChange={(e) => setEntry((prev) => ({ ...prev, spins: e.target.value }))}
+              disabled={entry.entryType === 'bonus'}
+            />
           </label>
           <label>
             Stake
-            <input type="number" value={entry.stake} onChange={(e) => setEntry((prev) => ({ ...prev, stake: Number(e.target.value) }))} />
+            <input type="number" value={entry.stake} onChange={(e) => setEntry((prev) => ({ ...prev, stake: e.target.value }))} />
           </label>
           <label>
             Notes
@@ -254,71 +367,72 @@ export function EntryManagerPage() {
                     </span>
                     <span className="entry-group-meta">{group.entries.length} entries</span>
                   </summary>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Created</th>
-                        <th>GW</th>
-                        <th>Type</th>
-                        <th>Profit</th>
-                        <th>Spins</th>
-                        <th>Stake</th>
-                        <th>Notes</th>
-                        <th>No Win</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.entries.map((row) => {
-                        const isEditing = editingEntryId === row.id;
-                        const locked = row.locked;
-                        return (
-                          <tr key={row.id}>
-                            <td>{formatTimestamp(row.createdAt)}</td>
-                            <td>{row.gw}</td>
-                            <td>
-                              {isEditing && editingEntry ? (
-                                <select
-                                  value={editingEntry.entryType}
-                                  onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, entryType: e.target.value as 'free_spins' | 'bonus' } : prev))}
-                                >
-                                  <option value="free_spins">Free Spins</option>
-                                  <option value="bonus">Bonus</option>
-                                </select>
-                              ) : (
-                                row.entryType === 'free_spins' ? 'Free Spins' : 'Bonus'
-                              )}
-                            </td>
-                            <td>
-                              {isEditing && editingEntry ? (
-                                <input type="number" value={editingEntry.profit} onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, profit: Number(e.target.value) } : prev))} />
-                              ) : (
-                                row.profit
-                              )}
-                            </td>
-                            <td>
-                              {isEditing && editingEntry ? (
-                                <input
-                                  type="number"
-                                  value={editingEntry.spins ?? ''}
-                                  onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, spins: e.target.value === '' ? null : Number(e.target.value) } : prev))}
-                                  disabled={editingEntry.entryType === 'bonus'}
-                                />
-                              ) : (
-                                row.spins ?? '-'
-                              )}
-                            </td>
-                            <td>
-                              {isEditing && editingEntry ? (
-                                <input
-                                  type="number"
-                                  value={editingEntry.stake ?? ''}
-                                  onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, stake: e.target.value === '' ? null : Number(e.target.value) } : prev))}
-                                />
-                              ) : (
-                                row.stake ?? '-'
-                              )}
-                            </td>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Created</th>
+                          <th>GW</th>
+                          <th>Type</th>
+                          <th>Profit</th>
+                          <th>Spins</th>
+                          <th>Stake</th>
+                          <th>Notes</th>
+                          <th>No Win</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.entries.map((row) => {
+                          const isEditing = editingEntryId === row.id;
+                          const locked = row.locked;
+                          return (
+                            <tr key={row.id}>
+                              <td>{formatTimestamp(row.createdAt)}</td>
+                              <td>{row.gw}</td>
+                              <td>
+                                {isEditing && editingEntry ? (
+                                  <select
+                                    value={editingEntry.entryType}
+                                    onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, entryType: e.target.value as 'free_spins' | 'bonus' } : prev))}
+                                  >
+                                    <option value="free_spins">Free Spins</option>
+                                    <option value="bonus">Bonus</option>
+                                  </select>
+                                ) : (
+                                  row.entryType === 'free_spins' ? 'Free Spins' : 'Bonus'
+                                )}
+                              </td>
+                              <td>
+                                {isEditing && editingEntry ? (
+                                  <input type="number" value={editingEntry.profit} onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, profit: e.target.value } : prev))} />
+                                ) : (
+                                  row.profit
+                                )}
+                              </td>
+                              <td>
+                                {isEditing && editingEntry ? (
+                                  <input
+                                    type="number"
+                                    value={editingEntry.spins}
+                                    onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, spins: e.target.value } : prev))}
+                                    disabled={editingEntry.entryType === 'bonus'}
+                                  />
+                                ) : (
+                                  row.spins ?? '-'
+                                )}
+                              </td>
+                              <td>
+                                {isEditing && editingEntry ? (
+                                  <input
+                                    type="number"
+                                    value={editingEntry.stake}
+                                    onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, stake: e.target.value } : prev))}
+                                  />
+                                ) : (
+                                  row.stake ?? '-'
+                                )}
+                              </td>
                             <td>
                               {isEditing && editingEntry ? (
                                 <input type="text" value={editingEntry.notes} onChange={(e) => setEditingEntry((prev) => (prev ? { ...prev, notes: e.target.value } : prev))} />
@@ -350,6 +464,7 @@ export function EntryManagerPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </details>
               );
             })}

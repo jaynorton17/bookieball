@@ -1,27 +1,95 @@
-import { DIVISION_ORDER } from '../src/shared/constants.js';
-import { getCupBracket, getLeagueTable, getState, getTeams, openDatabase } from '../src/db/database.js';
+import { getDivisionOrderForSeason, getDivisionSlotsForSeason } from '../src/shared/constants.js';
+import {
+  ensureCupProgress,
+  getCupBracket,
+  getCupTieFixturesForRange,
+  getLeagueTable,
+  getState,
+  getTeams,
+  openDatabase,
+  setCupFixtureWinner,
+  setCurrentState,
+  setGameweekLock,
+} from '../src/db/database.js';
 
 function fail(message: string): never {
   throw new Error(`Cup regression failed: ${message}`);
 }
 
-const EXPECTED_DIVISION_SIZE = 4;
-const EXPECTED_TEAM_COUNT = 20;
+function assertManualPenaltyWinnerSurvivesProgressRefresh(db: ReturnType<typeof openDatabase>): void {
+  const state = getState(db);
+  db.exec('BEGIN');
+  try {
+    const homeResult = db.prepare(
+      `
+      INSERT INTO teams (team_id, name, url, ball_color, ring_color, text_color)
+      VALUES ('regression-home', 'Regression Home', 'https://example.com/home', '#111111', '#222222', '#ffffff')
+      `,
+    ).run();
+    const awayResult = db.prepare(
+      `
+      INSERT INTO teams (team_id, name, url, ball_color, ring_color, text_color)
+      VALUES ('regression-away', 'Regression Away', 'https://example.com/away', '#333333', '#444444', '#ffffff')
+      `,
+    ).run();
+    const homeId = Number(homeResult.lastInsertRowid);
+    const awayId = Number(awayResult.lastInsertRowid);
+    setCurrentState(db, state.currentSeason, 'GW2');
+    setGameweekLock(db, state.currentSeason, 'GW2', false);
+    db.prepare(
+      `
+      INSERT INTO entries (season, gw, team_id, entry_type, profit, spins, no_win)
+      VALUES (?, 'GW2', ?, 'regression', 0, 1, 0)
+      `,
+    ).run(state.currentSeason, homeId);
+    db.prepare(
+      `
+      INSERT INTO entries (season, gw, team_id, entry_type, profit, spins, no_win)
+      VALUES (?, 'GW2', ?, 'regression', 0, 1, 0)
+      `,
+    ).run(state.currentSeason, awayId);
+    const result = db.prepare(
+      `
+      INSERT INTO cup_fixtures (season, gw, round_name, home_team_id, away_team_id, winner_team_id, is_manual)
+      VALUES (?, 'GW2', 'Regression Penalty', ?, ?, NULL, 1)
+      `,
+    ).run(state.currentSeason, homeId, awayId);
+    const fixtureId = Number(result.lastInsertRowid);
+
+    setCupFixtureWinner(db, state.currentSeason, fixtureId, homeId, 'regression');
+    ensureCupProgress(db, state.currentSeason, 'GW2');
+
+    const row = db.prepare('SELECT winner_team_id FROM cup_fixtures WHERE id = ?').get(fixtureId) as { winner_team_id: number | null };
+    if (row.winner_team_id !== homeId) {
+      fail('manual penalty winner was cleared by cup progress refresh');
+    }
+    const stillQueued = getCupTieFixturesForRange(db, state.currentSeason, 'GW2').some((tie) => tie.fixtureId === fixtureId);
+    if (stillQueued) {
+      fail('manual penalty winner remained in the penalty queue');
+    }
+  } finally {
+    db.exec('ROLLBACK');
+  }
+}
 
 function run(): void {
   const db = openDatabase();
   try {
     const state = getState(db);
     const teams = getTeams(db, state.currentSeason);
-    if (teams.length !== EXPECTED_TEAM_COUNT) {
-      fail(`expected ${EXPECTED_TEAM_COUNT} teams, got ${teams.length}`);
+    const expectedDivisionOrder = getDivisionOrderForSeason(state.currentSeason);
+    const expectedDivisionSlots = getDivisionSlotsForSeason(state.currentSeason);
+    const expectedTeamCount = Object.values(expectedDivisionSlots).reduce((sum, count) => sum + count, 0);
+    if (teams.length !== expectedTeamCount) {
+      fail(`expected ${expectedTeamCount} teams, got ${teams.length}`);
     }
 
     const table = getLeagueTable(db, state.currentSeason, state.currentGw);
-    DIVISION_ORDER.forEach((division) => {
+    expectedDivisionOrder.forEach((division) => {
       const rows = table[division] ?? [];
-      if (rows.length !== EXPECTED_DIVISION_SIZE) {
-        fail(`division "${division}" expected ${EXPECTED_DIVISION_SIZE} teams, got ${rows.length}`);
+      const expectedDivisionSize = expectedDivisionSlots[division] ?? 0;
+      if (rows.length !== expectedDivisionSize) {
+        fail(`division "${division}" expected ${expectedDivisionSize} teams, got ${rows.length}`);
       }
     });
 
@@ -50,6 +118,7 @@ function run(): void {
       }
     }
 
+    assertManualPenaltyWinnerSurvivesProgressRefresh(db);
     console.log(`Cup regression checks passed for ${state.currentSeason} ${state.currentGw}.`);
   } finally {
     db.close();

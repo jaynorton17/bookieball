@@ -15,7 +15,10 @@ type Notice = {
   text: string;
 };
 
-type CupTieFixture = {
+type PenaltyCompetition = 'cup' | 'super_cup' | 'master_cup' | 'gw8_playoff' | 'trio_playoff';
+
+type PenaltyTieFixture = {
+  competition: PenaltyCompetition;
   fixtureId: number;
   gw: string;
   roundName: string;
@@ -36,17 +39,22 @@ type PenaltyTeamMeta = {
   ringColor: string | null;
 };
 
+function gwNumericValue(gw: string): number {
+  const parsed = Number(gw.replace('GW', ''));
+  return Number.isFinite(parsed) ? parsed : 99;
+}
+
 export function InsightsPage() {
   const [state, setState] = useState<CurrentState | null>(null);
   const [loadingState, setLoadingState] = useState(true);
-  const [busyAction, setBusyAction] = useState<'lock' | 'unlock' | 'advance' | 'refresh' | 'restore' | null>(null);
+  const [busyAction, setBusyAction] = useState<'lock' | 'unlock' | 'advance' | 'rewind' | 'refresh' | 'restore' | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [snapshots, setSnapshots] = useState<Array<{ id: number; season: string; gw: string; label: string; createdAt: string }>>([]);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
   const [loadingSnapshots, setLoadingSnapshots] = useState(true);
   const [penaltyTeams, setPenaltyTeams] = useState<PenaltyTeamMeta[]>([]);
-  const [cupTieQueue, setCupTieQueue] = useState<CupTieFixture[]>([]);
-  const [cupTieIndex, setCupTieIndex] = useState(0);
+  const [penaltyTieQueue, setPenaltyTieQueue] = useState<PenaltyTieFixture[]>([]);
+  const [penaltyTieIndex, setPenaltyTieIndex] = useState(0);
   const [penaltyStep, setPenaltyStep] = useState<'idle' | 'notice' | 'shootout'>('idle');
   const [penaltyBusy, setPenaltyBusy] = useState(false);
   const [advanceAfterPenalties, setAdvanceAfterPenalties] = useState(false);
@@ -75,13 +83,20 @@ export function InsightsPage() {
     }
   }, []);
 
-  const activeCupTie = cupTieQueue[cupTieIndex] ?? null;
+  const loadPenaltyTies = useCallback(async (): Promise<PenaltyTieFixture[]> => {
+    return api.penaltyQueue().catch(() => [] as PenaltyTieFixture[]);
+  }, []);
+
+  const activePenaltyTie = penaltyTieQueue[penaltyTieIndex] ?? null;
+  const activePenaltyIsOverdue = Boolean(
+    activePenaltyTie && state && gwNumericValue(activePenaltyTie.gw) < gwNumericValue(state.currentGw),
+  );
   const tieSummary = useMemo(() => {
-    if (!activeCupTie) {
+    if (!activePenaltyTie) {
       return '';
     }
-    return `${activeCupTie.roundName} • ${activeCupTie.homeTeamName} vs ${activeCupTie.awayTeamName}`;
-  }, [activeCupTie]);
+    return `${activePenaltyTie.roundName} • ${activePenaltyTie.homeTeamName} vs ${activePenaltyTie.awayTeamName}`;
+  }, [activePenaltyTie]);
   const penaltyTeamById = useMemo(
     () => new Map(penaltyTeams.map((team) => [team.id, team])),
     [penaltyTeams],
@@ -91,10 +106,11 @@ export function InsightsPage() {
     let active = true;
     const run = async () => {
       try {
-        const [next, snapshotRows, teams] = await Promise.all([
+        const [next, snapshotRows, teams, ties] = await Promise.all([
           api.state(),
           api.snapshots().catch(() => [] as Array<{ id: number; season: string; gw: string; label: string; createdAt: string }>),
           api.teams().catch(() => [] as Array<{ id: number; name: string; ballColor: string | null; ringColor: string | null }>),
+          loadPenaltyTies().catch(() => [] as PenaltyTieFixture[]),
         ]);
         if (active) {
           setState(next);
@@ -106,6 +122,13 @@ export function InsightsPage() {
             ballColor: team.ballColor ?? null,
             ringColor: team.ringColor ?? null,
           })));
+          if (ties.length > 0) {
+            setPenaltyTieQueue(ties);
+            setPenaltyTieIndex(0);
+            setPenaltyStep('notice');
+            setAdvanceAfterPenalties(false);
+            setNotice({ type: 'ok', text: `${ties.length} tie(s) require penalties.` });
+          }
         }
       } catch (error) {
         if (active) {
@@ -123,9 +146,9 @@ export function InsightsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadPenaltyTies]);
 
-  const withAction = async (action: 'lock' | 'unlock' | 'advance' | 'refresh' | 'restore', work: () => Promise<void>) => {
+  const withAction = async (action: 'lock' | 'unlock' | 'advance' | 'rewind' | 'refresh' | 'restore', work: () => Promise<void>) => {
     setBusyAction(action);
     setNotice(null);
     try {
@@ -142,6 +165,15 @@ export function InsightsPage() {
     await withAction('lock', async () => {
       await api.lockGwSafe();
       await refreshState();
+      const ties = await loadPenaltyTies();
+      if (ties.length > 0) {
+        setPenaltyTieQueue(ties);
+        setPenaltyTieIndex(0);
+        setPenaltyStep('notice');
+        setAdvanceAfterPenalties(false);
+        setNotice({ type: 'ok', text: `${ties.length} tie(s) require penalties.` });
+        return;
+      }
       setNotice({ type: 'ok', text: 'Current gameweek locked and snapshot captured.' });
     });
   };
@@ -159,15 +191,15 @@ export function InsightsPage() {
       if (state && !state.gwLocked) {
         await api.lockGwSafe();
       }
-      const ties = await api.cupTies().catch(() => [] as CupTieFixture[]);
+      const ties = await loadPenaltyTies();
       if (ties.length > 0) {
-        setCupTieQueue(ties);
-        setCupTieIndex(0);
+        setPenaltyTieQueue(ties);
+        setPenaltyTieIndex(0);
         setPenaltyStep('notice');
         setAdvanceAfterPenalties(true);
         setNotice({
           type: 'ok',
-          text: 'Cup tie detected. Penalties required before advancing.',
+          text: `${ties.length} tie(s) require penalties before advancing.`,
         });
         return;
       }
@@ -180,40 +212,102 @@ export function InsightsPage() {
     });
   };
 
+  const canRewind = useMemo(() => {
+    if (!state) {
+      return false;
+    }
+    const gwNumber = Number(state.currentGw.replace('GW', ''));
+    if (Number.isFinite(gwNumber) && gwNumber > 1) {
+      return true;
+    }
+    const seasonNumber = Number(state.currentSeason.replace('S', ''));
+    return Number.isFinite(seasonNumber) && seasonNumber > 1;
+  }, [state]);
+
+  const handleRewind = async () => {
+    await withAction('rewind', async () => {
+      if (!state) {
+        return;
+      }
+      const confirmed = window.confirm(`Lock ${state.currentSeason} ${state.currentGw} and go back one gameweek?`);
+      if (!confirmed) {
+        return;
+      }
+      const previous = await api.rewindGw();
+      await api.unlockGw();
+      await refreshState();
+      setNotice({
+        type: 'ok',
+        text: `Moved back to ${previous.currentSeason} ${previous.currentGw}. ${state.currentSeason} ${state.currentGw} is locked and ${previous.currentSeason} ${previous.currentGw} is unlocked.`,
+      });
+    });
+  };
+
   const closePenaltyModal = () => {
     setPenaltyStep('idle');
-    setCupTieQueue([]);
-    setCupTieIndex(0);
+    setPenaltyTieQueue([]);
+    setPenaltyTieIndex(0);
     setAdvanceAfterPenalties(false);
+  };
+
+  const penaltyCompetitionLabel = (competition: PenaltyCompetition): string => {
+    if (competition === 'cup') {
+      return 'Cup Tie';
+    }
+    if (competition === 'super_cup') {
+      return 'Super Cup';
+    }
+    if (competition === 'master_cup') {
+      return 'Master Cup';
+    }
+    if (competition === 'trio_playoff') {
+      return 'Trio Playoff';
+    }
+    return 'GW8 Playoff';
   };
 
   const handleConfirmPenaltyWinner = async (winner: { id: number; name: string }) => {
     if (penaltyBusy) {
       return;
     }
-    if (!activeCupTie) {
+    if (!activePenaltyTie) {
       return;
     }
     setPenaltyBusy(true);
     try {
-      await api.setCupWinner(activeCupTie.fixtureId, winner.id);
-      const nextIndex = cupTieIndex + 1;
-      if (nextIndex < cupTieQueue.length) {
-        setCupTieIndex(nextIndex);
-        setPenaltyStep('shootout');
+      if (activePenaltyTie.competition === 'cup') {
+        await api.setCupWinner(activePenaltyTie.fixtureId, winner.id);
+      } else if (activePenaltyTie.competition === 'super_cup') {
+        await api.setSuperCupWinner(activePenaltyTie.fixtureId, winner.id);
+      } else if (activePenaltyTie.competition === 'master_cup') {
+        await api.setMasterCupWinner(activePenaltyTie.fixtureId, winner.id);
+      } else if (activePenaltyTie.competition === 'trio_playoff') {
+        await api.setTrioPlayoffWinner(activePenaltyTie.fixtureId, winner.id);
       } else {
-        closePenaltyModal();
-        if (advanceAfterPenalties) {
-          const next = await api.advanceGw();
-          await refreshState();
-          setNotice({
-            type: 'ok',
-            text: `Moved to ${next.currentSeason} ${next.currentGw}. Previous gameweek is locked.`,
-          });
-        }
+        await api.setGw8PlayoffWinner(activePenaltyTie.fixtureId, winner.id);
+      }
+      const refreshedQueue = await loadPenaltyTies();
+      if (refreshedQueue.length > 0) {
+        setPenaltyTieQueue(refreshedQueue);
+        setPenaltyTieIndex(0);
+        setPenaltyStep('notice');
+        setNotice({
+          type: 'ok',
+          text: `Winner confirmed. ${refreshedQueue.length} tie(s) still require penalties.`,
+        });
+        return;
+      }
+      closePenaltyModal();
+      if (advanceAfterPenalties) {
+        const next = await api.advanceGw();
+        await refreshState();
+        setNotice({
+          type: 'ok',
+          text: `Moved to ${next.currentSeason} ${next.currentGw}. Previous gameweek is locked.`,
+        });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to set cup winner.';
+      const message = error instanceof Error ? error.message : 'Unable to set penalty winner.';
       setNotice({ type: 'error', text: message });
     } finally {
       setPenaltyBusy(false);
@@ -254,7 +348,7 @@ export function InsightsPage() {
   };
 
   return (
-    <section className="page">
+    <section className="page page-wide">
       <h1>Insights &amp; Tools</h1>
       <p className="muted">Quick access to bookieball management pages.</p>
 
@@ -293,6 +387,14 @@ export function InsightsPage() {
             disabled={busyAction !== null || !state}
           >
             {busyAction === 'advance' ? 'Moving...' : 'Lock + Move to Next GW'}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void handleRewind()}
+            disabled={busyAction !== null || !state || !canRewind}
+          >
+            {busyAction === 'rewind' ? 'Rewinding...' : 'Lock + Go Back 1 GW'}
           </button>
         </div>
         {notice && (
@@ -346,10 +448,6 @@ export function InsightsPage() {
       </div>
 
       <div className="tile-grid">
-        <Link to="/sky-sports-news" className="tile">
-          <h2>Sky Sports News Live</h2>
-          <p>Watch the studio feed at any time with carousel tables and slides.</p>
-        </Link>
         <Link to="/gameshow" className="tile">
           <h2>Kick-Off Show</h2>
           <p>Run the live flow and Step 4 end-of-show recap pages.</p>
@@ -376,35 +474,54 @@ export function InsightsPage() {
         </Link>
       </div>
 
-      {penaltyStep !== 'idle' && activeCupTie && (
+      {penaltyStep !== 'idle' && activePenaltyTie && (
         <div className="overlay">
           <div className="penalty-modal-card">
             <div className="penalty-modal-header">
               <div>
-                <h3>Cup Tie Alert</h3>
+                <h3>{penaltyCompetitionLabel(activePenaltyTie.competition)} Alert</h3>
                 <p className="muted">{tieSummary}</p>
               </div>
               <span className="penalty-modal-count">
-                {cupTieIndex + 1} of {cupTieQueue.length}
+                {penaltyTieIndex + 1} of {penaltyTieQueue.length}
               </span>
             </div>
 
             {penaltyStep === 'notice' ? (
               <>
                 <p className="muted">
-                  These cup ties are level on profit and spins. Penalties decide the winner.
+                  {activePenaltyTie.competition === 'cup'
+                    ? 'This cup tie is level on profit and spins. Penalties decide the winner.'
+                    : activePenaltyTie.competition === 'super_cup'
+                      ? 'This Super Cup tie is level on profit. Penalties decide the winner.'
+                    : activePenaltyTie.competition === 'master_cup'
+                      ? /semi-final/i.test(activePenaltyTie.roundName)
+                        ? 'This Master Cup semi-final is level on aggregate profit. Penalties decide the winner.'
+                        : 'This Master Cup tie is level on profit. Penalties decide the winner.'
+                    : activePenaltyTie.competition === 'trio_playoff'
+                      ? 'This Trio playoff tie is level on profit. Penalties decide the winner.'
+                      : 'This GW8 playoff tie is level on profit. Spins are ignored and penalties decide the winner.'}
                 </p>
                 <ul className="penalty-tie-list">
-                  {cupTieQueue.map((tie, index) => (
+                  {penaltyTieQueue.map((tie, index) => (
                     <li
-                      key={tie.fixtureId}
-                      className={`penalty-tie-item${index === cupTieIndex ? ' active' : ''}`}
+                      key={`${tie.competition}-${tie.fixtureId}`}
+                      className={`penalty-tie-item${index === penaltyTieIndex ? ' active' : ''}`}
                     >
-                      <strong>{tie.roundName}</strong>
+                      <strong>{tie.competition === 'gw8_playoff' ? 'GW8 Playoff' : tie.roundName}</strong>
                       <span>{tie.homeTeamName} vs {tie.awayTeamName}</span>
                       <span className="penalty-tie-metrics">
-                        Profit {tie.homeProfit} • {tie.homeSpins} spins
-                        {' '}| Profit {tie.awayProfit} • {tie.awaySpins} spins
+                        {tie.competition === 'cup'
+                          ? `Profit ${tie.homeProfit} • ${tie.homeSpins} spins | Profit ${tie.awayProfit} • ${tie.awaySpins} spins`
+                          : tie.competition === 'super_cup'
+                            ? `Profit ${tie.homeProfit} | Profit ${tie.awayProfit} (penalties required)`
+                          : tie.competition === 'master_cup'
+                            ? /semi-final/i.test(tie.roundName)
+                              ? `Aggregate ${tie.homeProfit} • ${tie.homeSpins} spins | Aggregate ${tie.awayProfit} • ${tie.awaySpins} spins`
+                              : `Profit ${tie.homeProfit} • ${tie.homeSpins} spins | Profit ${tie.awayProfit} • ${tie.awaySpins} spins`
+                          : tie.competition === 'trio_playoff'
+                            ? `Profit ${tie.homeProfit} | Profit ${tie.awayProfit} (penalties required)`
+                            : `Profit ${tie.homeProfit} | Profit ${tie.awayProfit} (spins ignored)`}
                       </span>
                     </li>
                   ))}
@@ -417,34 +534,37 @@ export function InsightsPage() {
                   >
                     Take penalties
                   </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={closePenaltyModal}
-                  >
-                    Close
-                  </button>
+                  {!activePenaltyIsOverdue && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closePenaltyModal}
+                    >
+                      Close
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
               <>
                 <PenaltyShootoutBoard
                   homeTeam={{
-                    id: activeCupTie.homeTeamId,
-                    name: activeCupTie.homeTeamName,
-                    ballColor: penaltyTeamById.get(activeCupTie.homeTeamId)?.ballColor ?? null,
-                    ringColor: penaltyTeamById.get(activeCupTie.homeTeamId)?.ringColor ?? null,
+                    id: activePenaltyTie.homeTeamId,
+                    name: activePenaltyTie.homeTeamName,
+                    ballColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ballColor ?? null,
+                    ringColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ringColor ?? null,
                   }}
                   awayTeam={{
-                    id: activeCupTie.awayTeamId,
-                    name: activeCupTie.awayTeamName,
-                    ballColor: penaltyTeamById.get(activeCupTie.awayTeamId)?.ballColor ?? null,
-                    ringColor: penaltyTeamById.get(activeCupTie.awayTeamId)?.ringColor ?? null,
+                    id: activePenaltyTie.awayTeamId,
+                    name: activePenaltyTie.awayTeamName,
+                    ballColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ballColor ?? null,
+                    ringColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ringColor ?? null,
                   }}
-                  resetKey={`${activeCupTie.fixtureId}-${cupTieIndex}`}
+                  resetKey={`${activePenaltyTie.competition}-${activePenaltyTie.fixtureId}-${penaltyTieIndex}`}
                   autoStart
                   startLabel="Take penalties"
                   confirmLabel={penaltyBusy ? 'Saving...' : 'Confirm winner'}
+                  confirmDisabled={penaltyBusy}
                   onConfirmWinner={(winner) => {
                     if (penaltyBusy) {
                       return;
@@ -454,21 +574,29 @@ export function InsightsPage() {
                 />
                 <div className="penalty-fixture-meta">
                   <span className="muted">
-                    Tie on profit/spins: {activeCupTie.homeProfit} ({activeCupTie.homeSpins} spins) vs
-                    {' '}
-                    {activeCupTie.awayProfit} ({activeCupTie.awaySpins} spins).
+                    {activePenaltyTie.competition === 'cup'
+                      ? `Tie on profit/spins: ${activePenaltyTie.homeProfit} (${activePenaltyTie.homeSpins} spins) vs ${activePenaltyTie.awayProfit} (${activePenaltyTie.awaySpins} spins).`
+                      : activePenaltyTie.competition === 'master_cup'
+                        ? /semi-final/i.test(activePenaltyTie.roundName)
+                          ? `Aggregate tie: ${activePenaltyTie.homeProfit} (${activePenaltyTie.homeSpins} spins) vs ${activePenaltyTie.awayProfit} (${activePenaltyTie.awaySpins} spins).`
+                          : `Tie on profit/spins: ${activePenaltyTie.homeProfit} (${activePenaltyTie.homeSpins} spins) vs ${activePenaltyTie.awayProfit} (${activePenaltyTie.awaySpins} spins).`
+                      : activePenaltyTie.competition === 'trio_playoff'
+                        ? `Tie on profit: ${activePenaltyTie.homeProfit} vs ${activePenaltyTie.awayProfit}. Trio playoffs now go straight to penalties.`
+                        : `Tie on profit: ${activePenaltyTie.homeProfit} vs ${activePenaltyTie.awayProfit}. Spins do not apply in GW8 playoffs.`}
                   </span>
                 </div>
-                <div className="grid-row">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={closePenaltyModal}
-                    disabled={penaltyBusy}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                {!activePenaltyIsOverdue && (
+                  <div className="grid-row">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closePenaltyModal}
+                      disabled={penaltyBusy}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

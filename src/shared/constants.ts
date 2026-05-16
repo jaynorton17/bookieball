@@ -19,8 +19,89 @@ export const DIVISION_SLOTS: Record<(typeof DIVISION_ORDER)[number], number> = {
   'Awful Bookies': 4,
 };
 
-export type DivisionName = (typeof DIVISION_ORDER)[number];
+export const SEASON_FIVE_EXPANSION_START = 5;
+export const SEASON_SIX_TIER_LEAGUE_START = 6;
+export const SEASON_SEVEN_FULL_TIER_LEAGUE_START = 7;
+export const DIVISION_FOUR = 'Division 4 Bookies' as const;
+export const TRIO_DIVISION_ORDER = [
+  'Premier League',
+  'Ligue 1',
+  'Bundesliga',
+] as const;
+export const TRIO_DIVISION_SIZE = 8;
+export const TRIO_REGULAR_SEASON_GAMEWEEKS = 6;
+export const TIER_LEAGUE_DIVISION_ORDER = [
+  'Legendary',
+  'Masters',
+  'Elite',
+  'Superior',
+  'Standard',
+  'Average',
+  'Poor',
+  'Awful',
+] as const;
+export const TIER_LEAGUE_DIVISION_SIZE = 3;
+export const TIER_LEAGUE_GAMEWEEKS = ['GW4', 'GW5', 'GW6', 'GW7', 'GW8'] as const;
+export const TIER_LEAGUE_START_GW = 'GW4' as const;
+export const TIER_LEAGUE_END_GW = 'GW8' as const;
+
+export type DivisionName = (typeof DIVISION_ORDER)[number] | typeof DIVISION_FOUR;
+export type TrioDivisionName = (typeof TRIO_DIVISION_ORDER)[number];
+export type TierLeagueDivisionName = (typeof TIER_LEAGUE_DIVISION_ORDER)[number];
 export type Gameweek = (typeof GAMEWEEKS)[number];
+
+function parseSeasonNumber(season: string): number {
+  const match = String(season).match(/(\d+)/);
+  if (!match?.[1]) {
+    return 0;
+  }
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function isSeasonFiveOrLater(season: string): boolean {
+  return parseSeasonNumber(season) >= SEASON_FIVE_EXPANSION_START;
+}
+
+export function isSeasonSixOrLater(season: string): boolean {
+  return parseSeasonNumber(season) >= SEASON_SIX_TIER_LEAGUE_START;
+}
+
+export function isSeasonSevenOrLater(season: string): boolean {
+  return parseSeasonNumber(season) >= SEASON_SEVEN_FULL_TIER_LEAGUE_START;
+}
+
+export function getTierLeagueGameweeksForSeason(season: string): Gameweek[] {
+  if (isSeasonSevenOrLater(season)) {
+    return [...GAMEWEEKS];
+  }
+  return [...TIER_LEAGUE_GAMEWEEKS];
+}
+
+export function getTierLeagueStartGwForSeason(season: string): Gameweek {
+  return isSeasonSevenOrLater(season) ? 'GW1' : TIER_LEAGUE_START_GW;
+}
+
+export function getTierLeagueEndGwForSeason(_season: string): Gameweek {
+  return TIER_LEAGUE_END_GW;
+}
+
+export function getDivisionOrderForSeason(season: string): DivisionName[] {
+  if (isSeasonFiveOrLater(season)) {
+    return [...DIVISION_ORDER, DIVISION_FOUR];
+  }
+  return [...DIVISION_ORDER];
+}
+
+export function getDivisionSlotsForSeason(season: string): Record<string, number> {
+  if (isSeasonFiveOrLater(season)) {
+    return {
+      ...DIVISION_SLOTS,
+      [DIVISION_FOUR]: 4,
+    };
+  }
+  return { ...DIVISION_SLOTS };
+}
 
 export const DEFAULT_TEAMS = [
   { teamId: 'midnite', name: 'Midnite', url: 'https://www.midnite.com', ballColor: '#00A651', ringColor: '#000000', textColor: '#FFFFFF' },

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LeagueTabs } from '../components/CompetitionTabs';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
+import { isOfficialDivisionFixture, recentForm } from '../lib/formUtils';
 
 type AllTimeLeagueMode = 'points' | 'spins' | 'profit';
 
@@ -59,15 +61,27 @@ export function AllTimeLeaguesPage({ mode }: AllTimeLeaguesPageProps) {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [payload, setPayload] = useState<AllTimeLeaguesPayload | null>(null);
+  const [currentSeason, setCurrentSeason] = useState<string | null>(null);
+  const [leagueFixtures, setLeagueFixtures] = useState<
+    Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; result: 'home' | 'away' | 'draw' | 'pending' }>
+  >([]);
 
   const reload = async () => {
     setLoading(true);
     try {
-      const next = await api.allTimeLeagues();
+      const nextState = await api.state();
+      const [next, nextFixtures] = await Promise.all([
+        api.allTimeLeagues(),
+        api.leagueFixtures(undefined, true, nextState.currentSeason),
+      ]);
       setPayload(next);
+      setCurrentSeason(nextState.currentSeason);
+      setLeagueFixtures(nextFixtures);
       setMessage('');
     } catch (error) {
       setPayload(null);
+      setCurrentSeason(null);
+      setLeagueFixtures([]);
       setMessage(
         error instanceof Error
           ? `All-Time leagues API unavailable: ${error.message}`
@@ -95,14 +109,33 @@ export function AllTimeLeaguesPage({ mode }: AllTimeLeaguesPageProps) {
     return payload.pointsTable;
   }, [mode, payload]);
 
+  const formForTeam = (teamName: string) => recentForm({
+    fixtures: leagueFixtures,
+    include: (fixture) =>
+      fixture.result !== 'pending'
+      && isOfficialDivisionFixture(fixture.division, fixture.gw)
+      && (fixture.homeTeam === teamName || fixture.awayTeam === teamName),
+    resultOf: (fixture) => {
+      if (fixture.result === 'draw') {
+        return 'D';
+      }
+      const win = (fixture.result === 'home' && fixture.homeTeam === teamName) || (fixture.result === 'away' && fixture.awayTeam === teamName);
+      return win ? 'W' : 'L';
+    },
+    getGw: (fixture) => fixture.gw,
+    getSecondarySort: (fixture) => fixture.id,
+  });
+
   return (
-    <section className="page">
+    <section className="page page-wide">
       <h1>{MODE_COPY[mode].title}</h1>
       <p className="muted">
         {payload
           ? `Division fixtures only, from ${payload.fromSeason} ${payload.fromGw} to ${payload.toSeason} ${payload.toGw}.`
           : 'Loading all-time standings...'}
       </p>
+
+      <LeagueTabs activeId="all-time" />
 
       <div className="tab-row">
         <Link to="/all-time-league" className={`tab-button ${mode === 'points' ? 'active' : ''}`}>
@@ -124,53 +157,69 @@ export function AllTimeLeaguesPage({ mode }: AllTimeLeaguesPageProps) {
           </button>
         </div>
         <p className="muted">{MODE_COPY[mode].subtitle}</p>
+        {currentSeason && <p className="muted">Form bubbles use {currentSeason} official division fixtures only.</p>}
         {message && <p className="muted">{message}</p>}
         {loading ? (
           <p className="muted">Loading table...</p>
         ) : activeRows.length === 0 ? (
           <p className="muted">No all-time rows yet.</p>
         ) : (
-          <table className="scoreboard-table master-league-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Team</th>
-                <th>P</th>
-                <th>W</th>
-                <th>D</th>
-                <th>L</th>
-                <th>Pts</th>
-                <th>Prof</th>
-                <th>Spins</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activeRows.map((row) => (
-                <tr key={`all-time-${mode}-${row.teamId}`}>
-                  <td>{row.rank}</td>
-                  <td>
-                    <span className="master-team-cell">
-                      <TeamBadge
-                        name={row.teamName}
-                        ballColor={row.ballColor}
-                        ringColor={row.ringColor}
-                        textColor={row.textColor}
-                        size={18}
-                      />
-                      <span>{row.teamName}</span>
-                    </span>
-                  </td>
-                  <td>{row.played}</td>
-                  <td>{row.wins}</td>
-                  <td>{row.draws}</td>
-                  <td>{row.losses}</td>
-                  <td>{row.points}</td>
-                  <td>{formatProfit(row.profit)}</td>
-                  <td>{row.spins}</td>
+          <div className="table-scroll">
+            <table className="scoreboard-table master-league-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Team</th>
+                  <th>PLD</th>
+                  <th>W</th>
+                  <th>L</th>
+                  <th>D</th>
+                  <th>Pts</th>
+                  <th>Spins</th>
+                  <th>Profit</th>
+                  <th>Form (Last 5)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {activeRows.map((row) => (
+                  <tr key={`all-time-${mode}-${row.teamId}`}>
+                    <td>{row.rank}</td>
+                    <td>
+                      <span className="master-team-cell">
+                        <TeamBadge
+                          name={row.teamName}
+                          ballColor={row.ballColor}
+                          ringColor={row.ringColor}
+                          textColor={row.textColor}
+                          size={18}
+                        />
+                        <span>{row.teamName}</span>
+                      </span>
+                    </td>
+                    <td>{row.played}</td>
+                    <td>{row.wins}</td>
+                    <td>{row.losses}</td>
+                    <td>{row.draws}</td>
+                    <td>{row.points}</td>
+                    <td>{row.spins}</td>
+                    <td>{formatProfit(row.profit)}</td>
+                    <td>
+                      <div className="form-mini-row">
+                        {formForTeam(row.teamName).map((result, index) => (
+                          <span
+                            key={`all-time-form-${mode}-${row.teamId}-${index}-${result}`}
+                            className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}
+                          >
+                            {result}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </section>

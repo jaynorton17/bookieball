@@ -21,6 +21,13 @@ export type SeasonFinalePayload = {
     swapped: boolean;
   }>;
   cupWinner: { teamId: number; teamName: string } | null;
+  superCup: {
+    sourceSeason: string;
+    pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+    pairingExplanation: string;
+    winner: { teamId: number; teamName: string } | null;
+    runnerUp: { teamId: number; teamName: string } | null;
+  } | null;
   standout: Array<{ label: string; value: string }>;
   goalsOfSeason: Array<{ division: string; teamId: number; teamName: string; profit: number }>;
   bookieDor: {
@@ -140,6 +147,17 @@ export function buildSeasonFinaleSlides(payload?: SeasonFinalePayload | null): F
       : ['Cup winner: TBD'],
   });
 
+  slides.push({
+    title: 'Super Cup',
+    lines: payload.superCup?.winner
+      ? [
+          `Winner: ${payload.superCup.winner.teamName}`,
+          payload.superCup.runnerUp ? `Runner-up: ${payload.superCup.runnerUp.teamName}` : 'Runner-up: TBD',
+          payload.superCup.pairingExplanation,
+        ]
+      : ['Super Cup winner: TBD'],
+  });
+
   if (payload.bookieDor?.winner) {
     const winner = payload.bookieDor.winner;
     const leaderboard = payload.bookieDor.leaderboard.slice(0, 3);
@@ -148,9 +166,8 @@ export function buildSeasonFinaleSlides(payload?: SeasonFinalePayload | null): F
       : null;
     const winnerScore = safeNumber(winner.score);
     const weightedLeague = safeNumber(winner.weightedLeagueScore, safeNumber(winner.leagueScore));
-    const weightedCup = safeNumber(winner.weightedCupScore, safeNumber(winner.cupScore));
     const weightedMaster = safeNumber(winner.weightedMasterScore, safeNumber(winner.masterScore));
-    const weightedConsistency = safeNumber(winner.weightedConsistencyScore, safeNumber(winner.consistencyScore));
+    const weightedTrio = safeNumber(winner.weightedConsistencyScore, safeNumber(winner.consistencyScore));
     slides.push({
       title: "Bookie d'Or",
       lines: [
@@ -161,8 +178,8 @@ export function buildSeasonFinaleSlides(payload?: SeasonFinalePayload | null): F
           ],
           `${seed}:dor-winner`,
         ),
-        `Score: ${winnerScore.toFixed(1)} • League ${weightedLeague.toFixed(1)} • Cup ${weightedCup.toFixed(1)} • Master ${weightedMaster.toFixed(1)} • Consistency ${weightedConsistency.toFixed(1)}`,
-        `Weights: League ${Math.round((payload.bookieDor.weights?.league ?? 0) * 100)}% • Cup ${Math.round((payload.bookieDor.weights?.cup ?? 0) * 100)}% • Master ${Math.round((payload.bookieDor.weights?.master ?? 0) * 100)}% • Consistency ${Math.round((payload.bookieDor.weights?.consistency ?? 0) * 100)}%`,
+        `Score: ${winnerScore.toFixed(1)} • Divisions ${weightedLeague.toFixed(1)} • Cups ${safeNumber(winner.weightedCupScore, safeNumber(winner.cupScore)).toFixed(1)} • Master ${weightedMaster.toFixed(1)} • Trio + Tier ${weightedTrio.toFixed(1)}`,
+        `Category shares: Divisions ${Math.round((payload.bookieDor.weights?.league ?? 0) * 100)}% • Cups ${Math.round((payload.bookieDor.weights?.cup ?? 0) * 100)}% • Master ${Math.round((payload.bookieDor.weights?.master ?? 0) * 100)}% • Trio + Tier ${Math.round((payload.bookieDor.weights?.consistency ?? 0) * 100)}%`,
         `League finish: ${formatOrdinal(winner.leagueRank)} • Cup: ${winner.cupFinish}`,
         ...(leaderboardLine ? [leaderboardLine] : []),
       ],
@@ -225,7 +242,7 @@ export function buildSeasonFinaleSlides(payload?: SeasonFinalePayload | null): F
   });
 
   const standoutLines = payload.standout
-    .filter((row) => row.label !== 'Cup Winner')
+    .filter((row) => row.label !== 'Cup Winner' && row.label !== 'Super Cup Winner')
     .map((row) => `${row.label}: ${row.value}`);
   if (standoutLines.length > 0) {
     slides.push({

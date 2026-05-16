@@ -1,12 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
-import { displayDivisionName } from '../lib/divisionLabels';
+import { cupFixtureDetailLabel, cupFixtureScoreLabel } from '../lib/cupDisplay';
+import { recoverCupFixturesFromEntries } from '../lib/cupScoreRecovery';
+import { displayDivisionName, getDivisionOrderForSeason, isSeasonFiveOrLater, isSeasonSixOrLater, sortDivisionNames } from '../lib/divisionLabels';
+import {
+  buildFixtureOdds,
+  buildOutrightOdds,
+  type OddsCurrentRow,
+  type OddsTeamProfile,
+} from '../lib/kickoffOdds';
+import {
+  buildLeagueForecastTable,
+  type LeagueForecastRules,
+  type LeagueForecastRow,
+  type LeagueForecastTrend,
+} from '../lib/leagueForecast';
 import { pickPregamePreviewLines } from '../lib/pregamePreviewBank';
 import { pickRecapReviewLines } from '../lib/recapReviewBank';
 import { buildSeasonFinaleSlides } from '../lib/seasonFinaleSlides';
 import type { FixtureSlideStatusCode, WeeklyFixtureStatusCode } from '../lib/statusCodes';
-import { PredictionTrendChart } from '../components/PredictionTrendChart';
+import {
+  CompetitionBracketBoard,
+  LiveOddsMeter,
+  type CompetitionBracketRound,
+  type VerifiedFactRailItem,
+} from '../components/StudioLiveWidgets';
+import { TeamBadge } from '../components/TeamBadge';
 import {
   SkyStudioPanel,
   type SkyStudioBroadcastPackage,
@@ -14,8 +34,8 @@ import {
 } from '../components/SkyStudioPanel';
 
 const GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
+const OFFICIAL_DIVISION_GAMEWEEKS = GAMEWEEKS.slice(0, 7);
 const RECAP_FIXTURES_PAGE_SIZE = 8;
-const RECAP_DIVISION_ORDER = ['Champions Bookies', 'Premier Bookies', 'Average Bookies', 'Struggling Bookies', 'Awful Bookies'];
 
 type Draw = {
   teamId: number;
@@ -40,11 +60,21 @@ type CupFixture = {
   homeTeam: string | null;
   awayTeam: string | null;
   winnerTeam: string | null;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+  played: boolean;
+  result: 'home' | 'away' | 'draw' | 'pending';
+  decidedBy: 'profit' | 'spins' | 'penalties' | 'tie_break' | 'bye' | 'pending';
 };
+
+type SuperCupFixture = Awaited<ReturnType<typeof api.superCup>>[number];
 
 type Team = {
   id: number;
   name: string;
+  division: string;
   ballColor: string | null;
   ringColor: string | null;
   textColor: string | null;
@@ -62,10 +92,12 @@ type Team = {
   } | null;
 };
 
+type PredictionCompetition = 'league' | 'cup' | 'master' | 'master_cup' | 'trio' | 'tier';
+
 type PredictionRow = {
   id: number;
   gw: string;
-  competition: 'league' | 'cup';
+  competition: PredictionCompetition;
   fixtureId: number;
   picker: string;
   pickOutcome: 'team' | 'draw';
@@ -74,6 +106,11 @@ type PredictionRow = {
   predictedHomeScore: number | null;
   predictedAwayScore: number | null;
   createdAt: string;
+};
+
+type PredictionSlateRow = {
+  competition: PredictionCompetition;
+  fixtureId: number;
 };
 
 type PredictionScoreboard = {
@@ -104,6 +141,105 @@ type MasterLeagueFixture = {
   awayTeamId: number;
   homeTeam: string;
   awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+};
+
+type MasterCupFixture = {
+  id: number;
+  gw: string;
+  stage: 'round_of_16' | 'quarter_final' | 'semi_final' | 'third_place_playoff' | 'final';
+  legNumber: number;
+  tieSlot: number;
+  roundName: string;
+  homeTeamId: number | null;
+  awayTeamId: number | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  homeSeed: number | null;
+  awaySeed: number | null;
+  winnerTeamId: number | null;
+  winnerTeam: string | null;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+  aggregateHomeProfit: number | null;
+  aggregateAwayProfit: number | null;
+  aggregateHomeSpins: number | null;
+  aggregateAwaySpins: number | null;
+  played: boolean;
+  result: 'home' | 'away' | 'draw' | 'pending';
+  decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending';
+};
+
+type TrioFixture = {
+  id: number;
+  gw: string;
+  division: string;
+  stage: 'regular' | 'playoff_semi' | 'playoff_final';
+  groupSlot: number;
+  homeTeamId: number;
+  awayTeamId: number;
+  homeTeam: string;
+  awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+  winnerTeamId: number | null;
+};
+
+type TrioLeagueTableRow = {
+  division: string;
+  teamId: number;
+  teamName: string;
+  ballColor: string | null;
+  ringColor: string | null;
+  textColor: string | null;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  profit: number;
+  spins: number;
+  rank: number;
+};
+
+type TierLeagueTableRow = {
+  division: string;
+  teamId: number;
+  teamName: string;
+  ballColor: string | null;
+  ringColor: string | null;
+  textColor: string | null;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  profit: number;
+  spins: number;
+  rank: number;
+};
+
+type TierLeagueFixture = {
+  id: number;
+  gw: string;
+  division: string;
+  fixtureType: 'division' | 'cross';
+  groupSlot: number;
+  homeTeamId: number;
+  awayTeamId: number;
+  homeTeam: string;
+  awayTeam: string;
+  homeDivision: string | null;
+  awayDivision: string | null;
   homeProfit: number;
   awayProfit: number;
   homeSpins: number;
@@ -176,6 +312,13 @@ type SeasonFinale = {
       swapped: boolean;
     }>;
     cupWinner: { teamId: number; teamName: string } | null;
+    superCup: {
+      sourceSeason: string;
+      pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+      pairingExplanation: string;
+      winner: { teamId: number; teamName: string } | null;
+      runnerUp: { teamId: number; teamName: string } | null;
+    } | null;
     standout: Array<{ label: string; value: string }>;
     goalsOfSeason: Array<{ division: string; teamId: number; teamName: string; profit: number }>;
     bookieDor: {
@@ -269,6 +412,13 @@ type TeamSeasonHistoryRow = {
   draws: number;
   losses: number;
   cupFinish: string;
+  superCupFinish?: string;
+};
+
+type TeamSeasonPredictionRace = {
+  jayCorrect: number;
+  computerCorrect: number;
+  resolved: number;
 };
 
 type LogRow = {
@@ -304,12 +454,52 @@ type StorylinePayload = {
   summary: { fixtures: number; resolved: number; cupFixtures: number; cupResolved: number };
 };
 
-function hasLogRowInput(row: LogRow): boolean {
+const AUTO_STAKE_PROFIT_START_SEASON = 4;
+
+function parseSeasonNumber(season: string): number {
+  const numeric = Number(season.replace('S', ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function isAutoStakeProfitSeason(season: string): boolean {
+  return parseSeasonNumber(season) >= AUTO_STAKE_PROFIT_START_SEASON;
+}
+
+function parseLogNumber(value: string): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function logRowStakeContribution(row: LogRow): number {
+  const stake = parseLogNumber(row.stake);
+  if (row.entryType === 'free_spins') {
+    return parseLogNumber(row.spins) * stake;
+  }
+  return stake;
+}
+
+function effectiveLogRowProfit(row: LogRow, season: string): number {
+  const reportedProfit = parseLogNumber(row.profit);
+  if (!isAutoStakeProfitSeason(season)) {
+    return reportedProfit;
+  }
+  return Number((reportedProfit + logRowStakeContribution(row)).toFixed(2));
+}
+
+function hasLogRowInput(row: LogRow, season: string): boolean {
   const profit = Number(row.profit);
   const spins = Number(row.spins);
+  const stake = Number(row.stake);
   return (
     (row.profit.trim() !== '' && Number.isFinite(profit) && profit !== 0)
     || (row.entryType === 'free_spins' && row.spins.trim() !== '' && Number.isFinite(spins) && spins !== 0)
+    || (
+      isAutoStakeProfitSeason(season)
+      && row.entryType === 'bonus'
+      && row.stake.trim() !== ''
+      && Number.isFinite(stake)
+      && stake !== 0
+    )
   );
 }
 
@@ -378,6 +568,487 @@ function formatOutcome(result: 'home' | 'away' | 'draw' | 'pending', homeTeam: s
     return 'Draw';
   }
   return `${result === 'home' ? homeTeam : awayTeam} won`;
+}
+
+type ComparableLeagueRow = {
+  teamName: string;
+  rank: number;
+  points: number;
+  profit: number;
+  spins: number;
+  wins: number;
+};
+
+function compareLeagueRowsByRank(left: ComparableLeagueRow, right: ComparableLeagueRow): number {
+  const equalStandingsMetrics = (
+    left.points === right.points
+    && left.profit === right.profit
+    && left.spins === right.spins
+    && left.wins === right.wins
+  );
+  if (equalStandingsMetrics) {
+    return left.teamName.localeCompare(right.teamName);
+  }
+  const leftRank = Number(left.rank);
+  const rightRank = Number(right.rank);
+  const hasLeftRank = Number.isFinite(leftRank) && leftRank > 0;
+  const hasRightRank = Number.isFinite(rightRank) && rightRank > 0;
+  if (hasLeftRank && hasRightRank && leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  if (hasLeftRank !== hasRightRank) {
+    return hasLeftRank ? -1 : 1;
+  }
+  if (right.points !== left.points) {
+    return right.points - left.points;
+  }
+  if (right.profit !== left.profit) {
+    return right.profit - left.profit;
+  }
+  if (right.spins !== left.spins) {
+    return right.spins - left.spins;
+  }
+  if (right.wins !== left.wins) {
+    return right.wins - left.wins;
+  }
+  return left.teamName.localeCompare(right.teamName);
+}
+
+function isPlaceholderTeam(name: string | null | undefined): boolean {
+  if (!name) {
+    return true;
+  }
+  const upper = name.trim().toUpperCase();
+  return upper === 'BYE' || upper === 'TBD' || upper === 'NO FIXTURE';
+}
+
+function cupSideLabel(fixture: CupFixture, side: 'home' | 'away'): string {
+  const team = side === 'home' ? fixture.homeTeam : fixture.awayTeam;
+  const other = side === 'home' ? fixture.awayTeam : fixture.homeTeam;
+  if (team) {
+    return team;
+  }
+  if (fixture.gw === 'GW2' && other) {
+    return 'BYE';
+  }
+  return 'TBD';
+}
+
+function gw8FixtureCompetitionLabel(division: string): 'PLAY OFF Fixture' | 'Friendly Fixture' {
+  return /playoff/i.test(division) ? 'PLAY OFF Fixture' : 'Friendly Fixture';
+}
+
+function isGw8DivisionPlayoffFixture(fixture: { gw: string; division: string }): boolean {
+  return fixture.gw.trim().toUpperCase() === 'GW8' && /playoff/i.test(fixture.division);
+}
+
+function leagueFixtureAllowsDraw(fixture: { gw: string; division: string }): boolean {
+  return !isGw8DivisionPlayoffFixture(fixture);
+}
+
+function trioFixtureAllowsDraw(fixture: { stage: TrioFixture['stage'] }): boolean {
+  return fixture.stage === 'regular';
+}
+
+function trioStageLabel(fixture: TrioFixture): string {
+  if (fixture.stage === 'playoff_semi') {
+    return 'Playoff Semi-Final';
+  }
+  if (fixture.stage === 'playoff_final') {
+    return 'Playoff Final';
+  }
+  return 'Regular Season';
+}
+
+function trioFixtureCompetitionLabel(fixture: TrioFixture): string {
+  const division = fixture.division;
+  const stage = trioStageLabel(fixture);
+  return fixture.stage === 'regular' ? `Trio League • ${division}` : `Trio League • ${division} • ${stage}`;
+}
+
+function tierFixtureCompetitionLabel(fixture: TierLeagueFixture): string {
+  if (fixture.fixtureType === 'cross') {
+    const homeDivision = fixture.homeDivision ?? 'Unknown';
+    const awayDivision = fixture.awayDivision ?? 'Unknown';
+    return `Tier League • Cross-Tier • ${homeDivision} vs ${awayDivision}`;
+  }
+  return `Tier League • ${fixture.division}`;
+}
+
+type PredictionSlateFixture = {
+  key: string;
+  competition: PredictionCompetition;
+  fixtureId: number;
+  competitionLabel: string;
+  detailLabel: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamId: number | null;
+  awayTeamId: number | null;
+  allowsDraw: boolean;
+};
+
+type PredictionRecapFixtureRow = {
+  key: string;
+  competitionLabel: string;
+  detailLabel: string;
+  fixtureLabel: string;
+  actualLabel: string;
+  jayPick: string;
+  computerPick: string;
+  jayState: 'correct' | 'missed' | 'pending';
+  computerState: 'correct' | 'missed' | 'pending';
+};
+
+type PredictionPickPayload = {
+  fixtureId: number;
+  pickTeamId: number | null;
+  pickOutcome: 'team' | 'draw';
+  predictedHomeScore: number | null;
+  predictedAwayScore: number | null;
+};
+
+function predictionCompetitionLabel(competition: PredictionCompetition): string {
+  if (competition === 'league') {
+    return 'League';
+  }
+  if (competition === 'cup') {
+    return 'BookieBall Cup';
+  }
+  if (competition === 'master') {
+    return 'Master League';
+  }
+  if (competition === 'master_cup') {
+    return 'Master Cup';
+  }
+  if (competition === 'trio') {
+    return 'Trio League';
+  }
+  return 'Tier League';
+}
+
+type OddsBoardRow = {
+  key: string;
+  label: string;
+  odds: number;
+  probability: number;
+  detail?: string;
+  facts: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }>;
+  ballColor?: string | null;
+  ringColor?: string | null;
+  textColor?: string | null;
+};
+
+type FixtureOddsCard = {
+  key: string;
+  title: string;
+  fixture: string;
+  badgeTone: 'league' | 'master' | 'trio' | 'cup';
+  stamp: string;
+  stampTone: 'live' | 'movement' | 'warning' | 'positive' | 'fixtures';
+  homeTeam: string;
+  awayTeam: string;
+  homeOdds: number;
+  drawOdds: number | null;
+  awayOdds: number;
+  homeProbability: number;
+  drawProbability: number;
+  awayProbability: number;
+  allowsDraw: boolean;
+  reason: string;
+  detail?: string;
+  marketNote: string;
+  homeFacts: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }>;
+  drawFacts: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }>;
+  awayFacts: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }>;
+  homeBallColor?: string | null;
+  homeRingColor?: string | null;
+  homeTextColor?: string | null;
+  awayBallColor?: string | null;
+  awayRingColor?: string | null;
+  awayTextColor?: string | null;
+};
+
+function formatOdds(value: number): string {
+  return value >= 20 ? value.toFixed(1) : value.toFixed(2);
+}
+
+function formatProbability(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function probabilityToOdds(probability: number): number {
+  const safeProbability = Math.max(0.02, Math.min(0.88, probability));
+  return Number((1 / safeProbability).toFixed(2));
+}
+
+function normalizeMarketProbabilities(home: number, draw: number, away: number): {
+  home: number;
+  draw: number;
+  away: number;
+} {
+  const safeHome = Math.max(0.05, home);
+  const safeDraw = Math.max(0.08, draw);
+  const safeAway = Math.max(0.05, away);
+  const total = safeHome + safeDraw + safeAway;
+  return {
+    home: safeHome / total,
+    draw: safeDraw / total,
+    away: safeAway / total,
+  };
+}
+
+function countHistoricalTitles(rows: Array<{ rank: number }>): number {
+  return rows.filter((row) => row.rank === 1).length;
+}
+
+function latestArchivedSeasonRow<T extends { season: string }>(rows: T[], currentSeason: string): T | null {
+  return rows
+    .filter((row) => row.season !== currentSeason)
+    .slice()
+    .sort((left, right) => seasonSortValue(right.season) - seasonSortValue(left.season))[0] ?? null;
+}
+
+function compactRecord(row: OddsCurrentRow): string {
+  return `W${row.wins} D${row.draws} L${row.losses}`;
+}
+
+function competitionBadgeTone(
+  competition: 'division' | 'master' | 'trio' | 'cup' | 'master_cup',
+): 'league' | 'master' | 'trio' | 'cup' {
+  if (competition === 'master' || competition === 'master_cup') {
+    return 'master';
+  }
+  if (competition === 'trio') {
+    return 'trio';
+  }
+  if (competition === 'cup') {
+    return 'cup';
+  }
+  return 'league';
+}
+
+function toOddsCurrentRow(row: {
+  teamId: number;
+  teamName: string;
+  rank: number;
+  played: number;
+  points: number;
+  profit: number;
+  spins: number;
+  wins: number;
+  draws: number;
+  losses: number;
+} | null | undefined): OddsCurrentRow | null {
+  if (!row) {
+    return null;
+  }
+  return {
+    teamId: row.teamId,
+    teamName: row.teamName,
+    rank: row.rank,
+    played: row.played,
+    points: row.points,
+    profit: row.profit,
+    spins: row.spins,
+    wins: row.wins,
+    draws: row.draws,
+    losses: row.losses,
+  };
+}
+
+type SpotlightFixtureOdds = {
+  homeTeam: string;
+  awayTeam: string;
+  homeOdds: string;
+  drawOdds: string | null;
+  awayOdds: string;
+  allowsDraw: boolean;
+  reason: string;
+  confidence: string;
+  context: string;
+};
+
+function buildDivisionForecastRules(division: string, teamCount: number): LeagueForecastRules {
+  const normalized = division.trim().toLowerCase();
+  const isChampions = normalized.includes('champion');
+  return {
+    titlePositions: [1],
+    topHalfCutoff: Math.max(1, Math.ceil(teamCount / 2)),
+    bottomPositions: [teamCount],
+    promotionPositions: isChampions ? [] : [1],
+    relegationPositions: [teamCount],
+  };
+}
+
+function buildOddsConfidenceTag(args: {
+  homeProbability: number;
+  drawProbability: number;
+  awayProbability: number;
+  homeRow: OddsCurrentRow | null;
+  awayRow: OddsCurrentRow | null;
+  allowsDraw?: boolean;
+}): string {
+  const {
+    homeProbability,
+    drawProbability,
+    awayProbability,
+    homeRow,
+    awayRow,
+    allowsDraw = true,
+  } = args;
+  const selections = [
+    { label: 'home', probability: homeProbability },
+    ...(allowsDraw ? [{ label: 'draw', probability: drawProbability }] : []),
+    { label: 'away', probability: awayProbability },
+  ].sort((left, right) => right.probability - left.probability);
+  const leader = selections[0];
+  const second = selections[1];
+  const gap = leader.probability - second.probability;
+  const rankGap = homeRow && awayRow ? Math.abs(homeRow.rank - awayRow.rank) : 0;
+
+  if (allowsDraw && (leader.label === 'draw' || drawProbability >= 0.3)) {
+    return 'Draw live';
+  }
+  if (gap <= 0.05) {
+    return 'Tight market';
+  }
+  if (gap >= 0.14 || leader.probability >= 0.58) {
+    return 'Strong favourite';
+  }
+  if (rankGap >= 3 && ((leader.label === 'home' && (homeRow?.rank ?? 99) > (awayRow?.rank ?? 99)) || (leader.label === 'away' && (awayRow?.rank ?? 99) > (homeRow?.rank ?? 99)))) {
+    return 'Upset live';
+  }
+  return 'Edge';
+}
+
+function buildFixtureContextTag(args: {
+  competition: 'division' | 'master' | 'trio' | 'cup' | 'master_cup';
+  homeRow: OddsCurrentRow | null;
+  awayRow: OddsCurrentRow | null;
+  homeDivision: string | null;
+  awayDivision: string | null;
+  teamCount: number;
+}): string {
+  const { competition, homeRow, awayRow, homeDivision, awayDivision, teamCount } = args;
+  if (competition === 'division' || competition === 'master' || competition === 'trio') {
+    if (homeRow && awayRow) {
+      const halfCutoff = Math.max(1, Math.ceil(teamCount / 2));
+      const rankGap = Math.abs(homeRow.rank - awayRow.rank);
+      if (rankGap <= 1) {
+        return 'Table neighbours';
+      }
+      if (homeRow.rank <= halfCutoff && awayRow.rank <= halfCutoff) {
+        return 'Both top-half';
+      }
+      if (homeRow.rank > halfCutoff && awayRow.rank > halfCutoff) {
+        return 'Bottom-half battle';
+      }
+      if ((homeRow.rank <= 2 && awayRow.rank >= Math.max(3, teamCount - 1)) || (awayRow.rank <= 2 && homeRow.rank >= Math.max(3, teamCount - 1))) {
+        return 'Front-runner vs struggler';
+      }
+    }
+    return competition === 'master' ? 'Master ladder clash' : competition === 'trio' ? 'Trio ladder clash' : 'Division ladder clash';
+  }
+
+  if (homeDivision && awayDivision && homeDivision === awayDivision) {
+    return 'Same-tier knockout tie';
+  }
+  if (homeDivision && awayDivision) {
+    return 'Lower-tier side punching up';
+  }
+  return 'Knockout tie';
+}
+
+function buildSpotlightFixtureOdds(args: {
+  competition: 'division' | 'master' | 'trio' | 'cup' | 'master_cup';
+  homeTeamId: number | null;
+  awayTeamId: number | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  homeRow: OddsCurrentRow | null;
+  awayRow: OddsCurrentRow | null;
+  profilesByTeamId: Map<number, OddsTeamProfile>;
+  teamCount: number;
+  homeDivision?: string | null;
+  awayDivision?: string | null;
+  homeSeed?: number | null;
+  awaySeed?: number | null;
+  allowsDraw?: boolean;
+}): SpotlightFixtureOdds | null {
+  const {
+    competition,
+    homeTeamId,
+    awayTeamId,
+    homeTeam,
+    awayTeam,
+    homeRow,
+    awayRow,
+    profilesByTeamId,
+    teamCount,
+    homeDivision = null,
+    awayDivision = null,
+    homeSeed = null,
+    awaySeed = null,
+    allowsDraw = true,
+  } = args;
+
+  if (!homeTeamId || !awayTeamId || !homeTeam || !awayTeam) {
+    return null;
+  }
+
+  const homeProfile = profilesByTeamId.get(homeTeamId);
+  const awayProfile = profilesByTeamId.get(awayTeamId);
+  if (!homeProfile || !awayProfile) {
+    return null;
+  }
+
+  const model = buildFixtureOdds({
+    home: homeProfile,
+    away: awayProfile,
+    homeRow,
+    awayRow,
+    teamCount: Math.max(2, teamCount),
+    competition,
+    homeSeed,
+    awaySeed,
+  });
+
+  let homeProbability = model.homeProbability;
+  let drawProbability = model.drawProbability;
+  let awayProbability = model.awayProbability;
+  if (!allowsDraw) {
+    const total = Math.max(0.001, homeProbability + awayProbability);
+    homeProbability /= total;
+    awayProbability /= total;
+    drawProbability = 0;
+  }
+
+  return {
+    homeTeam,
+    awayTeam,
+    homeOdds: probabilityToOdds(homeProbability).toFixed(2),
+    drawOdds: allowsDraw ? probabilityToOdds(drawProbability).toFixed(2) : null,
+    awayOdds: probabilityToOdds(awayProbability).toFixed(2),
+    allowsDraw,
+    reason: allowsDraw ? model.reason : `${model.reason}. Level profit goes to penalties.`,
+    confidence: buildOddsConfidenceTag({
+      homeProbability,
+      drawProbability,
+      awayProbability,
+      homeRow,
+      awayRow,
+      allowsDraw,
+    }),
+    context: buildFixtureContextTag({
+      competition,
+      homeRow,
+      awayRow,
+      homeDivision,
+      awayDivision,
+      teamCount,
+    }),
+  };
 }
 
 type KickoffDayPhase = 'kickoff' | 'middle' | 'latter' | 'closing';
@@ -470,10 +1141,6 @@ function formatStudioOutcome(
   return 'Confirmed result pending';
 }
 
-type GameshowPageProps = {
-  studioOnly?: boolean;
-};
-
 type SpotlightPulse = {
   id: number;
   message: string;
@@ -486,7 +1153,168 @@ type ScoreUpdateAlert = {
   teamId?: number | null;
 };
 
-export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
+type DrawPoolDivision = {
+  division: string;
+  teams: Draw[];
+};
+
+type KickoffWheelStage = 'loading' | 'division' | 'division-result' | 'team' | 'team-result';
+
+type KickoffSpinItem = {
+  id: string;
+  label: string;
+  helper: string;
+  badge?: JSX.Element | null;
+  accent: string;
+  textColor: string;
+};
+
+type KickoffSpinCarouselProps = {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  items: KickoffSpinItem[];
+  activeId?: string | null;
+  lockedId?: string | null;
+};
+
+const KICKOFF_CAROUSEL_STEP_MS = 160;
+const KICKOFF_CAROUSEL_SLOW_STEP_MS = 260;
+const KICKOFF_CAROUSEL_HOLD_MS = 1100;
+const KICKOFF_CAROUSEL_START_DELAY_MS = 120;
+const KICKOFF_CAROUSEL_PASSES = 4;
+
+function waitForKickoffCarousel(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function shuffleKickoffIds(ids: string[]): string[] {
+  const shuffled = ids.slice();
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function buildKickoffCarouselRun(itemIds: string[], selectedId: string): { orderIds: string[]; stepIds: string[] } {
+  const uniqueIds = Array.from(new Set(itemIds));
+  if (!uniqueIds.includes(selectedId)) {
+    uniqueIds.push(selectedId);
+  }
+  if (uniqueIds.length <= 1) {
+    return { orderIds: uniqueIds, stepIds: uniqueIds };
+  }
+
+  const orderIds = shuffleKickoffIds(uniqueIds);
+  const stepIds: string[] = [];
+  let previousTail: string | null = null;
+  const passCount = Math.max(KICKOFF_CAROUSEL_PASSES, uniqueIds.length <= 2 ? 5 : 4);
+
+  for (let pass = 0; pass < passCount; pass += 1) {
+    const shuffledPass = shuffleKickoffIds(uniqueIds);
+    if (shuffledPass.length > 1 && shuffledPass[0] === previousTail) {
+      [shuffledPass[0], shuffledPass[1]] = [shuffledPass[1], shuffledPass[0]];
+    }
+    stepIds.push(...shuffledPass);
+    previousTail = shuffledPass[shuffledPass.length - 1] ?? previousTail;
+  }
+
+  if (stepIds[stepIds.length - 1] === selectedId) {
+    const alternate = orderIds.find((id) => id !== selectedId) ?? null;
+    if (alternate) {
+      stepIds.push(alternate);
+    }
+  }
+  stepIds.push(selectedId);
+
+  return { orderIds, stepIds };
+}
+
+function orderKickoffItems(items: KickoffSpinItem[], orderIds: string[]): KickoffSpinItem[] {
+  if (orderIds.length === 0) {
+    return items;
+  }
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const usedIds = new Set<string>();
+  const orderedItems = orderIds
+    .map((id) => {
+      usedIds.add(id);
+      return itemById.get(id) ?? null;
+    })
+    .filter((item): item is KickoffSpinItem => item !== null);
+  const remainingItems = items.filter((item) => !usedIds.has(item.id));
+  return [...orderedItems, ...remainingItems];
+}
+
+function KickoffSpinCarousel({
+  eyebrow,
+  title,
+  subtitle,
+  statusLabel,
+  items,
+  activeId,
+  lockedId,
+}: KickoffSpinCarouselProps) {
+  const safeItems = items.length > 0
+    ? items
+    : [{
+        id: 'waiting',
+        label: 'Waiting',
+        helper: 'Preparing spin',
+        accent: '#f6bf4f',
+        textColor: '#10213a',
+      }];
+  const activeItem = safeItems.find((item) => item.id === activeId) ?? safeItems[0];
+  const isLocked = lockedId === activeItem.id;
+
+  return (
+    <section className="kickoff-wheel-card kickoff-carousel-card">
+      <div className="kickoff-wheel-card-head">
+        <span className="news-chip">{eyebrow}</span>
+        <h3>{title}</h3>
+        <p className="muted">{subtitle}</p>
+      </div>
+      <div className="kickoff-carousel-shell">
+        <div
+          className={`kickoff-carousel-spotlight${isLocked ? ' locked' : ' active'}`}
+          style={{
+            background: `linear-gradient(145deg, ${activeItem.accent}, rgba(255, 255, 255, 0.92))`,
+            color: activeItem.textColor,
+          }}
+        >
+          <span className="kickoff-carousel-state">{isLocked ? 'Locked In' : statusLabel}</span>
+          {activeItem.badge ? <div className="kickoff-carousel-spotlight-badge">{activeItem.badge}</div> : null}
+          <strong>{activeItem.label}</strong>
+          <p>{activeItem.helper}</p>
+        </div>
+        <div className="kickoff-carousel-track">
+          {safeItems.map((item) => {
+            const isActive = item.id === activeItem.id;
+            const itemLocked = item.id === lockedId;
+            return (
+              <div
+                key={item.id}
+                className={`kickoff-carousel-track-item${isActive ? ' active' : ''}${itemLocked ? ' locked' : ''}`}
+              >
+                <div className="kickoff-carousel-track-item-head">
+                  {item.badge ? item.badge : <span className="kickoff-carousel-dot" style={{ background: item.accent }} aria-hidden="true" />}
+                  <div className="kickoff-carousel-track-item-copy">
+                    <strong>{item.label}</strong>
+                    <span>{item.helper}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function GameshowPage() {
   const createLogRow = (entryType: 'free_spins' | 'bonus' = 'free_spins'): LogRow => ({
     entryType,
     profit: '',
@@ -503,27 +1331,50 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       Array<{ teamId: number; teamName: string; division: string; played: number; wins: number; draws: number; losses: number; points: number; profit: number; spins: number; rank: number }>
     >
   >({});
+  const recapDivisionOrder = useMemo(() => {
+    const baseOrder = getDivisionOrderForSeason(currentSeason);
+    const presentDivisions = Object.keys(leagueTable).filter((division) => !/^(playoff|friendly)$/i.test(division));
+    const merged = [...baseOrder, ...presentDivisions.filter((division) => !baseOrder.includes(division))];
+    return sortDivisionNames(merged, currentSeason);
+  }, [currentSeason, leagueTable]);
+  const recapDivisionSet = useMemo(() => new Set(recapDivisionOrder), [recapDivisionOrder]);
   const [allLeagueFixtures, setAllLeagueFixtures] = useState<
     Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>
   >([]);
   const [leagueMovement, setLeagueMovement] = useState<Record<string, Record<number, number>>>({});
   const [masterLeagueTable, setMasterLeagueTable] = useState<MasterLeagueTableRow[]>([]);
   const [allMasterLeagueFixtures, setAllMasterLeagueFixtures] = useState<MasterLeagueFixture[]>([]);
+  const [allMasterCupFixtures, setAllMasterCupFixtures] = useState<MasterCupFixture[]>([]);
+  const [trioLeagueTable, setTrioLeagueTable] = useState<TrioLeagueTableRow[]>([]);
+  const [allTrioLeagueFixtures, setAllTrioLeagueFixtures] = useState<TrioFixture[]>([]);
+  const [tierLeagueTable, setTierLeagueTable] = useState<TierLeagueTableRow[]>([]);
+  const [allTierLeagueFixtures, setAllTierLeagueFixtures] = useState<TierLeagueFixture[]>([]);
   const [masterLeagueMovement, setMasterLeagueMovement] = useState<Record<number, number>>({});
   const [masterLeagueBaselineGw, setMasterLeagueBaselineGw] = useState<string | null>(null);
   const [allTimeLeagues, setAllTimeLeagues] = useState<AllTimeLeaguesPayload | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSeasonHistoryByTeamId, setTeamSeasonHistoryByTeamId] = useState<Record<number, TeamSeasonHistoryRow[]>>({});
+  const [teamPredictionRaceBySeason, setTeamPredictionRaceBySeason] = useState<Record<string, Record<string, TeamSeasonPredictionRace>>>({});
   const [cupFixtures, setCupFixtures] = useState<CupFixture[]>([]);
+  const [superCupFixtures, setSuperCupFixtures] = useState<SuperCupFixture[]>([]);
   const [drawError, setDrawError] = useState('');
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
+  const [drawPool, setDrawPool] = useState<DrawPoolDivision[]>([]);
+  const [drawWheelStage, setDrawWheelStage] = useState<KickoffWheelStage | null>(null);
+  const [selectedDrawDivision, setSelectedDrawDivision] = useState<DrawPoolDivision | null>(null);
+  const [selectedDrawTeam, setSelectedDrawTeam] = useState<Draw | null>(null);
+  const [activeDrawDivisionId, setActiveDrawDivisionId] = useState<string | null>(null);
+  const [activeDrawTeamId, setActiveDrawTeamId] = useState<string | null>(null);
+  const [divisionCarouselOrderIds, setDivisionCarouselOrderIds] = useState<string[]>([]);
+  const [teamCarouselOrderIds, setTeamCarouselOrderIds] = useState<string[]>([]);
   const [showLog, setShowLog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [predictionsLocked, setPredictionsLocked] = useState(false);
   const [currentGwLocked, setCurrentGwLocked] = useState(false);
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
+  const [predictionSlate, setPredictionSlate] = useState<PredictionSlateRow[]>([]);
   const [seasonPredictions, setSeasonPredictions] = useState<PredictionRow[]>([]);
+  const [prevPredictionSlate, setPrevPredictionSlate] = useState<PredictionSlateRow[]>([]);
   const [prevPredictions, setPrevPredictions] = useState<PredictionRow[]>([]);
   const [spotlightPulse, setSpotlightPulse] = useState<SpotlightPulse | null>(null);
   const [scoreUpdateAlert, setScoreUpdateAlert] = useState<ScoreUpdateAlert | null>(null);
@@ -532,6 +1383,10 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>
   >([]);
   const [prevCupFixtures, setPrevCupFixtures] = useState<CupFixture[]>([]);
+  const [prevMasterLeagueFixtures, setPrevMasterLeagueFixtures] = useState<MasterLeagueFixture[]>([]);
+  const [prevMasterCupFixtures, setPrevMasterCupFixtures] = useState<MasterCupFixture[]>([]);
+  const [prevTrioLeagueFixtures, setPrevTrioLeagueFixtures] = useState<TrioFixture[]>([]);
+  const [prevTierLeagueFixtures, setPrevTierLeagueFixtures] = useState<TierLeagueFixture[]>([]);
   const [recapPredictionScores, setRecapPredictionScores] = useState<PredictionScoreboard | null>(null);
   const [bookieDorBoard, setBookieDorBoard] = useState<BookieDorBoard | null>(null);
   const [currentGwEntries, setCurrentGwEntries] = useState<EntryRow[]>([]);
@@ -540,13 +1395,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   const [predictionSelections, setPredictionSelections] = useState<Record<string, 'home' | 'away' | 'draw'>>({});
   const [predictionMessage, setPredictionMessage] = useState('');
   const [predictionSaving, setPredictionSaving] = useState(false);
-  const [fixtureSetupBusy, setFixtureSetupBusy] = useState<'league' | 'master' | null>(null);
+  const [fixtureSetupBusy, setFixtureSetupBusy] = useState<'league' | 'master' | 'trio' | null>(null);
   const [fixtureSetupNotice, setFixtureSetupNotice] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
   const [seasonFinale, setSeasonFinale] = useState<SeasonFinale | null>(null);
   const [storylinePayload, setStorylinePayload] = useState<StorylinePayload | null>(null);
   const [finaleSlide, setFinaleSlide] = useState(0);
   const location = useLocation();
-  const [kickoffFlowStep, setKickoffFlowStep] = useState<KickoffFlowStep>(studioOnly ? 'show' : 'results');
+  const [kickoffFlowStep, setKickoffFlowStep] = useState<KickoffFlowStep>('results');
   const [recapFixturePageIndex, setRecapFixturePageIndex] = useState(0);
 
   const [logRows, setLogRows] = useState<LogRow[]>([createLogRow()]);
@@ -554,6 +1409,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
 
   const predictionsInitialized = useRef(false);
   const drawWindowRef = useRef<Window | null>(null);
+  const drawSequenceRef = useRef(0);
 
   const finaleSlides = useMemo(() => {
     return buildSeasonFinaleSlides(seasonFinale?.payload ?? null);
@@ -580,12 +1436,17 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   }, [finaleSlides.length, location.hash, seasonFinale]);
 
   useEffect(() => {
-    setKickoffFlowStep(studioOnly ? 'show' : 'results');
-  }, [currentGw, studioOnly]);
+    setKickoffFlowStep('results');
+  }, [currentGw]);
 
   useEffect(() => {
     setRecapFixturePageIndex(0);
   }, [currentGw]);
+
+  useEffect(() => {
+    predictionsInitialized.current = false;
+    setPredictionSelections({});
+  }, [currentGw, currentSeason]);
 
   useEffect(() => {
     let mounted = true;
@@ -594,14 +1455,23 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       if (!mounted) {
         return;
       }
+      const seasonFiveOrLater = isSeasonFiveOrLater(state.currentSeason);
+      const seasonSixOrLater = isSeasonSixOrLater(state.currentSeason);
       const [
         table,
         fixtures,
         movementPayload,
         masterLeaguePayload,
         masterLeagueFixtures,
+        masterCupFixtures,
+        trioLeagueTablePayload,
+        trioLeagueFixtures,
+        tierLeagueTablePayload,
+        tierLeagueFixtures,
         teamList,
         cup,
+        superCup,
+        seasonEntries,
         entriesForCurrentGw,
         predictionResponse,
         scoreboard,
@@ -618,10 +1488,23 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         api.leagueMovement().catch(() => ({ baselineGw: null, baselineLabel: null, movement: {} as Record<string, Record<number, number>> })),
         api.masterLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, baselineGw: null, movement: {} as Record<number, number>, table: [] as MasterLeagueTableRow[] })),
         api.masterLeagueFixtures(undefined, true).catch(() => [] as MasterLeagueFixture[]),
+        seasonFiveOrLater
+          ? api.masterCupFixtures(undefined, true).catch(() => [] as MasterCupFixture[])
+          : Promise.resolve([] as MasterCupFixture[]),
+        api.trioLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, enabled: false, table: [] as TrioLeagueTableRow[] })),
+        api.trioLeagueFixtures(undefined, true).catch(() => [] as TrioFixture[]),
+        seasonSixOrLater
+          ? api.tierLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, enabled: false, started: false, table: [] as TierLeagueTableRow[] }))
+          : Promise.resolve({ gw: state.currentGw, enabled: false, started: false, table: [] as TierLeagueTableRow[] }),
+        seasonSixOrLater
+          ? api.tierLeagueFixtures(undefined, true).catch(() => [] as TierLeagueFixture[])
+          : Promise.resolve([] as TierLeagueFixture[]),
         api.teams().catch(() => []),
         api.cup().catch(() => []),
+        api.superCup(state.currentSeason).catch(() => [] as SuperCupFixture[]),
+        api.entries({ limit: 2000 }).catch(() => [] as EntryRow[]),
         api.entries({ gw: state.currentGw, limit: 1000 }).catch(() => [] as EntryRow[]),
-        api.predictions(state.currentGw).catch(() => ({ season: state.currentSeason, gw: state.currentGw, locked: false, predictions: [] })),
+        api.predictions(state.currentGw).catch(() => ({ season: state.currentSeason, gw: state.currentGw, locked: false, slate: [] as PredictionSlateRow[], predictions: [] as PredictionRow[] })),
         api.predictionScoreboard().catch(() => null),
         api.predictionScoreboard('S1').catch(() => null),
         api.seasonFinale().catch(() => ({ pending: false as const })),
@@ -643,6 +1526,102 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         api.bookieDor(state.currentSeason, state.currentGw).catch(() => null),
       ]);
       const historyResponse = await api.teamSeasonHistoryBulk(teamList.map((team) => team.id)).catch(() => ({ histories: {} as Record<number, TeamSeasonHistoryRow[]> }));
+      const historySeasons = Object.values(historyResponse.histories)
+        .flat()
+        .map((row) => row.season)
+        .filter((season): season is string => /^S\d+$/.test(season));
+      const seasonsToScan = Array.from(new Set([state.currentSeason, ...historySeasons]))
+        .sort((a, b) => seasonSortValue(a) - seasonSortValue(b));
+      const teamPredictionRaceEntries = await Promise.all(
+        seasonsToScan.map(async (season) => {
+          const [seasonLeagueFixtures, seasonCupFixtures, seasonPredictionRowsByGw] = await Promise.all([
+            api.leagueFixtures(undefined, true, season).catch(() => []),
+            api.cup(undefined, season).catch(() => []),
+            Promise.all(
+              GAMEWEEKS.map((gw) =>
+                api
+                  .predictions(gw, season)
+                  .then((response) => response.predictions)
+                  .catch(() => [] as PredictionRow[]),
+              ),
+            ),
+          ]);
+          const seasonPredictionByKey = new Map<string, PredictionRow>();
+          seasonPredictionRowsByGw.flat().forEach((prediction) => {
+            seasonPredictionByKey.set(
+              `${prediction.gw}-${prediction.competition}-${prediction.fixtureId}-${prediction.picker}`,
+              prediction,
+            );
+          });
+          const raceByTeam = new Map<string, TeamSeasonPredictionRace>();
+          const ensureTeamRace = (teamName: string): TeamSeasonPredictionRace => {
+            const existing = raceByTeam.get(teamName);
+            if (existing) {
+              return existing;
+            }
+            const next = { jayCorrect: 0, computerCorrect: 0, resolved: 0 };
+            raceByTeam.set(teamName, next);
+            return next;
+          };
+          seasonLeagueFixtures.forEach((fixture) => {
+            if (fixture.result === 'pending') {
+              return;
+            }
+            const winnerName =
+              fixture.result === 'draw'
+                ? null
+                : fixture.result === 'home'
+                  ? fixture.homeTeam
+                  : fixture.awayTeam;
+            [fixture.homeTeam, fixture.awayTeam].forEach((teamName) => {
+              const row = ensureTeamRace(teamName);
+              row.resolved += 1;
+              const jayPick = seasonPredictionByKey.get(`${fixture.gw}-league-${fixture.id}-Jay`);
+              if (
+                jayPick
+                && (
+                  (jayPick.pickOutcome === 'draw' && fixture.result === 'draw')
+                  || (jayPick.pickOutcome === 'team' && winnerName !== null && jayPick.pickTeamName === winnerName)
+                )
+              ) {
+                row.jayCorrect += 1;
+              }
+              const cpuPick = seasonPredictionByKey.get(`${fixture.gw}-league-${fixture.id}-Computer`);
+              if (
+                cpuPick
+                && (
+                  (cpuPick.pickOutcome === 'draw' && fixture.result === 'draw')
+                  || (cpuPick.pickOutcome === 'team' && winnerName !== null && cpuPick.pickTeamName === winnerName)
+                )
+              ) {
+                row.computerCorrect += 1;
+              }
+            });
+          });
+          seasonCupFixtures.forEach((fixture) => {
+            if (!fixture.winnerTeam) {
+              return;
+            }
+            const participating = new Set(
+              [fixture.homeTeam, fixture.awayTeam, fixture.winnerTeam].filter((name): name is string => Boolean(name)),
+            );
+            participating.forEach((teamName) => {
+              const row = ensureTeamRace(teamName);
+              row.resolved += 1;
+              const jayPick = seasonPredictionByKey.get(`${fixture.gw}-cup-${fixture.id}-Jay`);
+              if (jayPick && jayPick.pickOutcome !== 'draw' && jayPick.pickTeamName === fixture.winnerTeam) {
+                row.jayCorrect += 1;
+              }
+              const cpuPick = seasonPredictionByKey.get(`${fixture.gw}-cup-${fixture.id}-Computer`);
+              if (cpuPick && cpuPick.pickOutcome !== 'draw' && cpuPick.pickTeamName === fixture.winnerTeam) {
+                row.computerCorrect += 1;
+              }
+            });
+          });
+          return [season, Object.fromEntries(raceByTeam.entries())] as const;
+        }),
+      );
+      const teamPredictionRaceBySeasonPayload = Object.fromEntries(teamPredictionRaceEntries);
 
       if (!mounted) {
         return;
@@ -656,6 +1635,11 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       setLeagueMovement(movementPayload.movement ?? {});
       setMasterLeagueTable(masterLeaguePayload.table ?? []);
       setAllMasterLeagueFixtures(masterLeagueFixtures);
+      setAllMasterCupFixtures(masterCupFixtures);
+      setTrioLeagueTable(trioLeagueTablePayload.table ?? []);
+      setAllTrioLeagueFixtures(trioLeagueFixtures);
+      setTierLeagueTable(tierLeagueTablePayload.table ?? []);
+      setAllTierLeagueFixtures(tierLeagueFixtures);
       setMasterLeagueMovement(masterLeaguePayload.movement ?? {});
       setMasterLeagueBaselineGw(masterLeaguePayload.baselineGw ?? null);
       setTeams(teamList);
@@ -664,9 +1648,12 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           teamList.map((team) => [team.id, historyResponse.histories[team.id] ?? [] as TeamSeasonHistoryRow[]]),
         ),
       );
-      setCupFixtures(cup as CupFixture[]);
+      setTeamPredictionRaceBySeason(teamPredictionRaceBySeasonPayload);
+      setCupFixtures(recoverCupFixturesFromEntries(cup as CupFixture[], seasonEntries, state.currentSeason));
+      setSuperCupFixtures(superCup);
       setCurrentGwEntries(entriesForCurrentGw);
       setPredictions(predictionResponse.predictions);
+      setPredictionSlate(predictionResponse.slate ?? []);
       setSeasonPredictions(predictionRowsByGw.flat());
       setPredictionsLocked(predictionResponse.locked);
       setLastCompletedGameweek(lastCompletedResponse.lastCompleted);
@@ -690,34 +1677,161 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     };
   }, []);
 
-  useEffect(() => {
-    if (countdown === null || countdown <= 0) {
-      return;
+  const sortDrawTeamsForDivision = useCallback((division: string, teamsToSort: Draw[]): Draw[] => {
+    const rankByTeamId = new Map((leagueTable[division] ?? []).map((row) => [row.teamId, row.rank]));
+    return teamsToSort
+      .slice()
+      .sort((left, right) => {
+        const leftRank = rankByTeamId.get(left.teamId) ?? Number.MAX_SAFE_INTEGER;
+        const rightRank = rankByTeamId.get(right.teamId) ?? Number.MAX_SAFE_INTEGER;
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+        return left.teamName.localeCompare(right.teamName);
+      });
+  }, [leagueTable]);
+
+  const startDrawSequence = useCallback(async () => {
+    const sequenceId = drawSequenceRef.current + 1;
+    drawSequenceRef.current = sequenceId;
+    setLoading(true);
+    setDraw(null);
+    setShowLog(false);
+    setDrawPool([]);
+    setDrawWheelStage('loading');
+    setSelectedDrawDivision(null);
+    setSelectedDrawTeam(null);
+    setActiveDrawDivisionId(null);
+    setActiveDrawTeamId(null);
+    setDivisionCarouselOrderIds([]);
+    setTeamCarouselOrderIds([]);
+
+    try {
+      const pool = await api.gameshowDrawPool();
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      const orderedPool = getDivisionOrderForSeason(currentSeason)
+        .map((division) => pool.find((group) => group.division === division))
+        .filter((group): group is DrawPoolDivision => !!group)
+        .map((group) => ({
+          division: group.division,
+          teams: sortDrawTeamsForDivision(group.division, group.teams),
+        }));
+
+      if (orderedPool.length === 0) {
+        setDrawWheelStage(null);
+        setDrawError('All teams already drawn for this gameweek');
+        return;
+      }
+
+      setDrawPool(orderedPool);
+      const divisionGroup = orderedPool[Math.floor(Math.random() * orderedPool.length)];
+      const divisionRun = buildKickoffCarouselRun(
+        orderedPool.map((group) => group.division),
+        divisionGroup.division,
+      );
+
+      setDivisionCarouselOrderIds(divisionRun.orderIds);
+      setDrawWheelStage('division');
+      await waitForKickoffCarousel(KICKOFF_CAROUSEL_START_DELAY_MS);
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      for (let index = 0; index < divisionRun.stepIds.length; index += 1) {
+        setActiveDrawDivisionId(divisionRun.stepIds[index]);
+        await waitForKickoffCarousel(index >= divisionRun.stepIds.length - 3 ? KICKOFF_CAROUSEL_SLOW_STEP_MS : KICKOFF_CAROUSEL_STEP_MS);
+        if (drawSequenceRef.current !== sequenceId) {
+          return;
+        }
+      }
+
+      setActiveDrawDivisionId(divisionGroup.division);
+      setSelectedDrawDivision(divisionGroup);
+      setDrawWheelStage('division-result');
+      await waitForKickoffCarousel(KICKOFF_CAROUSEL_HOLD_MS);
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      const queuedTeam = divisionGroup.teams[Math.floor(Math.random() * divisionGroup.teams.length)];
+      const teamRun = buildKickoffCarouselRun(
+        divisionGroup.teams.map((team) => String(team.teamId)),
+        String(queuedTeam.teamId),
+      );
+      setTeamCarouselOrderIds(teamRun.orderIds);
+      setDrawWheelStage('team');
+      await waitForKickoffCarousel(KICKOFF_CAROUSEL_START_DELAY_MS);
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      for (let index = 0; index < teamRun.stepIds.length; index += 1) {
+        setActiveDrawTeamId(teamRun.stepIds[index]);
+        await waitForKickoffCarousel(index >= teamRun.stepIds.length - 3 ? KICKOFF_CAROUSEL_SLOW_STEP_MS : KICKOFF_CAROUSEL_STEP_MS);
+        if (drawSequenceRef.current !== sequenceId) {
+          return;
+        }
+      }
+
+      setActiveDrawTeamId(String(queuedTeam.teamId));
+      const picked = await api.drawTeam(queuedTeam.teamId);
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      setSelectedDrawTeam(picked);
+      setDraw(picked);
+      setShowLog(true);
+      setDrawWheelStage('team-result');
+      await waitForKickoffCarousel(KICKOFF_CAROUSEL_HOLD_MS);
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+
+      setDrawWheelStage(null);
+    } catch (error) {
+      if (drawSequenceRef.current !== sequenceId) {
+        return;
+      }
+      setDraw(null);
+      setDrawPool([]);
+      setSelectedDrawDivision(null);
+      setSelectedDrawTeam(null);
+      setActiveDrawDivisionId(null);
+      setActiveDrawTeamId(null);
+      setDivisionCarouselOrderIds([]);
+      setTeamCarouselOrderIds([]);
+      setDrawWheelStage(null);
+      setDrawError(error instanceof Error ? error.message : 'Unable to draw team');
+    } finally {
+      if (drawSequenceRef.current === sequenceId) {
+        setLoading(false);
+      }
     }
-    const timer = window.setTimeout(() => setCountdown((v) => (v === null ? null : v - 1)), 1000);
-    return () => window.clearTimeout(timer);
-  }, [countdown]);
+  }, [currentSeason, sortDrawTeamsForDivision]);
 
   useEffect(() => {
-    if (countdown === 0) {
-      setLoading(true);
-      api
-        .drawTeam()
-        .then((picked) => {
-          setDraw(picked);
-          setDrawError('');
-          setShowLog(true);
-        })
-        .catch((error) => {
-          setDraw(null);
-          setDrawError(error instanceof Error ? error.message : 'Unable to draw team');
-        })
-        .finally(() => {
-          setLoading(false);
-          setCountdown(null);
-        });
-    }
-  }, [countdown]);
+    drawSequenceRef.current += 1;
+    setDraw(null);
+    setDrawError('');
+    setShowLog(false);
+    setLoading(false);
+    setDrawPool([]);
+    setDrawWheelStage(null);
+    setSelectedDrawDivision(null);
+    setSelectedDrawTeam(null);
+    setActiveDrawDivisionId(null);
+    setActiveDrawTeamId(null);
+    setDivisionCarouselOrderIds([]);
+    setTeamCarouselOrderIds([]);
+  }, [currentGw, currentSeason]);
+
+  useEffect(() => () => {
+    drawSequenceRef.current += 1;
+  }, []);
 
   useEffect(() => {
     if (!draw) {
@@ -752,14 +1866,260 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     () => allLeagueFixtures.filter((fixture) => fixture.gw === currentGw),
     [allLeagueFixtures, currentGw],
   );
+  const currentLeagueFixtureById = useMemo(
+    () => new Map(currentLeagueFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentLeagueFixtures],
+  );
   const currentCupFixtures = useMemo(
     () => cupFixtures.filter((fixture) => fixture.gw === currentGw),
     [cupFixtures, currentGw],
+  );
+  const currentSuperCupFixtures = useMemo(
+    () => superCupFixtures.filter((fixture) => fixture.gw === currentGw),
+    [superCupFixtures, currentGw],
   );
   const currentMasterLeagueFixtures = useMemo(
     () => allMasterLeagueFixtures.filter((fixture) => fixture.gw === currentGw),
     [allMasterLeagueFixtures, currentGw],
   );
+  const currentMasterCupFixtures = useMemo(
+    () => allMasterCupFixtures.filter((fixture) => fixture.gw === currentGw),
+    [allMasterCupFixtures, currentGw],
+  );
+  const currentTrioLeagueFixtures = useMemo(
+    () => allTrioLeagueFixtures.filter((fixture) => fixture.gw === currentGw),
+    [allTrioLeagueFixtures, currentGw],
+  );
+  const currentTierLeagueFixtures = useMemo(
+    () => allTierLeagueFixtures.filter((fixture) => fixture.gw === currentGw),
+    [allTierLeagueFixtures, currentGw],
+  );
+  const currentCupFixtureById = useMemo(
+    () => new Map(currentCupFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentCupFixtures],
+  );
+  const currentMasterLeagueFixtureById = useMemo(
+    () => new Map(currentMasterLeagueFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentMasterLeagueFixtures],
+  );
+  const currentMasterCupFixtureById = useMemo(
+    () => new Map(currentMasterCupFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentMasterCupFixtures],
+  );
+  const currentTrioLeagueFixtureById = useMemo(
+    () => new Map(currentTrioLeagueFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentTrioLeagueFixtures],
+  );
+  const currentTierLeagueFixtureById = useMemo(
+    () => new Map(currentTierLeagueFixtures.map((fixture) => [fixture.id, fixture])),
+    [currentTierLeagueFixtures],
+  );
+  const predictionSlateFixtures = useMemo(() => {
+    return predictionSlate
+      .map((entry): PredictionSlateFixture | null => {
+        const key = `${entry.competition}-${entry.fixtureId}`;
+        if (entry.competition === 'league') {
+          const fixture = currentLeagueFixtureById.get(entry.fixtureId);
+          if (!fixture) {
+            return null;
+          }
+          return {
+            key,
+            competition: entry.competition,
+            fixtureId: entry.fixtureId,
+            competitionLabel: predictionCompetitionLabel(entry.competition),
+            detailLabel: displayDivisionName(fixture.division),
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+            homeTeamId: teamIdByName.get(fixture.homeTeam) ?? null,
+            awayTeamId: teamIdByName.get(fixture.awayTeam) ?? null,
+            allowsDraw: leagueFixtureAllowsDraw(fixture),
+          };
+        }
+        if (entry.competition === 'cup') {
+          const fixture = currentCupFixtureById.get(entry.fixtureId);
+          if (!fixture || !fixture.homeTeam || !fixture.awayTeam) {
+            return null;
+          }
+          return {
+            key,
+            competition: entry.competition,
+            fixtureId: entry.fixtureId,
+            competitionLabel: predictionCompetitionLabel(entry.competition),
+            detailLabel: fixture.roundName,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+            homeTeamId: teamIdByName.get(fixture.homeTeam) ?? null,
+            awayTeamId: teamIdByName.get(fixture.awayTeam) ?? null,
+            allowsDraw: false,
+          };
+        }
+        if (entry.competition === 'master') {
+          const fixture = currentMasterLeagueFixtureById.get(entry.fixtureId);
+          if (!fixture) {
+            return null;
+          }
+          return {
+            key,
+            competition: entry.competition,
+            fixtureId: entry.fixtureId,
+            competitionLabel: predictionCompetitionLabel(entry.competition),
+            detailLabel: currentGw,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+            homeTeamId: fixture.homeTeamId,
+            awayTeamId: fixture.awayTeamId,
+            allowsDraw: true,
+          };
+        }
+        if (entry.competition === 'master_cup') {
+          const fixture = currentMasterCupFixtureById.get(entry.fixtureId);
+          if (!fixture || !fixture.homeTeam || !fixture.awayTeam) {
+            return null;
+          }
+          return {
+            key,
+            competition: entry.competition,
+            fixtureId: entry.fixtureId,
+            competitionLabel: predictionCompetitionLabel(entry.competition),
+            detailLabel: fixture.roundName,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+            homeTeamId: fixture.homeTeamId,
+            awayTeamId: fixture.awayTeamId,
+            allowsDraw: fixture.stage === 'semi_final',
+          };
+        }
+        if (entry.competition === 'trio') {
+          const fixture = currentTrioLeagueFixtureById.get(entry.fixtureId);
+          if (!fixture) {
+            return null;
+          }
+          return {
+            key,
+            competition: entry.competition,
+            fixtureId: entry.fixtureId,
+            competitionLabel: predictionCompetitionLabel(entry.competition),
+            detailLabel: fixture.stage === 'regular' ? fixture.division : `${fixture.division} • ${trioStageLabel(fixture)}`,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+            homeTeamId: fixture.homeTeamId,
+            awayTeamId: fixture.awayTeamId,
+            allowsDraw: trioFixtureAllowsDraw(fixture),
+          };
+        }
+        const fixture = currentTierLeagueFixtureById.get(entry.fixtureId);
+        if (!fixture) {
+          return null;
+        }
+        const detailLabel = fixture.fixtureType === 'cross'
+          ? `Cross-Tier • ${(fixture.homeDivision ?? 'Unknown')} vs ${(fixture.awayDivision ?? 'Unknown')}`
+          : fixture.division;
+        return {
+          key,
+          competition: entry.competition,
+          fixtureId: entry.fixtureId,
+          competitionLabel: predictionCompetitionLabel(entry.competition),
+          detailLabel,
+          homeTeam: fixture.homeTeam,
+          awayTeam: fixture.awayTeam,
+          homeTeamId: fixture.homeTeamId,
+          awayTeamId: fixture.awayTeamId,
+          allowsDraw: true,
+        };
+      })
+      .filter((fixture): fixture is PredictionSlateFixture => fixture !== null);
+  }, [
+    currentCupFixtureById,
+    currentGw,
+    currentLeagueFixtureById,
+    currentMasterCupFixtureById,
+    currentMasterLeagueFixtureById,
+    currentTierLeagueFixtureById,
+    currentTrioLeagueFixtureById,
+    predictionSlate,
+    teamIdByName,
+  ]);
+  const oddsProfileByTeamId = useMemo(() => {
+    return new Map<number, OddsTeamProfile>(
+      teams.map((team) => [
+        team.id,
+        {
+          teamId: team.id,
+          teamName: team.name,
+          preseasonFavorite: team.preseasonFavorite,
+          history: teamSeasonHistoryByTeamId[team.id] ?? [],
+        },
+      ]),
+    );
+  }, [teamSeasonHistoryByTeamId, teams]);
+  const divisionOddsRowByTeamId = useMemo(() => {
+    const map = new Map<number, OddsCurrentRow>();
+    recapDivisionOrder.forEach((division) => {
+      (leagueTable[division] ?? []).forEach((row) => {
+        map.set(row.teamId, toOddsCurrentRow(row)!);
+      });
+    });
+    return map;
+  }, [leagueTable, recapDivisionOrder]);
+  const masterOddsRowByTeamId = useMemo(
+    () => new Map(masterLeagueTable.map((row) => [row.teamId, toOddsCurrentRow(row)!])),
+    [masterLeagueTable],
+  );
+  const trioOddsRowByTeamId = useMemo(
+    () => new Map(trioLeagueTable.map((row) => [row.teamId, toOddsCurrentRow(row)!])),
+    [trioLeagueTable],
+  );
+  const divisionForecastByTeamId = useMemo(() => {
+    const forecasts = new Map<number, LeagueForecastRow>();
+
+    recapDivisionOrder.forEach((division) => {
+      const rows = (leagueTable[division] ?? [])
+        .slice()
+        .sort(compareLeagueRowsByRank)
+        .map((row) => toOddsCurrentRow(row))
+        .filter((row): row is OddsCurrentRow => row !== null);
+
+      if (rows.length === 0) {
+        return;
+      }
+
+      const trendsByTeamId = new Map<number, LeagueForecastTrend>(
+        rows.map((row) => [row.teamId, teamMetaByName.get(row.teamName)?.trendCache ?? null]),
+      );
+
+      const remainingFixtures = allLeagueFixtures
+        .filter((fixture) => fixture.division === division && fixture.result === 'pending' && OFFICIAL_DIVISION_GAMEWEEKS.includes(fixture.gw))
+        .map((fixture) => {
+          const homeTeamId = teamIdByName.get(fixture.homeTeam) ?? null;
+          const awayTeamId = teamIdByName.get(fixture.awayTeam) ?? null;
+          if (!homeTeamId || !awayTeamId) {
+            return null;
+          }
+          return {
+            id: fixture.id,
+            homeTeamId,
+            awayTeamId,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+          };
+        })
+        .filter((fixture): fixture is NonNullable<typeof fixture> => fixture !== null);
+
+      buildLeagueForecastTable({
+        rows,
+        profilesByTeamId: oddsProfileByTeamId,
+        trendsByTeamId,
+        remainingFixtures,
+        rules: buildDivisionForecastRules(division, rows.length),
+        seedKey: `${currentSeason}:${currentGw}:${division}`,
+      }).forEach((value, teamId) => {
+        forecasts.set(teamId, value);
+      });
+    });
+
+    return forecasts;
+  }, [allLeagueFixtures, currentGw, currentSeason, leagueTable, oddsProfileByTeamId, recapDivisionOrder, teamIdByName, teamMetaByName]);
   const kickoffDayPhase = useMemo(
     () => getKickoffDayPhase(),
     [currentGw, currentGwEntries.length, currentGwLocked],
@@ -780,33 +2140,52 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   useEffect(() => {
     let active = true;
     if (!recapTarget) {
+      setPrevPredictionSlate([]);
       setPrevPredictions([]);
       setPrevLeagueFixtures([]);
       setPrevCupFixtures([]);
+      setPrevMasterLeagueFixtures([]);
+      setPrevMasterCupFixtures([]);
+      setPrevTrioLeagueFixtures([]);
+      setPrevTierLeagueFixtures([]);
       setRecapPredictionScores(null);
       return undefined;
     }
 
     Promise.all([
-      api.predictions(recapTarget.gw, recapTarget.season).catch(() => ({ season: recapTarget.season, gw: recapTarget.gw, locked: false, predictions: [] as PredictionRow[] })),
+      api.predictions(recapTarget.gw, recapTarget.season).catch(() => ({ season: recapTarget.season, gw: recapTarget.gw, locked: false, slate: [] as PredictionSlateRow[], predictions: [] as PredictionRow[] })),
       api.leagueFixtures(recapTarget.gw, false, recapTarget.season).catch(() => [] as Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>),
       api.cup(recapTarget.gw, recapTarget.season).catch(() => [] as CupFixture[]),
+      api.masterLeagueFixtures(recapTarget.gw, false, recapTarget.season).catch(() => [] as MasterLeagueFixture[]),
+      api.masterCupFixtures(recapTarget.gw, false, recapTarget.season).catch(() => [] as MasterCupFixture[]),
+      api.trioLeagueFixtures(recapTarget.gw, false, recapTarget.season).catch(() => [] as TrioFixture[]),
+      api.tierLeagueFixtures(recapTarget.gw, false, recapTarget.season).catch(() => [] as TierLeagueFixture[]),
       api.predictionScoreboard(recapTarget.season).catch(() => null),
-    ]).then(([predictionResponse, leagueRows, cupRows, recapScoreboard]) => {
+    ]).then(([predictionResponse, leagueRows, cupRows, masterLeagueRows, masterCupRows, trioRows, tierRows, recapScoreboard]) => {
       if (!active) {
         return;
       }
+      setPrevPredictionSlate(predictionResponse.slate ?? []);
       setPrevPredictions(predictionResponse.predictions);
       setPrevLeagueFixtures(leagueRows);
       setPrevCupFixtures(cupRows);
+      setPrevMasterLeagueFixtures(masterLeagueRows);
+      setPrevMasterCupFixtures(masterCupRows);
+      setPrevTrioLeagueFixtures(trioRows);
+      setPrevTierLeagueFixtures(tierRows);
       setRecapPredictionScores(recapScoreboard);
     }).catch(() => {
       if (!active) {
         return;
       }
+      setPrevPredictionSlate([]);
       setPrevPredictions([]);
       setPrevLeagueFixtures([]);
       setPrevCupFixtures([]);
+      setPrevMasterLeagueFixtures([]);
+      setPrevMasterCupFixtures([]);
+      setPrevTrioLeagueFixtures([]);
+      setPrevTierLeagueFixtures([]);
       setRecapPredictionScores(null);
     });
 
@@ -878,13 +2257,25 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   const currentPredictionMap = useMemo(() => {
     const map = new Map<string, Record<string, PredictionRow>>();
     predictions.forEach((row) => {
+      if (row.competition === 'league' && row.pickOutcome === 'draw') {
+        const fixture = currentLeagueFixtureById.get(row.fixtureId);
+        if (fixture && !leagueFixtureAllowsDraw(fixture)) {
+          return;
+        }
+      }
+      if (row.competition === 'trio' && row.pickOutcome === 'draw') {
+        const fixture = currentTrioLeagueFixtures.find((entry) => entry.id === row.fixtureId);
+        if (fixture && !trioFixtureAllowsDraw(fixture)) {
+          return;
+        }
+      }
       const key = `${row.competition}-${row.fixtureId}`;
       const entry = map.get(key) ?? {};
       entry[row.picker] = row;
       map.set(key, entry);
     });
     return map;
-  }, [predictions]);
+  }, [currentLeagueFixtureById, currentTrioLeagueFixtures, predictions]);
 
   const prevPredictionMap = useMemo(() => {
     const map = new Map<string, Record<string, PredictionRow>>();
@@ -904,6 +2295,183 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     return row.pickOutcome === 'draw' ? 'Draw' : row.pickTeamName;
   };
 
+  const previousPredictionRecapRows = useMemo<PredictionRecapFixtureRow[]>(() => {
+    const leagueById = new Map(prevLeagueFixtures.map((fixture) => [fixture.id, fixture]));
+    const cupById = new Map(prevCupFixtures.map((fixture) => [fixture.id, fixture]));
+    const masterById = new Map(prevMasterLeagueFixtures.map((fixture) => [fixture.id, fixture]));
+    const masterCupById = new Map(prevMasterCupFixtures.map((fixture) => [fixture.id, fixture]));
+    const trioById = new Map(prevTrioLeagueFixtures.map((fixture) => [fixture.id, fixture]));
+    const tierById = new Map(prevTierLeagueFixtures.map((fixture) => [fixture.id, fixture]));
+
+    const pickState = (
+      row: PredictionRow | undefined,
+      result: 'home' | 'away' | 'draw' | 'pending',
+      winnerName: string | null,
+    ): 'correct' | 'missed' | 'pending' => {
+      if (!row || result === 'pending') {
+        return 'pending';
+      }
+      if (row.pickOutcome === 'draw') {
+        return result === 'draw' ? 'correct' : 'missed';
+      }
+      if (result === 'draw') {
+        return 'missed';
+      }
+      if (!winnerName) {
+        return 'pending';
+      }
+      return row.pickTeamName === winnerName ? 'correct' : 'missed';
+    };
+
+    return prevPredictionSlate.map((entry) => {
+      const key = `${entry.competition}-${entry.fixtureId}`;
+      const picks = prevPredictionMap.get(key);
+      const fallback: PredictionRecapFixtureRow = {
+        key,
+        competitionLabel: predictionCompetitionLabel(entry.competition),
+        detailLabel: `Fixture ${entry.fixtureId}`,
+        fixtureLabel: `${predictionCompetitionLabel(entry.competition)} fixture ${entry.fixtureId}`,
+        actualLabel: 'Pending',
+        jayPick: pickLabel(picks?.Jay),
+        computerPick: pickLabel(picks?.Computer),
+        jayState: 'pending',
+        computerState: 'pending',
+      };
+
+      if (entry.competition === 'league') {
+        const fixture = leagueById.get(entry.fixtureId);
+        if (!fixture) {
+          return fallback;
+        }
+        const winnerName = fixture.result === 'home' ? fixture.homeTeam : fixture.result === 'away' ? fixture.awayTeam : null;
+        return {
+          key,
+          competitionLabel: 'League',
+          detailLabel: displayDivisionName(fixture.division),
+          fixtureLabel: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+          actualLabel: fixture.result === 'pending' ? 'Pending' : fixture.result === 'draw' ? 'Draw' : winnerName ?? 'Pending',
+          jayPick: pickLabel(picks?.Jay),
+          computerPick: pickLabel(picks?.Computer),
+          jayState: pickState(picks?.Jay, fixture.result, winnerName),
+          computerState: pickState(picks?.Computer, fixture.result, winnerName),
+        };
+      }
+
+      if (entry.competition === 'cup') {
+        const fixture = cupById.get(entry.fixtureId);
+        if (!fixture) {
+          return fallback;
+        }
+        const fixtureLabel = `${cupSideLabel(fixture, 'home')} vs ${cupSideLabel(fixture, 'away')}`;
+        const result = fixture.winnerTeam ? 'home' : 'pending';
+        return {
+          key,
+          competitionLabel: 'BookieBall Cup',
+          detailLabel: fixture.roundName,
+          fixtureLabel,
+          actualLabel: fixture.winnerTeam ?? 'Pending',
+          jayPick: pickLabel(picks?.Jay),
+          computerPick: pickLabel(picks?.Computer),
+          jayState: pickState(picks?.Jay, result, fixture.winnerTeam),
+          computerState: pickState(picks?.Computer, result, fixture.winnerTeam),
+        };
+      }
+
+      if (entry.competition === 'master') {
+        const fixture = masterById.get(entry.fixtureId);
+        if (!fixture) {
+          return fallback;
+        }
+        const winnerName = fixture.result === 'home' ? fixture.homeTeam : fixture.result === 'away' ? fixture.awayTeam : null;
+        return {
+          key,
+          competitionLabel: 'Master League',
+          detailLabel: 'Master Table',
+          fixtureLabel: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+          actualLabel: fixture.result === 'pending' ? 'Pending' : fixture.result === 'draw' ? 'Draw' : winnerName ?? 'Pending',
+          jayPick: pickLabel(picks?.Jay),
+          computerPick: pickLabel(picks?.Computer),
+          jayState: pickState(picks?.Jay, fixture.result, winnerName),
+          computerState: pickState(picks?.Computer, fixture.result, winnerName),
+        };
+      }
+
+      if (entry.competition === 'master_cup') {
+        const fixture = masterCupById.get(entry.fixtureId);
+        if (!fixture) {
+          return fallback;
+        }
+        const fixtureLabel = `${fixture.homeTeam ?? 'TBD'} vs ${fixture.awayTeam ?? 'TBD'}`;
+        const result = fixture.winnerTeam ? 'home' : 'pending';
+        return {
+          key,
+          competitionLabel: 'Master Cup',
+          detailLabel: fixture.roundName,
+          fixtureLabel,
+          actualLabel: fixture.winnerTeam ?? 'Pending',
+          jayPick: pickLabel(picks?.Jay),
+          computerPick: pickLabel(picks?.Computer),
+          jayState: pickState(picks?.Jay, result, fixture.winnerTeam),
+          computerState: pickState(picks?.Computer, result, fixture.winnerTeam),
+        };
+      }
+
+      if (entry.competition === 'trio') {
+        const fixture = trioById.get(entry.fixtureId);
+        if (!fixture) {
+          return fallback;
+        }
+        const winnerName = fixture.result === 'home' ? fixture.homeTeam : fixture.result === 'away' ? fixture.awayTeam : null;
+        return {
+          key,
+          competitionLabel: 'Trio League',
+          detailLabel: fixture.stage === 'regular' ? fixture.division : `${fixture.division} • ${trioStageLabel(fixture)}`,
+          fixtureLabel: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+          actualLabel: fixture.result === 'pending' ? 'Pending' : fixture.result === 'draw' ? 'Draw' : winnerName ?? 'Pending',
+          jayPick: pickLabel(picks?.Jay),
+          computerPick: pickLabel(picks?.Computer),
+          jayState: pickState(picks?.Jay, fixture.result, winnerName),
+          computerState: pickState(picks?.Computer, fixture.result, winnerName),
+        };
+      }
+
+      const fixture = tierById.get(entry.fixtureId);
+      if (!fixture) {
+        return fallback;
+      }
+      const winnerName = fixture.result === 'home' ? fixture.homeTeam : fixture.result === 'away' ? fixture.awayTeam : null;
+      return {
+        key,
+        competitionLabel: 'Tier League',
+        detailLabel: fixture.fixtureType === 'cross'
+          ? `Cross-Tier • ${fixture.homeDivision ?? fixture.division} vs ${fixture.awayDivision ?? fixture.division}`
+          : fixture.division,
+        fixtureLabel: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        actualLabel: fixture.result === 'pending' ? 'Pending' : fixture.result === 'draw' ? 'Draw' : winnerName ?? 'Pending',
+        jayPick: pickLabel(picks?.Jay),
+        computerPick: pickLabel(picks?.Computer),
+        jayState: pickState(picks?.Jay, fixture.result, winnerName),
+        computerState: pickState(picks?.Computer, fixture.result, winnerName),
+      };
+    });
+  }, [
+    prevCupFixtures,
+    prevLeagueFixtures,
+    prevMasterCupFixtures,
+    prevMasterLeagueFixtures,
+    prevPredictionMap,
+    prevPredictionSlate,
+    prevTierLeagueFixtures,
+    prevTrioLeagueFixtures,
+  ]);
+  const previousPredictionRecapColumns = useMemo(() => {
+    const midpoint = Math.ceil(previousPredictionRecapRows.length / 2);
+    return [
+      previousPredictionRecapRows.slice(0, midpoint),
+      previousPredictionRecapRows.slice(midpoint),
+    ];
+  }, [previousPredictionRecapRows]);
+
   const scoreboardTotals = useMemo(() => {
     const base = new Map((predictionScores?.totals ?? []).map((row) => [row.picker, row]));
     return ['Jay', 'Computer'].map((picker) => base.get(picker) ?? { picker, points: 0, correct: 0, total: 0, perfectWeeks: 0 });
@@ -915,141 +2483,118 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     }
     return recapPredictionScores.weeks.filter((row) => row.gw === recapTarget.gw);
   }, [recapPredictionScores, recapTarget]);
+  const predictionSlateMissingCount = Math.max(predictionSlate.length - predictionSlateFixtures.length, 0);
 
   useEffect(() => {
     if (predictionsInitialized.current) {
       return;
     }
-    if (currentLeagueFixtures.length === 0 && currentCupFixtures.length === 0) {
+    if (predictionSlate.length === 0) {
+      setPredictionSelections({});
+      predictionsInitialized.current = true;
+      return;
+    }
+    if (predictionSlateFixtures.length !== predictionSlate.length) {
       return;
     }
     const initialSelections: Record<string, 'home' | 'away' | 'draw'> = {};
-    const leagueById = new Map(currentLeagueFixtures.map((fixture) => [fixture.id, fixture]));
-    const cupById = new Map(currentCupFixtures.map((fixture) => [fixture.id, fixture]));
+    const slateByKey = new Map(predictionSlateFixtures.map((fixture) => [fixture.key, fixture]));
 
     jayPredictions.forEach((row) => {
       const key = `${row.competition}-${row.fixtureId}`;
-      const fixture = row.competition === 'league' ? leagueById.get(row.fixtureId) : cupById.get(row.fixtureId);
+      const fixture = slateByKey.get(key);
       if (!fixture) {
         return;
       }
       if (row.pickOutcome === 'draw') {
+        if (!fixture.allowsDraw) {
+          return;
+        }
         initialSelections[key] = 'draw';
       } else {
-        const homeId = fixture.homeTeam ? teamIdByName.get(fixture.homeTeam) : null;
-        const awayId = fixture.awayTeam ? teamIdByName.get(fixture.awayTeam) : null;
-        if (row.pickTeamId && awayId && row.pickTeamId === awayId) {
+        if (row.pickTeamId && fixture.awayTeamId && row.pickTeamId === fixture.awayTeamId) {
           initialSelections[key] = 'away';
-        } else if (row.pickTeamId && homeId && row.pickTeamId === homeId) {
+        } else if (row.pickTeamId && fixture.homeTeamId && row.pickTeamId === fixture.homeTeamId) {
           initialSelections[key] = 'home';
         }
       }
     });
 
-    currentCupFixtures.forEach((fixture) => {
-      const key = `cup-${fixture.id}`;
-      if (initialSelections[key]) {
-        return;
-      }
-      if (fixture.homeTeam && !fixture.awayTeam) {
-        initialSelections[key] = 'home';
-      }
-      if (fixture.awayTeam && !fixture.homeTeam) {
-        initialSelections[key] = 'away';
-      }
-    });
-
     setPredictionSelections(initialSelections);
     predictionsInitialized.current = true;
-  }, [currentCupFixtures, currentLeagueFixtures, jayPredictions, teamIdByName]);
+  }, [jayPredictions, predictionSlate, predictionSlateFixtures]);
 
-  const buildLeaguePicks = () =>
-    currentLeagueFixtures
-      .map((fixture) => {
-        const key = `league-${fixture.id}`;
-        const outcome = predictionSelections[key];
-        const homeId = teamIdByName.get(fixture.homeTeam);
-        const awayId = teamIdByName.get(fixture.awayTeam);
-        if (!outcome || (!homeId && !awayId)) {
-          return null;
+  const buildPredictionSlatePicks = () => {
+    const picksByCompetition = new Map<PredictionCompetition, PredictionPickPayload[]>();
+    predictionSlateFixtures.forEach((fixture) => {
+      const outcome = predictionSelections[fixture.key];
+      if (!outcome) {
+        return;
+      }
+      if (outcome === 'draw') {
+        if (!fixture.allowsDraw) {
+          return;
         }
-        if (outcome === 'draw') {
-          return {
-            fixtureId: fixture.id,
-            pickTeamId: null,
-            pickOutcome: 'draw' as const,
-            predictedHomeScore: null,
-            predictedAwayScore: null,
-          };
-        }
-        const pickTeamId = outcome === 'home' ? homeId : awayId;
-        if (!pickTeamId) {
-          return null;
-        }
-        return {
-          fixtureId: fixture.id,
-          pickTeamId,
-          pickOutcome: 'team' as const,
+        const rows = picksByCompetition.get(fixture.competition) ?? [];
+        rows.push({
+          fixtureId: fixture.fixtureId,
+          pickTeamId: null,
+          pickOutcome: 'draw',
           predictedHomeScore: null,
           predictedAwayScore: null,
-        };
-      })
-      .filter(
-        (row): row is {
-          fixtureId: number;
-          pickTeamId: number | null;
-          pickOutcome: 'team' | 'draw';
-          predictedHomeScore: number | null;
-          predictedAwayScore: number | null;
-        } => row !== null,
-      );
+        });
+        picksByCompetition.set(fixture.competition, rows);
+        return;
+      }
 
-  const buildCupPicks = () =>
-    currentCupFixtures
-      .map((fixture) => {
-        const key = `cup-${fixture.id}`;
-        const outcome = predictionSelections[key];
-        const homeId = fixture.homeTeam ? teamIdByName.get(fixture.homeTeam) : null;
-        const awayId = fixture.awayTeam ? teamIdByName.get(fixture.awayTeam) : null;
-        if (!outcome || outcome === 'draw') {
-          return null;
-        }
-        const pickTeamId = outcome === 'home' ? homeId : awayId;
-        if (!pickTeamId) {
-          return null;
-        }
-        return {
-          fixtureId: fixture.id,
-          pickTeamId,
-          pickOutcome: 'team' as const,
-          predictedHomeScore: null,
-          predictedAwayScore: null,
-        };
-      })
-      .filter(
-        (row): row is {
-          fixtureId: number;
-          pickTeamId: number;
-          pickOutcome: 'team';
-          predictedHomeScore: number | null;
-          predictedAwayScore: number | null;
-        } => row !== null,
-      );
+      const pickTeamId = outcome === 'home' ? fixture.homeTeamId : fixture.awayTeamId;
+      if (!pickTeamId) {
+        return;
+      }
+      const rows = picksByCompetition.get(fixture.competition) ?? [];
+      rows.push({
+        fixtureId: fixture.fixtureId,
+        pickTeamId,
+        pickOutcome: 'team',
+        predictedHomeScore: null,
+        predictedAwayScore: null,
+      });
+      picksByCompetition.set(fixture.competition, rows);
+    });
+    return picksByCompetition;
+  };
 
   const reloadFixtureSetupData = useCallback(async () => {
-    const [state, table, fixtures, movementPayload, masterPayload, masterFixtures, lastCompletedResponse, bookieDorResponse] = await Promise.all([
-      api.state().catch(() => ({ currentSeason, currentGw, cupDrawStarted, gwLocked: false })),
+    const state = await api.state().catch(() => ({ currentSeason, currentGw, cupDrawStarted, gwLocked: false }));
+    const seasonFiveOrLater = isSeasonFiveOrLater(state.currentSeason);
+    const seasonSixOrLater = isSeasonSixOrLater(state.currentSeason);
+    const [table, fixtures, movementPayload, masterPayload, masterFixtures, masterCupFixtures, trioTablePayload, trioFixtures, tierTablePayload, tierFixtures, cup, superCup, seasonEntries, predictionResponse, lastCompletedResponse, bookieDorResponse] = await Promise.all([
       api.leagueTable(),
       api.leagueFixtures(undefined, true),
       api.leagueMovement().catch(() => ({ baselineGw: null, baselineLabel: null, movement: {} as Record<string, Record<number, number>> })),
-      api.masterLeagueTable(currentGw).catch(() => ({ gw: currentGw, baselineGw: null, movement: {} as Record<number, number>, table: [] as MasterLeagueTableRow[] })),
+      api.masterLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, baselineGw: null, movement: {} as Record<number, number>, table: [] as MasterLeagueTableRow[] })),
       api.masterLeagueFixtures(undefined, true).catch(() => [] as MasterLeagueFixture[]),
+      seasonFiveOrLater
+        ? api.masterCupFixtures(undefined, true).catch(() => [] as MasterCupFixture[])
+        : Promise.resolve([] as MasterCupFixture[]),
+      api.trioLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, enabled: false, table: [] as TrioLeagueTableRow[] })),
+      api.trioLeagueFixtures(undefined, true).catch(() => [] as TrioFixture[]),
+      seasonSixOrLater
+        ? api.tierLeagueTable(state.currentGw).catch(() => ({ gw: state.currentGw, enabled: false, started: false, table: [] as TierLeagueTableRow[] }))
+        : Promise.resolve({ gw: state.currentGw, enabled: false, started: false, table: [] as TierLeagueTableRow[] }),
+      seasonSixOrLater
+        ? api.tierLeagueFixtures(undefined, true).catch(() => [] as TierLeagueFixture[])
+        : Promise.resolve([] as TierLeagueFixture[]),
+      api.cup().catch(() => [] as CupFixture[]),
+      api.superCup(state.currentSeason).catch(() => [] as SuperCupFixture[]),
+      api.entries({ limit: 2000 }).catch(() => [] as EntryRow[]),
+      api.predictions(state.currentGw).catch(() => ({ season: state.currentSeason, gw: state.currentGw, locked: false, slate: [] as PredictionSlateRow[], predictions: [] as PredictionRow[] })),
       api.lastCompletedGameweek().catch(() => ({
-        currentSeason: currentSeason,
-        currentGw: currentGw,
+        currentSeason: state.currentSeason,
+        currentGw: state.currentGw,
         lastCompleted: null as { season: string; gw: string } | null,
       })),
-      api.bookieDor(currentSeason, currentGw).catch(() => null),
+      api.bookieDor(state.currentSeason, state.currentGw).catch(() => null),
     ]);
 
     setCurrentSeason(state.currentSeason);
@@ -1063,8 +2608,19 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     setMasterLeagueMovement(masterPayload.movement ?? {});
     setMasterLeagueBaselineGw(masterPayload.baselineGw ?? null);
     setAllMasterLeagueFixtures(masterFixtures);
+    setAllMasterCupFixtures(masterCupFixtures);
+    setTrioLeagueTable(trioTablePayload.table ?? []);
+    setAllTrioLeagueFixtures(trioFixtures);
+    setTierLeagueTable(tierTablePayload.table ?? []);
+    setAllTierLeagueFixtures(tierFixtures);
+    setCupFixtures(recoverCupFixturesFromEntries(cup as CupFixture[], seasonEntries, state.currentSeason));
+    setSuperCupFixtures(superCup);
+    setPredictions(predictionResponse.predictions);
+    setPredictionSlate(predictionResponse.slate ?? []);
+    setPredictionsLocked(predictionResponse.locked);
     setLastCompletedGameweek(lastCompletedResponse.lastCompleted);
     setBookieDorBoard(bookieDorResponse);
+    predictionsInitialized.current = false;
     const updatedStorylines = await api.reportStorylines(state.currentGw).catch(() => null);
     setStorylinePayload(updatedStorylines);
   }, [currentGw, currentSeason, cupDrawStarted]);
@@ -1097,12 +2653,32 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       await reloadFixtureSetupData();
       setFixtureSetupNotice({
         type: 'ok',
-        text: `Master fixtures ready from ${result.fromGw} to ${result.toGw} (${result.created} fixtures).`,
+        text: `Master League fixtures ready from ${result.fromGw} to ${result.toGw} (${result.created} fixtures). Master Cup fixtures refresh automatically from the live bracket.`,
       });
     } catch (error) {
       setFixtureSetupNotice({
         type: 'error',
         text: error instanceof Error ? error.message : 'Unable to generate master league fixtures.',
+      });
+    } finally {
+      setFixtureSetupBusy(null);
+    }
+  }, [currentGw, reloadFixtureSetupData]);
+
+  const loadTrioFixturesForGw = useCallback(async () => {
+    setFixtureSetupBusy('trio');
+    setFixtureSetupNotice(null);
+    try {
+      const result = await api.generateTrioLeagueFixtures(currentGw, 'GW6');
+      await reloadFixtureSetupData();
+      setFixtureSetupNotice({
+        type: 'ok',
+        text: `Trio fixtures ready from ${result.fromGw} to ${result.toGw} (${result.created} fixtures).`,
+      });
+    } catch (error) {
+      setFixtureSetupNotice({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Unable to generate trio league fixtures.',
       });
     } finally {
       setFixtureSetupBusy(null);
@@ -1116,31 +2692,29 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     setPredictionSaving(true);
     setPredictionMessage('');
     try {
-      const missingLeague = currentLeagueFixtures.some((fixture) => !predictionSelections[`league-${fixture.id}`]);
-      const missingCup = currentCupFixtures.some((fixture) => {
-        const key = `cup-${fixture.id}`;
-        if (fixture.homeTeam && !fixture.awayTeam) {
-          return false;
-        }
-        if (fixture.awayTeam && !fixture.homeTeam) {
-          return false;
-        }
-        return !predictionSelections[key];
-      });
-      if (missingLeague || missingCup) {
-        setPredictionMessage('Pick every fixture before submitting.');
+      if (predictionSlate.length === 0) {
+        setPredictionMessage(`No prediction slate is available for ${currentGw} yet.`);
         return;
       }
-      const leaguePicks = buildLeaguePicks();
-      const cupPicks = buildCupPicks();
-      if (leaguePicks.length > 0) {
-        await api.savePredictions({ gw: currentGw, competition: 'league', picks: leaguePicks, picker: 'Jay' });
+      if (predictionSlateFixtures.length !== predictionSlate.length) {
+        setPredictionMessage('Prediction slate is still loading. Try again in a moment.');
+        return;
       }
-      if (cupPicks.length > 0) {
-        await api.savePredictions({ gw: currentGw, competition: 'cup', picks: cupPicks, picker: 'Jay' });
+      const hasMissingFixture = predictionSlateFixtures.some((fixture) => !predictionSelections[fixture.key]);
+      if (hasMissingFixture) {
+        setPredictionMessage(`Pick all ${predictionSlate.length} selected games before submitting.`);
+        return;
+      }
+      const picksByCompetition = buildPredictionSlatePicks();
+      for (const [competition, picks] of picksByCompetition.entries()) {
+        if (picks.length === 0) {
+          continue;
+        }
+        await api.savePredictions({ gw: currentGw, competition, picks, picker: 'Jay' });
       }
       await api.lockPredictions(currentGw);
       const updated = await api.predictions(currentGw);
+      setPredictionSlate(updated.slate ?? []);
       setPredictions(updated.predictions);
       setSeasonPredictions((prev) => [
         ...prev.filter((row) => row.gw !== currentGw),
@@ -1164,6 +2738,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       await api.unlockPredictions(currentGw);
       const updated = await api.predictions(currentGw);
       predictionsInitialized.current = false;
+      setPredictionSlate(updated.slate ?? []);
       setPredictions(updated.predictions);
       setSeasonPredictions((prev) => [
         ...prev.filter((row) => row.gw !== currentGw),
@@ -1182,11 +2757,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     if (currentGw === 'GW1' && !cupDrawStarted) {
       return;
     }
-    setDraw(null);
-    setDrawError('');
-    setShowLog(false);
     setOpponentPreviewProfit(0);
     setPredictionMessage('');
+    setDrawError('');
     if (!predictionsLocked) {
       setPredictionMessage('Submit & lock predictions before starting the show.');
       return;
@@ -1213,9 +2786,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           setDrawError('Unable to open the team site window.');
         }
       }
-      setCountdown(5);
+      await startDrawSequence();
     } finally {
-      setLoading(false);
+      // Sequence state is handled inside startDrawSequence.
     }
   };
 
@@ -1228,10 +2801,11 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       setLogRows([createLogRow()]);
       setShowLog(false);
       setDraw(null);
-      setCountdown(3);
+      setDrawError('');
+      void startDrawSequence();
     };
 
-    let rowsToSave = logRows.filter(hasLogRowInput);
+    let rowsToSave = logRows.filter((row) => hasLogRowInput(row, currentSeason));
     if (rowsToSave.length === 0) {
       rowsToSave = [logRows[0] ?? createLogRow()];
     }
@@ -1240,20 +2814,20 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       const entries = rowsToSave.map((row) => ({
         teamId: draw.teamId,
         entryType: row.entryType,
-        profit: Number(row.profit || 0),
-        spins: row.entryType === 'free_spins' ? Number(row.spins || 0) : null,
-        stake: row.entryType === 'free_spins' ? Number(row.stake || 0) : null,
+        profit: parseLogNumber(row.profit),
+        spins: row.entryType === 'free_spins' ? parseLogNumber(row.spins) : null,
+        stake: row.stake.trim() === '' ? null : parseLogNumber(row.stake),
         notes: null,
         noWin: false,
       }));
 
       await api.saveEntries(entries);
-      const totalProfitDelta = rowsToSave.reduce((sum, row) => sum + Number(row.profit || 0), 0);
+      const totalProfitDelta = Number(rowsToSave.reduce((sum, row) => sum + effectiveLogRowProfit(row, currentSeason), 0).toFixed(2));
       const freeSpinRows = rowsToSave.filter((row) => row.entryType === 'free_spins');
       const bonusRows = rowsToSave.filter((row) => row.entryType === 'bonus');
-      const freeSpinProfit = freeSpinRows.reduce((sum, row) => sum + Number(row.profit || 0), 0);
+      const freeSpinProfit = Number(freeSpinRows.reduce((sum, row) => sum + effectiveLogRowProfit(row, currentSeason), 0).toFixed(2));
       const freeSpinSpins = freeSpinRows.reduce((sum, row) => sum + Number(row.spins || 0), 0);
-      const bonusProfit = bonusRows.reduce((sum, row) => sum + Number(row.profit || 0), 0);
+      const bonusProfit = Number(bonusRows.reduce((sum, row) => sum + effectiveLogRowProfit(row, currentSeason), 0).toFixed(2));
       const updatedGwProfit = Number((draw.currentGwProfit + totalProfitDelta).toFixed(2));
       const alertLines: string[] = [];
       if (freeSpinRows.length > 0) {
@@ -1350,15 +2924,15 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   }, [currentGwEntries]);
 
   const pendingLogRows = useMemo(
-    () => (draw ? logRows.filter((row) => hasLogRowInput(row)) : []),
-    [draw?.teamId, logRows],
+    () => (draw ? logRows.filter((row) => hasLogRowInput(row, currentSeason)) : []),
+    [currentSeason, draw?.teamId, logRows],
   );
 
   const pendingEntryCount = pendingLogRows.length;
 
   const pendingProfitDelta = useMemo(
-    () => pendingLogRows.reduce((sum, row) => sum + Number(row.profit || 0), 0),
-    [pendingLogRows],
+    () => Number(pendingLogRows.reduce((sum, row) => sum + effectiveLogRowProfit(row, currentSeason), 0).toFixed(2)),
+    [currentSeason, pendingLogRows],
   );
 
   const pendingSpinsDelta = useMemo(
@@ -1430,7 +3004,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         : draw.cupOpponent && draw.cupOpponent !== 'No Fixture'
           ? draw.cupOpponent
           : '';
-      const opponentLine = opponentBase && opponentBase.toUpperCase() !== 'BYE'
+      const opponentLine = opponentBase && !isPlaceholderTeam(opponentBase)
         ? `We have some action in the game against ${opponentBase}.`
         : 'We have some action on the board.';
       const direction = delta > 0 ? 'up' : 'down';
@@ -1507,9 +3081,14 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     showLog,
   ]);
 
+  const tableLeagueFixturesForStudio = useMemo(
+    () => allLeagueFixturesForStudio.filter((fixture) => recapDivisionSet.has(fixture.division)),
+    [allLeagueFixturesForStudio, recapDivisionSet],
+  );
+
   const leagueFormByTeamName = useMemo(() => {
     const map = new Map<string, Array<'W' | 'D' | 'L'>>();
-    const sortedFixtures = allLeagueFixturesForStudio
+    const sortedFixtures = tableLeagueFixturesForStudio
       .slice()
       .sort((a, b) => gwSortValue(a.gw) - gwSortValue(b.gw) || a.id - b.id);
     const pushForm = (teamName: string, result: 'W' | 'D' | 'L') => {
@@ -1536,7 +3115,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       }
     });
     return map;
-  }, [allLeagueFixturesForStudio]);
+  }, [tableLeagueFixturesForStudio]);
 
   const allMasterLeagueFixturesForStudio = useMemo(() => {
     if (!draw || !showLog) {
@@ -1587,6 +3166,104 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     showLog,
   ]);
 
+  const allTrioLeagueFixturesForStudio = useMemo(() => {
+    if (!draw || !showLog) {
+      return allTrioLeagueFixtures;
+    }
+    return allTrioLeagueFixtures.map((fixture) => {
+      if (fixture.gw !== currentGw) {
+        return fixture;
+      }
+      const isHome = fixture.homeTeam === draw.teamName;
+      const isAway = fixture.awayTeam === draw.teamName;
+      if (!isHome && !isAway) {
+        return fixture;
+      }
+      const homeProfit = isHome ? previewProfit : fixture.homeProfit;
+      const awayProfit = isAway ? previewProfit : fixture.awayProfit;
+      const homeSpins = isHome ? previewSpins : fixture.homeSpins;
+      const awaySpins = isAway ? previewSpins : fixture.awaySpins;
+      const homeEntryCount = (savedCurrentGwEntryCountByTeamName.get(fixture.homeTeam) ?? 0) + (isHome ? pendingEntryCount : 0);
+      const awayEntryCount = (savedCurrentGwEntryCountByTeamName.get(fixture.awayTeam) ?? 0) + (isAway ? pendingEntryCount : 0);
+      let result: 'home' | 'away' | 'draw' | 'pending' = 'pending';
+      if (homeEntryCount > 0 || awayEntryCount > 0) {
+        if (homeProfit > awayProfit) {
+          result = 'home';
+        } else if (awayProfit > homeProfit) {
+          result = 'away';
+        } else {
+          result = 'draw';
+        }
+      }
+      return {
+        ...fixture,
+        homeProfit: Number(homeProfit.toFixed(2)),
+        awayProfit: Number(awayProfit.toFixed(2)),
+        homeSpins,
+        awaySpins,
+        result,
+      };
+    });
+  }, [
+    allTrioLeagueFixtures,
+    currentGw,
+    draw,
+    pendingEntryCount,
+    previewProfit,
+    previewSpins,
+    savedCurrentGwEntryCountByTeamName,
+    showLog,
+  ]);
+
+  const allTierLeagueFixturesForStudio = useMemo(() => {
+    if (!draw || !showLog) {
+      return allTierLeagueFixtures;
+    }
+    return allTierLeagueFixtures.map((fixture) => {
+      if (fixture.gw !== currentGw) {
+        return fixture;
+      }
+      const isHome = fixture.homeTeam === draw.teamName;
+      const isAway = fixture.awayTeam === draw.teamName;
+      if (!isHome && !isAway) {
+        return fixture;
+      }
+      const homeProfit = isHome ? previewProfit : fixture.homeProfit;
+      const awayProfit = isAway ? previewProfit : fixture.awayProfit;
+      const homeSpins = isHome ? previewSpins : fixture.homeSpins;
+      const awaySpins = isAway ? previewSpins : fixture.awaySpins;
+      const homeEntryCount = (savedCurrentGwEntryCountByTeamName.get(fixture.homeTeam) ?? 0) + (isHome ? pendingEntryCount : 0);
+      const awayEntryCount = (savedCurrentGwEntryCountByTeamName.get(fixture.awayTeam) ?? 0) + (isAway ? pendingEntryCount : 0);
+      let result: 'home' | 'away' | 'draw' | 'pending' = 'pending';
+      if (homeEntryCount > 0 || awayEntryCount > 0) {
+        if (homeProfit > awayProfit) {
+          result = 'home';
+        } else if (awayProfit > homeProfit) {
+          result = 'away';
+        } else {
+          result = 'draw';
+        }
+      }
+      return {
+        ...fixture,
+        homeProfit: Number(homeProfit.toFixed(2)),
+        awayProfit: Number(awayProfit.toFixed(2)),
+        homeSpins,
+        awaySpins,
+        result,
+      };
+    });
+  }, [
+    allTierLeagueFixtures,
+    currentGw,
+    draw,
+    pendingEntryCount,
+    previewProfit,
+    previewSpins,
+    savedCurrentGwEntryCountByTeamName,
+    showLog,
+  ]);
+
   const currentLeagueFixturesForStudio = useMemo(
     () => allLeagueFixturesForStudio.filter((fixture) => fixture.gw === currentGw),
     [allLeagueFixturesForStudio, currentGw],
@@ -1594,6 +3271,14 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   const currentMasterLeagueFixturesForStudio = useMemo(
     () => allMasterLeagueFixturesForStudio.filter((fixture) => fixture.gw === currentGw),
     [allMasterLeagueFixturesForStudio, currentGw],
+  );
+  const currentTrioLeagueFixturesForStudio = useMemo(
+    () => allTrioLeagueFixturesForStudio.filter((fixture) => fixture.gw === currentGw),
+    [allTrioLeagueFixturesForStudio, currentGw],
+  );
+  const currentTierLeagueFixturesForStudio = useMemo(
+    () => allTierLeagueFixturesForStudio.filter((fixture) => fixture.gw === currentGw),
+    [allTierLeagueFixturesForStudio, currentGw],
   );
 
   const currentCupFixture = useMemo(() => {
@@ -1719,8 +3404,16 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       map.set(fixture.homeTeam, fixture.homeProfit);
       map.set(fixture.awayTeam, fixture.awayProfit);
     });
+    currentTrioLeagueFixturesForStudio.forEach((fixture) => {
+      map.set(fixture.homeTeam, fixture.homeProfit);
+      map.set(fixture.awayTeam, fixture.awayProfit);
+    });
+    currentTierLeagueFixturesForStudio.forEach((fixture) => {
+      map.set(fixture.homeTeam, fixture.homeProfit);
+      map.set(fixture.awayTeam, fixture.awayProfit);
+    });
     return map;
-  }, [currentLeagueFixturesForStudio, currentMasterLeagueFixturesForStudio]);
+  }, [currentLeagueFixturesForStudio, currentMasterLeagueFixturesForStudio, currentTierLeagueFixturesForStudio, currentTrioLeagueFixturesForStudio]);
 
   const seasonPredictionByKey = useMemo(() => {
     const map = new Map<string, PredictionRow>();
@@ -1772,6 +3465,58 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       });
     });
 
+    allMasterLeagueFixtures.forEach((fixture) => {
+      if (fixture.result === 'pending') {
+        return;
+      }
+      const winnerName =
+        fixture.result === 'draw'
+          ? null
+          : fixture.result === 'home'
+            ? fixture.homeTeam
+            : fixture.awayTeam;
+      [fixture.homeTeam, fixture.awayTeam].forEach((teamName) => {
+        const row = ensure(credits, teamName);
+        row.resolved += 1;
+        const jayPick = seasonPredictionByKey.get(`${fixture.gw}-master-${fixture.id}-Jay`);
+        if (jayPick && ((jayPick.pickOutcome === 'draw' && fixture.result === 'draw') || (jayPick.pickOutcome === 'team' && winnerName !== null && jayPick.pickTeamName === winnerName))) {
+          row.jayCorrect += 1;
+          row.jayPoints += 5;
+        }
+        const cpuPick = seasonPredictionByKey.get(`${fixture.gw}-master-${fixture.id}-Computer`);
+        if (cpuPick && ((cpuPick.pickOutcome === 'draw' && fixture.result === 'draw') || (cpuPick.pickOutcome === 'team' && winnerName !== null && cpuPick.pickTeamName === winnerName))) {
+          row.computerCorrect += 1;
+          row.computerPoints += 5;
+        }
+      });
+    });
+
+    allTrioLeagueFixtures.forEach((fixture) => {
+      if (fixture.result === 'pending') {
+        return;
+      }
+      const winnerName =
+        fixture.result === 'draw'
+          ? null
+          : fixture.result === 'home'
+            ? fixture.homeTeam
+            : fixture.awayTeam;
+      [fixture.homeTeam, fixture.awayTeam].forEach((teamName) => {
+        const row = ensure(credits, teamName);
+        row.resolved += 1;
+        const jayPick = seasonPredictionByKey.get(`${fixture.gw}-trio-${fixture.id}-Jay`);
+        if (jayPick && ((jayPick.pickOutcome === 'draw' && fixture.result === 'draw') || (jayPick.pickOutcome === 'team' && winnerName !== null && jayPick.pickTeamName === winnerName))) {
+          row.jayCorrect += 1;
+          row.jayPoints += 5;
+        }
+        const cpuPick = seasonPredictionByKey.get(`${fixture.gw}-trio-${fixture.id}-Computer`);
+        if (cpuPick && ((cpuPick.pickOutcome === 'draw' && fixture.result === 'draw') || (cpuPick.pickOutcome === 'team' && winnerName !== null && cpuPick.pickTeamName === winnerName))) {
+          row.computerCorrect += 1;
+          row.computerPoints += 5;
+        }
+      });
+    });
+
     cupFixtures.forEach((fixture) => {
       if (!fixture.winnerTeam) {
         return;
@@ -1796,24 +3541,33 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     });
 
     return credits;
-  }, [allLeagueFixturesForStudio, cupFixtures, seasonPredictionByKey]);
+  }, [allLeagueFixturesForStudio, allMasterLeagueFixtures, allTrioLeagueFixtures, cupFixtures, seasonPredictionByKey]);
 
-  const studioFixtureCount = currentLeagueFixturesForStudio.length + currentMasterLeagueFixturesForStudio.length + currentCupFixtures.length;
+  const studioFixtureCount =
+    currentLeagueFixturesForStudio.length
+    + currentMasterLeagueFixturesForStudio.length
+    + currentTrioLeagueFixturesForStudio.length
+    + currentTierLeagueFixturesForStudio.length
+    + currentCupFixtures.length
+    + currentSuperCupFixtures.length;
   const studioResolvedCount =
     currentLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length
     + currentMasterLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length
-    + currentCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length;
+    + currentTrioLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length
+    + currentTierLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length
+    + currentCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length
+    + currentSuperCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length;
 
   const studioTableDivisions = useMemo(() => {
-    const lastDivision = RECAP_DIVISION_ORDER[RECAP_DIVISION_ORDER.length - 1];
-    return RECAP_DIVISION_ORDER
+    const lastDivision = recapDivisionOrder[recapDivisionOrder.length - 1];
+    return recapDivisionOrder
       .map((division, divisionIndex) => {
         const rows =
           draw && showLog && division === draw.division
             ? projectedDivisionRows
-            : (leagueTable[division] ?? []).slice().sort((a, b) => a.rank - b.rank);
+            : (leagueTable[division] ?? []).slice().sort(compareLeagueRowsByRank);
         const pendingMatchesByTeam = new Map<number, number>();
-        allLeagueFixturesForStudio
+        tableLeagueFixturesForStudio
           .filter((fixture) => fixture.division === division && fixture.result === 'pending')
           .forEach((fixture) => {
             const homeTeamId = teamIdByName.get(fixture.homeTeam);
@@ -1889,12 +3643,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       })
       .filter((division) => division.rows.length > 0);
   }, [
-    allLeagueFixturesForStudio,
+    tableLeagueFixturesForStudio,
     currentGw,
     draw,
     leagueFormByTeamName,
     leagueMovement,
     leagueTable,
+    recapDivisionOrder,
     projectedDivisionRows,
     showLog,
     teamIdByName,
@@ -1902,7 +3657,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   ]);
 
   const studioMasterLeagueRows = useMemo(() => {
-    const rows = masterLeagueTable.slice().sort((a, b) => a.rank - b.rank);
+    const rows = masterLeagueTable.slice().sort(compareLeagueRowsByRank);
     if (rows.length === 0) {
       return [] as SkyStudioTableDivision['rows'];
     }
@@ -1952,6 +3707,152 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     });
   }, [allMasterLeagueFixtures, leagueFormByTeamName, masterLeagueMovement, masterLeagueTable, teamMetaByName]);
 
+  const studioMasterLeagueRowsByTeamId = useMemo(() => {
+    const rowMap = new Map<number, SkyStudioTableDivision['rows'][number]>();
+    studioMasterLeagueRows.forEach((row) => {
+      rowMap.set(row.teamId, row);
+    });
+    return rowMap;
+  }, [studioMasterLeagueRows]);
+
+  const allTimeRankMaps = useMemo(() => {
+    const points = new Map<number, number>();
+    const profit = new Map<number, number>();
+    const spins = new Map<number, number>();
+    allTimeLeagues?.pointsTable.forEach((row) => {
+      points.set(row.teamId, row.rank);
+    });
+    allTimeLeagues?.profitTable.forEach((row) => {
+      profit.set(row.teamId, row.rank);
+    });
+    allTimeLeagues?.spinsTable.forEach((row) => {
+      spins.set(row.teamId, row.rank);
+    });
+    return { points, profit, spins };
+  }, [allTimeLeagues]);
+
+  const divisionJourneyById = useMemo(() => {
+    const effectiveJourneyGw = Math.max(1, Math.min(OFFICIAL_DIVISION_GAMEWEEKS.length, gwSortValue(currentGw)));
+    const gwNumbers = Array.from({ length: effectiveJourneyGw }, (_, index) => index + 1);
+    const journeyMap = new Map<string, {
+      divisionTitle: string;
+      gwNumbers: number[];
+      teams: Array<{
+        teamId: number;
+        teamName: string;
+        ballColor: string | null;
+        ringColor: string | null;
+        textColor: string | null;
+        ranks: number[];
+      }>;
+    }>();
+
+    studioTableDivisions.forEach((division) => {
+      const orderedRows = division.rows.slice().sort(compareLeagueRowsByRank);
+      if (orderedRows.length === 0) {
+        return;
+      }
+      const regularFixtures = tableLeagueFixturesForStudio
+        .filter((fixture) => fixture.division === division.id && OFFICIAL_DIVISION_GAMEWEEKS.includes(fixture.gw))
+        .slice()
+        .sort((left, right) => gwSortValue(left.gw) - gwSortValue(right.gw) || left.id - right.id);
+      const stats = new Map<number, { teamName: string; points: number; profit: number; spins: number; wins: number }>();
+      orderedRows.forEach((row) => {
+        stats.set(row.teamId, {
+          teamName: row.teamName,
+          points: 0,
+          profit: 0,
+          spins: 0,
+          wins: 0,
+        });
+      });
+      const rankHistory = new Map<number, number[]>();
+      orderedRows.forEach((row) => {
+        rankHistory.set(row.teamId, []);
+      });
+
+      gwNumbers.forEach((gwNumber) => {
+        const gwLabel = `GW${gwNumber}`;
+        regularFixtures
+          .filter((fixture) => fixture.gw === gwLabel && fixture.result !== 'pending')
+          .forEach((fixture) => {
+            const home = orderedRows.find((row) => row.teamName === fixture.homeTeam);
+            const away = orderedRows.find((row) => row.teamName === fixture.awayTeam);
+            if (!home || !away) {
+              return;
+            }
+            const homeStats = stats.get(home.teamId);
+            const awayStats = stats.get(away.teamId);
+            if (!homeStats || !awayStats) {
+              return;
+            }
+            homeStats.profit += fixture.homeProfit;
+            awayStats.profit += fixture.awayProfit;
+            homeStats.spins += fixture.homeSpins;
+            awayStats.spins += fixture.awaySpins;
+            if (fixture.result === 'home') {
+              homeStats.points += 3;
+              homeStats.wins += 1;
+            } else if (fixture.result === 'away') {
+              awayStats.points += 3;
+              awayStats.wins += 1;
+            } else {
+              homeStats.points += 1;
+              awayStats.points += 1;
+            }
+          });
+
+        const standings = orderedRows
+          .map((row) => ({
+            row,
+            stats: stats.get(row.teamId) ?? { teamName: row.teamName, points: 0, profit: 0, spins: 0, wins: 0 },
+          }))
+          .sort((left, right) => (
+            right.stats.points - left.stats.points
+            || right.stats.profit - left.stats.profit
+            || right.stats.spins - left.stats.spins
+            || right.stats.wins - left.stats.wins
+            || left.row.teamName.localeCompare(right.row.teamName)
+          ));
+
+        standings.forEach((entry, index) => {
+          rankHistory.get(entry.row.teamId)?.push(index + 1);
+        });
+      });
+
+      const teams = orderedRows.map((row, rowIndex) => {
+        const safeTableRank = Math.min(orderedRows.length, row.rank || rowIndex + 1);
+        const seeded = rankHistory.get(row.teamId) ?? [];
+        const normalizedRanks = gwNumbers.map((_, index) => (
+          typeof seeded[index] === 'number' && Number.isFinite(seeded[index])
+            ? Math.max(1, Math.min(orderedRows.length, seeded[index]!))
+            : index === 0
+              ? safeTableRank
+              : (seeded[index - 1] ?? safeTableRank)
+        ));
+        if (normalizedRanks.length > 0) {
+          normalizedRanks[normalizedRanks.length - 1] = safeTableRank;
+        }
+        return {
+          teamId: row.teamId,
+          teamName: row.teamName,
+          ballColor: row.ballColor ?? null,
+          ringColor: row.ringColor ?? null,
+          textColor: row.textColor ?? null,
+          ranks: normalizedRanks.length > 0 ? normalizedRanks : gwNumbers.map(() => safeTableRank),
+        };
+      });
+
+      journeyMap.set(division.id, {
+        divisionTitle: division.title,
+        gwNumbers,
+        teams,
+      });
+    });
+
+    return journeyMap;
+  }, [currentGw, studioTableDivisions, tableLeagueFixturesForStudio]);
+
   const studioTeams = useMemo(() => {
     const rowByTeamName = new Map<
       string,
@@ -1977,7 +3878,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       });
     });
     const currentGwIndex = GAMEWEEKS.indexOf(currentGw);
-    const lastDivision = RECAP_DIVISION_ORDER[RECAP_DIVISION_ORDER.length - 1];
+    const lastDivision = recapDivisionOrder[recapDivisionOrder.length - 1];
 
     const buildStreak = (form: Array<'W' | 'D' | 'L'>): string => {
       if (form.length === 0) {
@@ -1999,26 +3900,49 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       const divisionLabel = displayDivisionName(division);
       const row = rowMeta.row;
       const teamMeta = teamMetaByName.get(teamName);
+      const masterRow = studioMasterLeagueRowsByTeamId.get(row.teamId) ?? null;
+      const forecast = divisionForecastByTeamId.get(row.teamId) ?? null;
+      const divisionJourney = divisionJourneyById.get(division) ?? null;
+      const divisionTableSnapshot = (leagueTable[division] ?? [])
+        .slice()
+        .sort(compareLeagueRowsByRank)
+        .map((snapshotRow) => ({
+          teamId: snapshotRow.teamId,
+          teamName: snapshotRow.teamName,
+          rank: snapshotRow.rank,
+          played: snapshotRow.played,
+          points: snapshotRow.points,
+          profit: snapshotRow.profit,
+          spins: snapshotRow.spins,
+          ballColor: teamMetaByName.get(snapshotRow.teamName)?.ballColor ?? null,
+          ringColor: teamMetaByName.get(snapshotRow.teamName)?.ringColor ?? null,
+          textColor: teamMetaByName.get(snapshotRow.teamName)?.textColor ?? null,
+        }));
       const seasonArchive = (teamSeasonHistoryByTeamId[row.teamId] ?? [])
         .slice()
         .sort((a, b) => seasonSortValue(b.season) - seasonSortValue(a.season));
       const previousSeasons = seasonArchive
         .filter((season) => season.season !== currentSeason)
         .slice(0, 12)
-        .map((season) => ({
-          season: season.season,
-          division: displayDivisionName(season.division),
-          rank: season.rank,
-          points: season.points,
-          profit: season.profit,
-          spins: season.spins,
-          cupFinish: season.cupFinish,
-        }));
+        .map((season) => {
+          const predictionRace = teamPredictionRaceBySeason[season.season]?.[teamName] ?? null;
+          return {
+            season: season.season,
+            division: displayDivisionName(season.division),
+            rank: season.rank,
+            points: season.points,
+            profit: season.profit,
+            spins: season.spins,
+            cupFinish: season.cupFinish,
+            superCupFinish: season.superCupFinish,
+            predictionRace,
+          };
+        });
       const previousCupRuns = previousSeasons.map((season) => ({
         season: season.season,
         cupFinish: season.cupFinish,
       }));
-      const teamLeagueFixtures = allLeagueFixturesForStudio
+      const teamLeagueFixtures = tableLeagueFixturesForStudio
         .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
         .sort((a, b) => gwSortValue(a.gw) - gwSortValue(b.gw) || a.id - b.id);
       const resolvedLeagueFixtures = teamLeagueFixtures.filter((fixture) => fixture.result !== 'pending');
@@ -2034,6 +3958,10 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         .slice(-5);
       const teamCupFixtures = cupFixtures
         .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .sort((a, b) => gwSortValue(a.gw) - gwSortValue(b.gw) || a.id - b.id);
+      const teamSuperCupFixtures = currentSuperCupFixtures
+        .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .slice()
         .sort((a, b) => gwSortValue(a.gw) - gwSortValue(b.gw) || a.id - b.id);
       const settledCupFixtures = teamCupFixtures.filter((fixture) => fixture.winnerTeam !== null);
       const cupForm = settledCupFixtures
@@ -2059,6 +3987,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         const fixtureGwIndex = GAMEWEEKS.indexOf(fixture.gw);
         return fixture.winnerTeam === null && fixtureGwIndex >= currentGwIndex;
       }) ?? teamCupFixtures.find((fixture) => fixture.winnerTeam === null);
+      const nextSuperCupFixture = teamSuperCupFixtures.find((fixture) => fixture.winnerTeam === null) ?? teamSuperCupFixtures[0] ?? null;
 
       const recentLeagueResults = resolvedLeagueFixtures.slice(-3).map((fixture) => {
         const isHome = fixture.homeTeam === teamName;
@@ -2093,7 +4022,19 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           rivalry: false,
         };
       });
-      const recentResults = [...recentLeagueResults, ...recentCupResults].slice(-4);
+      const recentSuperCupResults = teamSuperCupFixtures
+        .filter((fixture) => fixture.winnerTeam !== null)
+        .slice(-1)
+        .map((fixture) => ({
+          id: `super-cup-${fixture.id}`,
+          competition: 'Super Cup' as const,
+          fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+          score: `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`,
+          outcome: fixture.winnerTeam === teamName ? 'Won' : 'Lost',
+          profitImpact: 'Curtain-raiser',
+          rivalry: false,
+        }));
+      const recentResults = [...recentLeagueResults, ...recentSuperCupResults, ...recentCupResults].slice(-4);
 
       const currentLeagueJourney = teamLeagueFixtures.map((fixture) => {
         const isHome = fixture.homeTeam === teamName;
@@ -2117,7 +4058,18 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           spins,
         };
       });
-      const currentCupJourney = teamCupFixtures.map((fixture) => {
+      const currentCupJourney = [
+        ...teamSuperCupFixtures.map((fixture) => ({
+          gw: fixture.gw,
+          round: 'Super Cup',
+          opponent: fixture.homeTeam === teamName ? fixture.awayTeam : fixture.homeTeam,
+          result: fixture.winnerTeam === null
+            ? 'Pending' as const
+            : fixture.winnerTeam === teamName
+              ? 'Advanced' as const
+              : 'Out' as const,
+        })),
+        ...teamCupFixtures.map((fixture) => {
         const home = fixture.homeTeam ?? 'TBD';
         const away = fixture.awayTeam ?? 'TBD';
         const opponent = fixture.homeTeam === teamName ? away : fixture.awayTeam === teamName ? home : `${home} vs ${away}`;
@@ -2137,7 +4089,8 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           opponent,
           result,
         };
-      });
+      }),
+      ];
 
       const leagueGwStats = GAMEWEEKS
         .map((gw) => {
@@ -2174,7 +4127,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         .sort((a, b) => b.profit - a.profit)[0] ?? null;
 
       let cumulativeProfit = 0;
-      const seasonStory = GAMEWEEKS.map((gw) => {
+      const seasonStory = OFFICIAL_DIVISION_GAMEWEEKS.map((gw) => {
         const gwProfit = teamLeagueFixtures
           .filter((fixture) => fixture.gw === gw && fixture.result !== 'pending')
           .reduce((sum, fixture) => (
@@ -2185,9 +4138,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       });
 
       const zoneLabel =
-        division === RECAP_DIVISION_ORDER[0] && row.rank === 1
+        division === recapDivisionOrder[0] && row.rank === 1
           ? 'Champions pace'
-          : division !== RECAP_DIVISION_ORDER[0] && row.rank === 1
+          : division !== recapDivisionOrder[0] && row.rank === 1
             ? 'Promotion zone'
             : division !== lastDivision && row.rank === (leagueTable[division]?.length ?? 0)
               ? 'Relegation zone'
@@ -2199,15 +4152,27 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           : movementDelta < 0
             ? `Down ${Math.abs(movementDelta)}`
             : 'No movement';
-      const nextLeagueLabel = nextLeagueFixture
-        ? `${nextLeagueFixture.gw}: ${nextLeagueFixture.homeTeam} vs ${nextLeagueFixture.awayTeam}`
-        : 'No pending league fixture';
-      const nextCupLabel = nextCupFixture
+      const isGw8 = currentGw.trim().toUpperCase() === 'GW8';
+      const gw8LeagueFixture = isGw8
+        ? currentLeagueFixturesForStudio.find((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName) ?? null
+        : null;
+      const nextLeagueLabel = isGw8
+        ? (gw8LeagueFixture
+          ? `${gw8FixtureCompetitionLabel(gw8LeagueFixture.division)}: ${gw8LeagueFixture.homeTeam} vs ${gw8LeagueFixture.awayTeam}`
+          : 'Friendly Fixture: No fixture loaded')
+        : nextLeagueFixture
+          ? `${nextLeagueFixture.gw}: ${nextLeagueFixture.homeTeam} vs ${nextLeagueFixture.awayTeam}`
+          : 'No pending league fixture';
+      const nextCupLabel = nextSuperCupFixture
+        ? `${nextSuperCupFixture.gw}: Super Cup • ${nextSuperCupFixture.homeTeam} vs ${nextSuperCupFixture.awayTeam}`
+        : nextCupFixture
         ? `${nextCupFixture.gw}: ${(nextCupFixture.homeTeam ?? 'TBD')} vs ${(nextCupFixture.awayTeam ?? 'TBD')}`
         : 'No pending cup fixture';
-      const predictedPointsValue = row.played > 0
-        ? Math.round((row.points / row.played) * GAMEWEEKS.length)
-        : row.points;
+      const predictedPointsValue = forecast?.predictedPoints ?? (
+        row.played > 0
+          ? Math.round((row.points / row.played) * GAMEWEEKS.length)
+          : row.points
+      );
       const teamPredictionCredit = teamPredictionCredits.get(teamName) ?? {
         jayPoints: 0,
         jayCorrect: 0,
@@ -2245,17 +4210,23 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                   ? 'won'
                   : 'lost';
           const status =
-            fixture.result === 'pending'
-              ? myEntryCount > 0 || opponentEntryCount > 0
-                ? 'In play'
-                : 'Pending'
-              : fixture.result === 'draw'
-                ? 'As it stands, draw'
-                : `As it stands, ${fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam} lead`;
+            isGw8
+              ? `Current score ${myEntryCount > 0 ? formatSigned(myProfit) : 'Pending'} - ${opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending'}`
+              : fixture.result === 'pending'
+                ? myEntryCount > 0 || opponentEntryCount > 0
+                  ? 'In play'
+                  : 'Pending'
+                : fixture.result === 'draw'
+                  ? 'As it stands, draw'
+                  : `As it stands, ${fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam} lead`;
           return {
             id: `weekly-league-${fixture.id}`,
-            competition: `League • ${displayDivisionName(fixture.division)}`,
+            competition: isGw8
+              ? gw8FixtureCompetitionLabel(fixture.division)
+              : `League • ${displayDivisionName(fixture.division)}`,
             fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+            homeTeamName: fixture.homeTeam,
+            awayTeamName: fixture.awayTeam,
             statusCode,
             status,
             winnerName,
@@ -2263,6 +4234,20 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
             opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
             picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: buildSpotlightFixtureOdds({
+              competition: 'division',
+              homeTeamId: teamIdByName.get(fixture.homeTeam) ?? null,
+              awayTeamId: teamIdByName.get(fixture.awayTeam) ?? null,
+              homeTeam: fixture.homeTeam,
+              awayTeam: fixture.awayTeam,
+              homeRow: divisionOddsRowByTeamId.get(teamIdByName.get(fixture.homeTeam) ?? -1) ?? null,
+              awayRow: divisionOddsRowByTeamId.get(teamIdByName.get(fixture.awayTeam) ?? -1) ?? null,
+              profilesByTeamId: oddsProfileByTeamId,
+              teamCount: Math.max(2, leagueTable[fixture.division]?.length ?? 0),
+              homeDivision: teamMetaByName.get(fixture.homeTeam)?.division ?? null,
+              awayDivision: teamMetaByName.get(fixture.awayTeam)?.division ?? null,
+              allowsDraw: leagueFixtureAllowsDraw(fixture),
+            }),
           };
         });
       const weeklyMasterFixtures = currentMasterLeagueFixturesForStudio
@@ -2274,6 +4259,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           const opponentProfit = isHome ? fixture.awayProfit : fixture.homeProfit;
           const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
           const opponentEntryCount = currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0;
+          const picks = currentPredictionMap.get(`master-${fixture.id}`);
           const winnerName =
             fixture.result === 'pending'
               ? null
@@ -2304,21 +4290,153 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             id: `weekly-master-${fixture.id}`,
             competition: 'Master League',
             fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+            homeTeamName: fixture.homeTeam,
+            awayTeamName: fixture.awayTeam,
             statusCode,
             status,
             winnerName,
             opponentName: opponent,
             teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
             opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
-            picks: 'Jay: — • Computer: —',
+            picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: buildSpotlightFixtureOdds({
+              competition: 'master',
+              homeTeamId: fixture.homeTeamId,
+              awayTeamId: fixture.awayTeamId,
+              homeTeam: fixture.homeTeam,
+              awayTeam: fixture.awayTeam,
+              homeRow: masterOddsRowByTeamId.get(fixture.homeTeamId) ?? null,
+              awayRow: masterOddsRowByTeamId.get(fixture.awayTeamId) ?? null,
+              profilesByTeamId: oddsProfileByTeamId,
+              teamCount: Math.max(2, masterLeagueTable.length),
+              homeDivision: teamMetaByName.get(fixture.homeTeam)?.division ?? null,
+              awayDivision: teamMetaByName.get(fixture.awayTeam)?.division ?? null,
+            }),
+          };
+        });
+      const weeklyTrioFixtures = currentTrioLeagueFixturesForStudio
+        .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .map((fixture) => {
+          const isHome = fixture.homeTeam === teamName;
+          const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+          const myProfit = isHome ? fixture.homeProfit : fixture.awayProfit;
+          const opponentProfit = isHome ? fixture.awayProfit : fixture.homeProfit;
+          const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
+          const opponentEntryCount = currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0;
+          const picks = currentPredictionMap.get(`trio-${fixture.id}`);
+          const winnerName =
+            fixture.result === 'pending'
+              ? null
+              : fixture.result === 'draw'
+                ? null
+                : fixture.result === 'home'
+                  ? fixture.homeTeam
+                  : fixture.awayTeam;
+          const statusCode: WeeklyFixtureStatusCode =
+            fixture.result === 'pending'
+              ? myEntryCount > 0 || opponentEntryCount > 0
+                ? 'in_play'
+                : 'pending'
+              : fixture.result === 'draw'
+                ? 'draw'
+                : winnerName === teamName
+                  ? 'won'
+                  : 'lost';
+          const status =
+            fixture.result === 'pending'
+              ? myEntryCount > 0 || opponentEntryCount > 0
+                ? 'In play'
+                : 'Pending'
+              : fixture.result === 'draw'
+                ? 'As it stands, draw'
+                : `As it stands, ${fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam} lead`;
+          return {
+            id: `weekly-trio-${fixture.id}`,
+            competition: trioFixtureCompetitionLabel(fixture),
+            fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+            homeTeamName: fixture.homeTeam,
+            awayTeamName: fixture.awayTeam,
+            statusCode,
+            status,
+            winnerName,
+            opponentName: opponent,
+            teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
+            opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
+            picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: buildSpotlightFixtureOdds({
+              competition: 'trio',
+              homeTeamId: fixture.homeTeamId,
+              awayTeamId: fixture.awayTeamId,
+              homeTeam: fixture.homeTeam,
+              awayTeam: fixture.awayTeam,
+              homeRow: trioOddsRowByTeamId.get(fixture.homeTeamId) ?? null,
+              awayRow: trioOddsRowByTeamId.get(fixture.awayTeamId) ?? null,
+              profilesByTeamId: oddsProfileByTeamId,
+              teamCount: Math.max(2, trioLeagueTable.filter((rowItem) => rowItem.division === fixture.division).length),
+              homeDivision: teamMetaByName.get(fixture.homeTeam)?.division ?? null,
+              awayDivision: teamMetaByName.get(fixture.awayTeam)?.division ?? null,
+              allowsDraw: trioFixtureAllowsDraw(fixture),
+            }),
+          };
+        });
+      const weeklyTierFixtures = currentTierLeagueFixturesForStudio
+        .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .map((fixture) => {
+          const isHome = fixture.homeTeam === teamName;
+          const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+          const myProfit = isHome ? fixture.homeProfit : fixture.awayProfit;
+          const opponentProfit = isHome ? fixture.awayProfit : fixture.homeProfit;
+          const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
+          const opponentEntryCount = currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0;
+          const picks = currentPredictionMap.get(`tier-${fixture.id}`);
+          const winnerName =
+            fixture.result === 'pending'
+              ? null
+              : fixture.result === 'draw'
+                ? null
+                : fixture.result === 'home'
+                  ? fixture.homeTeam
+                  : fixture.awayTeam;
+          const statusCode: WeeklyFixtureStatusCode =
+            fixture.result === 'pending'
+              ? myEntryCount > 0 || opponentEntryCount > 0
+                ? 'in_play'
+                : 'pending'
+              : fixture.result === 'draw'
+                ? 'draw'
+                : winnerName === teamName
+                  ? 'won'
+                  : 'lost';
+          const status =
+            fixture.result === 'pending'
+              ? myEntryCount > 0 || opponentEntryCount > 0
+                ? 'In play'
+                : 'Pending'
+              : fixture.result === 'draw'
+                ? 'As it stands, draw'
+                : `As it stands, ${winnerName} lead`;
+          return {
+            id: `weekly-tier-${fixture.id}`,
+            competition: tierFixtureCompetitionLabel(fixture),
+            fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+            homeTeamName: fixture.homeTeam,
+            awayTeamName: fixture.awayTeam,
+            statusCode,
+            status,
+            winnerName,
+            opponentName: opponent,
+            teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
+            opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
+            picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: null,
           };
         });
       const weeklyCupFixtures = currentCupFixtures
         .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
         .map((fixture) => {
-          const opponent = fixture.homeTeam === teamName ? (fixture.awayTeam ?? 'BYE') : (fixture.homeTeam ?? 'BYE');
-          const opponentProfit = opponent === 'BYE' ? null : currentGwProfitByTeamNameForStudio.get(opponent);
-          const opponentEntryCount = opponent === 'BYE' ? 0 : (currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0);
+          const opponent = fixture.homeTeam === teamName ? cupSideLabel(fixture, 'away') : cupSideLabel(fixture, 'home');
+          const opponentProfit = isPlaceholderTeam(opponent) ? null : currentGwProfitByTeamNameForStudio.get(opponent);
+          const opponentEntryCount = isPlaceholderTeam(opponent) ? 0 : (currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0);
           const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
           const picks = currentPredictionMap.get(`cup-${fixture.id}`);
           const statusCode: WeeklyFixtureStatusCode = fixture.winnerTeam
@@ -2333,7 +4451,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           return {
             id: `weekly-cup-${fixture.id}`,
             competition: `Cup • ${fixture.roundName}`,
-            fixture: `${fixture.homeTeam ?? 'BYE'} vs ${fixture.awayTeam ?? 'BYE'}`,
+            fixture: `${cupSideLabel(fixture, 'home')} vs ${cupSideLabel(fixture, 'away')}`,
+            homeTeamName: cupSideLabel(fixture, 'home'),
+            awayTeamName: cupSideLabel(fixture, 'away'),
             statusCode,
             status: fixture.winnerTeam
               ? `As it stands, ${fixture.winnerTeam} are through`
@@ -2343,19 +4463,128 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             winnerName: fixture.winnerTeam,
             opponentName: opponent,
             teamScore: myEntryCount > 0 ? formatSigned(currentGwProfitByTeamNameForStudio.get(teamName) ?? 0) : 'Pending',
-            opponentScore: opponent === 'BYE'
-              ? 'BYE'
+            opponentScore: isPlaceholderTeam(opponent)
+              ? opponent
               : opponentEntryCount > 0
                 ? formatSigned(opponentProfit ?? 0)
                 : 'Pending',
             picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: buildSpotlightFixtureOdds({
+              competition: 'cup',
+              homeTeamId: fixture.homeTeam ? (teamIdByName.get(fixture.homeTeam) ?? null) : null,
+              awayTeamId: fixture.awayTeam ? (teamIdByName.get(fixture.awayTeam) ?? null) : null,
+              homeTeam: fixture.homeTeam,
+              awayTeam: fixture.awayTeam,
+              homeRow: fixture.homeTeam ? (divisionOddsRowByTeamId.get(teamIdByName.get(fixture.homeTeam) ?? -1) ?? null) : null,
+              awayRow: fixture.awayTeam ? (divisionOddsRowByTeamId.get(teamIdByName.get(fixture.awayTeam) ?? -1) ?? null) : null,
+              profilesByTeamId: oddsProfileByTeamId,
+              teamCount: Math.max(2, teams.length),
+              homeDivision: fixture.homeTeam ? (teamMetaByName.get(fixture.homeTeam)?.division ?? null) : null,
+              awayDivision: fixture.awayTeam ? (teamMetaByName.get(fixture.awayTeam)?.division ?? null) : null,
+            }),
           };
         });
-      const weeklyFixtures = [...weeklyLeagueFixtures, ...weeklyMasterFixtures, ...weeklyCupFixtures];
+      const weeklySuperCupFixtures = currentSuperCupFixtures
+        .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .map((fixture) => {
+          const isHome = fixture.homeTeam === teamName;
+          const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+          const myProfit = isHome ? fixture.homeProfit : fixture.awayProfit;
+          const opponentProfit = isHome ? fixture.awayProfit : fixture.homeProfit;
+          const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
+          const opponentEntryCount = opponent ? (currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0) : 0;
+          const statusCode: WeeklyFixtureStatusCode = fixture.winnerTeam
+            ? fixture.winnerTeam === teamName
+              ? 'advanced'
+              : 'out'
+            : myEntryCount > 0 || opponentEntryCount > 0
+              ? 'in_play'
+              : 'pending';
+          return {
+            id: `weekly-super-cup-${fixture.id}`,
+            competition: 'Super Cup',
+            fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+            homeTeamName: fixture.homeTeam,
+            awayTeamName: fixture.awayTeam,
+            statusCode,
+            status: fixture.winnerTeam
+              ? `As it stands, ${fixture.winnerTeam} won the curtain-raiser`
+              : myEntryCount > 0 || opponentEntryCount > 0
+                ? 'Curtain-raiser in play'
+                : 'Curtain-raiser pending',
+            winnerName: fixture.winnerTeam,
+            opponentName: opponent ?? null,
+            teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
+            opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
+            picks: 'No prediction market',
+            odds: null,
+          };
+        });
+      const weeklyMasterCupFixtures = currentMasterCupFixtures
+        .filter((fixture) => fixture.homeTeam === teamName || fixture.awayTeam === teamName)
+        .map((fixture) => {
+          const opponent = fixture.homeTeam === teamName ? (fixture.awayTeam ?? 'TBD') : (fixture.homeTeam ?? 'TBD');
+          const isHome = fixture.homeTeam === teamName;
+          const myProfit = isHome ? fixture.homeProfit : fixture.awayProfit;
+          const opponentProfit = isHome ? fixture.awayProfit : fixture.homeProfit;
+          const myEntryCount = currentGwEntryCountByTeamNameWithPending.get(teamName) ?? 0;
+          const opponentEntryCount = currentGwEntryCountByTeamNameWithPending.get(opponent) ?? 0;
+          const picks = currentPredictionMap.get(`master_cup-${fixture.id}`);
+          const statusCode: WeeklyFixtureStatusCode = fixture.winnerTeam
+            ? fixture.winnerTeam === teamName
+              ? 'advanced'
+              : 'out'
+            : myEntryCount > 0 || opponentEntryCount > 0
+              ? 'in_play'
+              : 'pending';
+          return {
+            id: `weekly-master-cup-${fixture.id}`,
+            competition: `Master Cup • ${fixture.roundName}`,
+            fixture: `${fixture.homeTeam ?? 'TBD'} vs ${fixture.awayTeam ?? 'TBD'}`,
+            homeTeamName: fixture.homeTeam ?? 'TBD',
+            awayTeamName: fixture.awayTeam ?? 'TBD',
+            statusCode,
+            status: fixture.winnerTeam
+              ? `As it stands, ${fixture.winnerTeam} are through`
+              : myEntryCount > 0 || opponentEntryCount > 0
+                ? 'In play'
+                : 'Pending',
+            winnerName: fixture.winnerTeam,
+            opponentName: opponent,
+            teamScore: myEntryCount > 0 ? formatSigned(myProfit) : 'Pending',
+            opponentScore: opponentEntryCount > 0 ? formatSigned(opponentProfit) : 'Pending',
+            picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+            odds: buildSpotlightFixtureOdds({
+              competition: 'master_cup',
+              homeTeamId: fixture.homeTeamId,
+              awayTeamId: fixture.awayTeamId,
+              homeTeam: fixture.homeTeam,
+              awayTeam: fixture.awayTeam,
+              homeRow: fixture.homeTeamId ? (masterOddsRowByTeamId.get(fixture.homeTeamId) ?? null) : null,
+              awayRow: fixture.awayTeamId ? (masterOddsRowByTeamId.get(fixture.awayTeamId) ?? null) : null,
+              profilesByTeamId: oddsProfileByTeamId,
+              teamCount: 16,
+              homeDivision: fixture.homeTeam ? (teamMetaByName.get(fixture.homeTeam)?.division ?? null) : null,
+              awayDivision: fixture.awayTeam ? (teamMetaByName.get(fixture.awayTeam)?.division ?? null) : null,
+              homeSeed: fixture.homeSeed,
+              awaySeed: fixture.awaySeed,
+            }),
+          };
+        });
+      const weeklyFixtures = [
+        ...weeklyLeagueFixtures,
+        ...weeklyMasterFixtures,
+        ...weeklyTrioFixtures,
+        ...weeklyTierFixtures,
+        ...weeklyCupFixtures,
+        ...weeklySuperCupFixtures,
+        ...weeklyMasterCupFixtures,
+      ];
 
       return {
         id: row.teamId,
         name: teamName,
+        currentSeason,
         currentGw,
         gameweekLocked: currentGwLocked,
         resultTruth: currentGwLocked ? 'provisional' : 'live',
@@ -2388,6 +4617,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         previousCupRuns,
         currentLeagueJourney,
         currentCupJourney,
+        tableSnapshot: divisionTableSnapshot,
         analytics: {
           bestGw: bestGwStats?.gw ?? null,
           bestGwProfit: bestGwStats?.gwProfit ?? null,
@@ -2400,42 +4630,87 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           cupAdvances: currentCupJourney.filter((cupRound) => cupRound.result === 'Advanced' || cupRound.result === 'Bye').length,
           bestMatchLabel: bestMatch ? `${bestMatch.gw} vs ${bestMatch.opponent} (${formatSigned(bestMatch.profit)})` : null,
         },
+        allTimeRanks: {
+          points: allTimeRankMaps.points.get(row.teamId) ?? null,
+          profit: allTimeRankMaps.profit.get(row.teamId) ?? null,
+          spins: allTimeRankMaps.spins.get(row.teamId) ?? null,
+        },
+        masterPosition: masterRow
+          ? {
+            rank: masterRow.rank,
+            points: masterRow.points,
+            profit: masterRow.profit,
+          }
+          : null,
+        divisionJourney,
         nextLeagueFixture: nextLeagueLabel,
         nextCupFixture: nextCupLabel,
         nextLeagueIsRivalry: false,
         rivalry: null,
-        predictedFinish: `${ordinal(row.rank)} in ${divisionLabel}`,
+        predictedFinish: `${ordinal(forecast?.predictedRank ?? row.rank)} in ${divisionLabel}`,
         predictedPoints: `${predictedPointsValue} pts`,
-        predictedRank: row.rank,
+        predictedRank: forecast?.predictedRank ?? row.rank,
+        forecastSummary: forecast ? {
+          titleProbability: forecast.titleProbability,
+          topHalfProbability: forecast.topHalfProbability,
+          bottomProbability: forecast.bottomProbability,
+          promotionProbability: forecast.promotionProbability,
+          playoffProbability: forecast.playoffProbability,
+          relegationProbability: forecast.relegationProbability,
+          remainingFixtures: forecast.remainingFixtures,
+          remainingDifficultyAverage: forecast.remainingDifficultyAverage,
+          remainingDifficultyRank: forecast.remainingDifficultyRank,
+          remainingDifficultyLabel: forecast.remainingDifficultyLabel,
+          projectedDelta: forecast.projectedDelta,
+          modelReasonsUp: forecast.modelReasonsUp,
+          modelReasonsDown: forecast.modelReasonsDown,
+        } : null,
         zoneLabel,
         divisionMovement,
         seasonStory,
       };
     });
   }, [
-    allLeagueFixturesForStudio,
+    tableLeagueFixturesForStudio,
     cupFixtures,
     currentGwLocked,
     currentCupFixtures,
+    currentSuperCupFixtures,
     currentGw,
     currentGwEntryCountByTeamNameWithPending,
     currentGwProfitByTeamNameForStudio,
     currentLeagueFixturesForStudio,
+    currentMasterCupFixtures,
     currentMasterLeagueFixturesForStudio,
     currentPredictionMap,
     currentSeason,
+    currentTierLeagueFixturesForStudio,
+    allTimeRankMaps,
+    divisionForecastByTeamId,
+    divisionJourneyById,
     kickoffDayPhase.line,
     kickoffDayPhase.phase,
     leagueMovement,
     leagueTable,
+    masterLeagueTable.length,
+    masterOddsRowByTeamId,
+    oddsProfileByTeamId,
+    recapDivisionOrder,
     studioTableDivisions,
+    studioMasterLeagueRowsByTeamId,
     teamMetaByName,
+    teamIdByName,
     teamPredictionCredits,
+    teamPredictionRaceBySeason,
     teamSeasonHistoryByTeamId,
+    teams.length,
+    tierLeagueTable,
+    trioLeagueTable,
+    trioOddsRowByTeamId,
   ]);
 
   const studioFixtureGroups = useMemo(() => {
-    const leagueDivisionOrder = [...RECAP_DIVISION_ORDER, 'Playoff', 'Friendly'];
+    const leagueDivisionOrder = [...recapDivisionOrder, 'Playoff', 'Friendly'];
     const divisionIndex = new Map(leagueDivisionOrder.map((division, idx) => [division, idx]));
     const leagueDivisions = Array.from(new Set(currentLeagueFixturesForStudio.map((fixture) => fixture.division)))
       .sort((a, b) => {
@@ -2545,6 +4820,52 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       });
     }
 
+    if (currentTrioLeagueFixturesForStudio.length > 0) {
+      groups.push({
+        id: `trio-${currentGw}`,
+        title: `Trio League • ${currentGw}`,
+        subtitle: `${kickoffDayPhase.label} • ${studioTruthLabel}`,
+        fixtures: currentTrioLeagueFixturesForStudio
+          .slice()
+          .sort((a, b) => a.division.localeCompare(b.division) || a.groupSlot - b.groupSlot || a.id - b.id)
+          .map((fixture) => {
+            const picks = currentPredictionMap.get(`trio-${fixture.id}`);
+            const homeEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.homeTeam) ?? 0;
+            const awayEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.awayTeam) ?? 0;
+            const hasEntrySignal = homeEntries > 0 || awayEntries > 0;
+            const statusCode = fixtureStatusForStudio(fixture.result, hasEntrySignal, currentGwLocked, fixture.gw === currentGw);
+            const homeScore = currentGwProfitByTeamNameForStudio.get(fixture.homeTeam) ?? null;
+            const awayScore = currentGwProfitByTeamNameForStudio.get(fixture.awayTeam) ?? null;
+            const liveScore = homeScore !== null && awayScore !== null
+              ? `${homeScore.toFixed(2)} - ${awayScore.toFixed(2)}`
+              : 'Live';
+            const score = statusCode === 'pending'
+              ? 'vs'
+              : statusCode === 'in_play'
+                ? liveScore
+                : `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`;
+            const swing = `${Math.abs(fixture.homeProfit - fixture.awayProfit).toFixed(2)} swing`;
+            const profitImpact = statusCode === 'pending'
+              ? trioFixtureCompetitionLabel(fixture)
+              : statusCode === 'in_play'
+                ? `${trioFixtureCompetitionLabel(fixture)} • Still in play`
+                : statusCode === 'provisional'
+                  ? `${trioFixtureCompetitionLabel(fixture)} • ${swing} (as it stands)`
+                  : `${trioFixtureCompetitionLabel(fixture)} • ${swing}`;
+            return {
+              id: `trio-${fixture.id}`,
+              fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+              statusCode,
+              score,
+              outcome: formatStudioOutcome(fixture.result, fixture.homeTeam, fixture.awayTeam, statusCode),
+              profitImpact,
+              picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+              rivalry: false,
+            };
+          }),
+      });
+    }
+
     if (currentCupFixtures.length > 0) {
       groups.push({
         id: `cup-${currentGw}`,
@@ -2554,17 +4875,18 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           .slice()
           .sort((a, b) => a.id - b.id)
           .map((fixture) => {
-            const home = fixture.homeTeam ?? (fixture.awayTeam ? 'BYE' : 'TBD');
-            const away = fixture.awayTeam ?? (fixture.homeTeam ? 'BYE' : 'TBD');
+            const allowBye = fixture.gw === 'GW2';
+            const home = fixture.homeTeam ?? (allowBye && fixture.awayTeam ? 'BYE' : 'TBD');
+            const away = fixture.awayTeam ?? (allowBye && fixture.homeTeam ? 'BYE' : 'TBD');
             const picks = currentPredictionMap.get(`cup-${fixture.id}`);
             const homeEntries = fixture.homeTeam ? (currentGwEntryCountByTeamNameWithPending.get(fixture.homeTeam) ?? 0) : 0;
             const awayEntries = fixture.awayTeam ? (currentGwEntryCountByTeamNameWithPending.get(fixture.awayTeam) ?? 0) : 0;
             const hasEntrySignal = homeEntries > 0 || awayEntries > 0;
             const homeScore = fixture.homeTeam ? currentGwProfitByTeamNameForStudio.get(fixture.homeTeam) : null;
             const awayScore = fixture.awayTeam ? currentGwProfitByTeamNameForStudio.get(fixture.awayTeam) : null;
-            const byeWinner = fixture.homeTeam && !fixture.awayTeam
+            const byeWinner = allowBye && fixture.homeTeam && !fixture.awayTeam
               ? fixture.homeTeam
-              : !fixture.homeTeam && fixture.awayTeam
+              : allowBye && !fixture.homeTeam && fixture.awayTeam
                 ? fixture.awayTeam
                 : null;
             const resolvedWinner = fixture.winnerTeam ?? byeWinner;
@@ -2578,6 +4900,12 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             const liveScore = homeScore !== null && awayScore !== null
               ? `${homeScore.toFixed(2)} - ${awayScore.toFixed(2)}`
               : 'Live';
+            const score =
+              homeScore !== null && awayScore !== null
+                ? `${homeScore.toFixed(2)} - ${awayScore.toFixed(2)}`
+                : statusCode === 'pending'
+                  ? 'vs'
+                  : 'Live';
             const outcome = statusCode === 'pending'
               ? 'Kick-off pending'
               : statusCode === 'in_play'
@@ -2593,10 +4921,53 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
               id: `cup-${fixture.id}`,
               fixture: `${home} vs ${away}`,
               statusCode,
-              score: resolvedWinner ? `Winner: ${resolvedWinner}` : hasEntrySignal ? liveScore : 'Pending',
+              score,
               outcome,
               profitImpact: statusCode === 'provisional' ? 'Provisional' : statusCode === 'final_confirmed' ? 'Confirmed' : '—',
               picks: `Jay: ${pickLabel(picks?.Jay)} • Computer: ${pickLabel(picks?.Computer)}`,
+              rivalry: false,
+            };
+          }),
+      });
+    }
+
+    if (currentSuperCupFixtures.length > 0) {
+      groups.push({
+        id: `super-cup-${currentGw}`,
+        title: `Super Cup • ${currentGw}`,
+        subtitle: `${kickoffDayPhase.label} • ${studioTruthLabel}`,
+        fixtures: currentSuperCupFixtures
+          .slice()
+          .sort((a, b) => a.id - b.id)
+          .map((fixture) => {
+            const homeEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.homeTeam) ?? 0;
+            const awayEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.awayTeam) ?? 0;
+            const hasEntrySignal = homeEntries > 0 || awayEntries > 0;
+            const statusCode: FixtureSlideStatusCode = fixture.winnerTeam
+              ? fixture.gw === currentGw
+                ? 'provisional'
+                : 'final_confirmed'
+              : hasEntrySignal
+                ? 'in_play'
+                : 'pending';
+            const score = hasEntrySignal || fixture.played
+              ? `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`
+              : 'vs';
+            const outcome = fixture.winnerTeam
+              ? statusCode === 'final_confirmed'
+                ? `Confirmed winner: ${fixture.winnerTeam}`
+                : `As it stands, ${fixture.winnerTeam} lead the opener`
+              : hasEntrySignal
+                ? 'Curtain-raiser in play'
+                : 'Kick-off pending';
+            return {
+              id: `super-cup-${fixture.id}`,
+              fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+              statusCode,
+              score,
+              outcome,
+              profitImpact: fixture.pairingExplanation,
+              picks: 'No prediction market',
               rivalry: false,
             };
           }),
@@ -2611,8 +4982,11 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     currentGwLocked,
     currentLeagueFixturesForStudio,
     currentMasterLeagueFixturesForStudio,
+    currentSuperCupFixtures,
+    currentTrioLeagueFixturesForStudio,
     currentPredictionMap,
     kickoffDayPhase.label,
+    recapDivisionOrder,
     studioTruthLabel,
   ]);
 
@@ -2639,7 +5013,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
 
   const studioMovements = useMemo(() => {
     const moves: Array<{ division: string; teamId: number; teamName: string; delta: number }> = [];
-    RECAP_DIVISION_ORDER.forEach((division) => {
+    recapDivisionOrder.forEach((division) => {
       (leagueTable[division] ?? []).forEach((row) => {
         const delta = leagueMovement[division]?.[row.teamId] ?? 0;
         if (delta === 0) {
@@ -2683,7 +5057,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         value: '0',
       },
     ];
-  }, [leagueMovement, leagueTable, studioTableDivisions]);
+  }, [leagueMovement, leagueTable, recapDivisionOrder, studioTableDivisions]);
+
+  const officialDivisionSeasonComplete = currentGw === 'GW8' || (currentGw === 'GW7' && currentGwLocked);
 
   const studioTickerItems = useMemo(() => {
     const items: string[] = [];
@@ -2695,8 +5071,14 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     if (currentMasterLeagueFixturesForStudio.length > 0) {
       items.push(`${currentGw} • ${studioTruthLabel} • Master ${currentMasterLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length}/${currentMasterLeagueFixturesForStudio.length} updated`);
     }
+    if (currentTrioLeagueFixturesForStudio.length > 0) {
+      items.push(`${currentGw} • ${studioTruthLabel} • Trio ${currentTrioLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length}/${currentTrioLeagueFixturesForStudio.length} updated`);
+    }
     if (currentCupFixtures.length > 0) {
       items.push(`${currentGw} • ${studioTruthLabel} • Cup ${currentCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length}/${currentCupFixtures.length} updated`);
+    }
+    if (currentSuperCupFixtures.length > 0) {
+      items.push(`${currentGw} • ${studioTruthLabel} • Super Cup ${currentSuperCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length}/${currentSuperCupFixtures.length} updated`);
     }
     currentLeagueFixturesForStudio
       .filter((fixture) => fixture.result !== 'pending')
@@ -2719,10 +5101,1294 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     currentGw,
     currentLeagueFixturesForStudio,
     currentMasterLeagueFixturesForStudio,
+    currentSuperCupFixtures,
+    currentTrioLeagueFixturesForStudio,
     kickoffDayPhase.label,
     kickoffDayPhase.line,
     storylinePayload,
     studioTruthLabel,
+  ]);
+
+  const verifiedFactRailItems = useMemo<VerifiedFactRailItem[]>(() => {
+    const items: VerifiedFactRailItem[] = [];
+    recapDivisionOrder.forEach((division) => {
+      const leader = (leagueTable[division] ?? []).slice().sort(compareLeagueRowsByRank)[0];
+      if (!leader) {
+        return;
+      }
+      items.push({
+        id: `verified-${division}`,
+        label: displayDivisionName(division),
+        headline: officialDivisionSeasonComplete ? `${leader.teamName} won the division` : `${leader.teamName} lead the table`,
+        detail: `PLD ${leader.played} • ${leader.points} pts • ${formatSigned(leader.profit)} profit`,
+        tone: 'results',
+      });
+    });
+    const masterLeader = masterLeagueTable.slice().sort(compareLeagueRowsByRank)[0];
+    if (masterLeader) {
+      items.push({
+        id: 'verified-master',
+        label: 'Master League',
+        headline: `${masterLeader.teamName} set the pace`,
+        detail: `PLD ${masterLeader.played} • ${masterLeader.points} pts • ${formatSigned(masterLeader.profit)} profit`,
+        tone: 'competition',
+      });
+    }
+    if (isSeasonFiveOrLater(currentSeason)) {
+      ['Premier League', 'Ligue 1', 'Bundesliga'].forEach((division) => {
+        const leader = trioLeagueTable
+          .filter((row) => row.division === division)
+          .slice()
+          .sort(compareLeagueRowsByRank)[0];
+        if (!leader) {
+          return;
+        }
+        items.push({
+          id: `verified-trio-${division}`,
+          label: division,
+          headline: `${leader.teamName} top ${division}`,
+          detail: `PLD ${leader.played} • ${leader.points} pts • ${formatSigned(leader.profit)} profit`,
+          tone: 'competition',
+        });
+      });
+    }
+    const liveCupFixture = currentCupFixtures.find((fixture) => fixture.homeTeam && fixture.awayTeam) ?? null;
+    if (liveCupFixture) {
+      items.push({
+        id: `verified-cup-${liveCupFixture.id}`,
+        label: 'Bookie Ball Cup',
+        headline: `${cupSideLabel(liveCupFixture, 'home')} vs ${cupSideLabel(liveCupFixture, 'away')}`,
+        detail: `${cupFixtureScoreLabel(liveCupFixture)} • ${cupFixtureDetailLabel(liveCupFixture)}`,
+        tone: 'fixtures',
+      });
+    }
+    if (currentSuperCupFixtures[0]) {
+      const fixture = currentSuperCupFixtures[0];
+      items.push({
+        id: `verified-super-cup-${fixture.id}`,
+        label: 'Super Cup',
+        headline: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        detail: fixture.winnerTeam
+          ? `${fixture.homeProfit.toFixed(2)}-${fixture.awayProfit.toFixed(2)} • ${fixture.winnerTeam} won the standalone curtain-raiser`
+          : fixture.pairingExplanation,
+        tone: 'fixtures',
+      });
+    }
+    if (isSeasonFiveOrLater(currentSeason) && currentMasterCupFixtures[0]) {
+      const fixture = currentMasterCupFixtures[0];
+      items.push({
+        id: `verified-master-cup-${fixture.id}`,
+        label: 'Master Cup',
+        headline: `${fixture.homeTeam ?? 'TBD'} vs ${fixture.awayTeam ?? 'TBD'}`,
+        detail: `${fixture.roundName} • ${fixture.homeProfit.toFixed(2)}-${fixture.awayProfit.toFixed(2)}${fixture.winnerTeam ? ` • ${fixture.winnerTeam} through` : ''}`,
+        tone: 'fixtures',
+      });
+    }
+    if (bookieDorBoard?.holder) {
+      items.push({
+        id: `verified-bookie-dor-${bookieDorBoard.holder.teamId}`,
+        label: "Bookie d'Or",
+        headline: `${bookieDorBoard.holder.teamName} hold the lead`,
+        detail: `Score ${bookieDorBoard.holder.score.toFixed(1)} • League rank ${bookieDorBoard.holder.leagueRank} • All competitions included`,
+        tone: 'movement',
+      });
+    }
+    if (allTimeLeagues?.pointsTable?.[0]) {
+      const leader = allTimeLeagues.pointsTable[0];
+      items.push({
+        id: `verified-alltime-${leader.teamId}`,
+        label: 'All-Time Points',
+        headline: `${leader.teamName} lead the archive`,
+        detail: `${leader.points} pts • ${formatSigned(leader.profit)} profit • ${leader.spins} spins`,
+        tone: 'movement',
+      });
+    }
+    return items;
+  }, [
+    allTimeLeagues,
+    bookieDorBoard,
+    currentCupFixtures,
+    currentSuperCupFixtures,
+    currentMasterCupFixtures,
+    currentSeason,
+    leagueTable,
+    masterLeagueTable,
+    officialDivisionSeasonComplete,
+    recapDivisionOrder,
+    trioLeagueTable,
+  ]);
+
+  const kickoffOddsPackages = useMemo<SkyStudioBroadcastPackage[]>(() => {
+    const packages: SkyStudioBroadcastPackage[] = [];
+
+    const renderFactChips = (facts: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }>) => (
+      <div className="studio-live-facts">
+        {facts.map((fact) => (
+          <span
+            key={fact.label}
+            className={`studio-live-fact-chip${fact.tone ? ` ${fact.tone}` : ''}`}
+          >
+            {fact.label}
+          </span>
+        ))}
+      </div>
+    );
+
+    const buildTeamFactChips = (
+      profile: OddsTeamProfile,
+      currentRow: OddsCurrentRow | null,
+      teamCount: number,
+      seed: number | null,
+      liveProfit?: number | null,
+      liveEntries?: number,
+      limit = 3,
+    ): Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }> => {
+      const chips: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }> = [];
+      if (seed) {
+        chips.push({ label: `Seed ${seed}`, tone: 'accent' });
+      }
+      if (currentRow && currentRow.played > 0) {
+        const highRankCutoff = Math.max(2, Math.ceil(teamCount / 4));
+        const lowRankCutoff = Math.max(highRankCutoff + 1, teamCount - 1);
+        chips.push({
+          label: `${ordinal(currentRow.rank)} • PLD ${currentRow.played} • ${currentRow.points} pts`,
+          tone: currentRow.rank <= highRankCutoff ? 'positive' : currentRow.rank >= lowRankCutoff ? 'warning' : undefined,
+        });
+        chips.push({
+          label: `${formatSigned(currentRow.profit)} profit • ${compactRecord(currentRow)}`,
+          tone: currentRow.profit > 0 ? 'positive' : currentRow.profit < 0 ? 'warning' : undefined,
+        });
+      }
+      if ((liveEntries ?? 0) > 0) {
+        chips.push({
+          label: `${liveEntries} live entr${liveEntries === 1 ? 'y' : 'ies'} • ${formatSigned(liveProfit ?? 0)}`,
+          tone: (liveProfit ?? 0) > 0 ? 'positive' : (liveProfit ?? 0) < 0 ? 'warning' : 'accent',
+        });
+      }
+      const titles = countHistoricalTitles(profile.history);
+      if (titles > 0) {
+        chips.push({ label: `${titles} title${titles === 1 ? '' : 's'}`, tone: 'accent' });
+      }
+      const lastSeason = latestArchivedSeasonRow(profile.history, currentSeason);
+      if (lastSeason) {
+        chips.push({
+          label: `${lastSeason.season} ${ordinal(lastSeason.rank)} in ${displayDivisionName(lastSeason.division)}`,
+        });
+      }
+      const trend = teamMetaByName.get(profile.teamName)?.trendCache;
+      if (trend && trend.windowSize > 0 && trend.rankDelta !== 0) {
+        chips.push({
+          label: trend.rankDelta > 0
+            ? `up ${trend.rankDelta} over last ${trend.windowSize}`
+            : `down ${Math.abs(trend.rankDelta)} over last ${trend.windowSize}`,
+          tone: trend.rankDelta > 0 ? 'positive' : 'warning',
+        });
+      }
+      if (chips.length === 0) {
+        chips.push({ label: 'Archive still forming' });
+      }
+      return chips.slice(0, limit);
+    };
+
+    const buildDrawFactChips = (
+      homeRow: OddsCurrentRow | null,
+      awayRow: OddsCurrentRow | null,
+      competition: 'division' | 'master' | 'trio' | 'cup' | 'master_cup',
+      title: string,
+      liveProfitGap?: number,
+      liveEntries?: number,
+    ): Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }> => {
+      const chips: Array<{ label: string; tone?: 'positive' | 'warning' | 'accent' }> = [];
+      if (homeRow && awayRow && homeRow.played > 0 && awayRow.played > 0) {
+        const pointsGap = Math.abs(homeRow.points - awayRow.points);
+        const profitGap = Math.abs(homeRow.profit - awayRow.profit);
+        chips.push({ label: `${pointsGap} point gap`, tone: pointsGap <= 2 ? 'positive' : undefined });
+        chips.push({ label: `${profitGap.toFixed(2)} profit split`, tone: profitGap <= 0.5 ? 'positive' : undefined });
+      }
+      if ((liveEntries ?? 0) > 0) {
+        chips.push({
+          label: `${(liveProfitGap ?? 0).toFixed(2)} live gap after ${liveEntries} entries`,
+          tone: Math.abs(liveProfitGap ?? 0) <= 0.2 ? 'positive' : undefined,
+        });
+      }
+      if (competition === 'cup') {
+        chips.push({ label: 'Level profit -> spins', tone: 'accent' });
+      } else if (competition === 'master_cup' && /semi/i.test(title)) {
+        chips.push({ label: 'Aggregate decides the tie', tone: 'accent' });
+      } else if (competition === 'master_cup') {
+        chips.push({ label: 'Level tie -> higher seed', tone: 'accent' });
+      } else if (competition === 'division' && /playoff/i.test(title)) {
+        chips.push({ label: 'Level profit -> your penalties', tone: 'accent' });
+      }
+      if (chips.length === 0) {
+        chips.push({ label: 'Ratings tight enough to keep draw live' });
+      }
+      return chips.slice(0, 2);
+    };
+
+    const buildOutrightRow = (
+      key: string,
+      teamId: number,
+      teamName: string,
+      odds: number,
+      probability: number,
+      currentRow: OddsCurrentRow | null,
+      teamCount: number,
+      fallbackDetail: string,
+    ): OddsBoardRow => {
+      const profile = oddsProfileByTeamId.get(teamId);
+      const teamMeta = teamMetaByName.get(teamName);
+      return {
+        key,
+        label: teamName,
+        odds,
+        probability,
+        detail: currentRow && currentRow.played > 0
+          ? `PLD ${currentRow.played} • ${currentRow.points} pts • ${formatSigned(currentRow.profit)}`
+          : fallbackDetail,
+        facts: profile
+          ? buildTeamFactChips(profile, currentRow, Math.max(2, teamCount), null, 3)
+          : [{ label: fallbackDetail }],
+        ballColor: teamMeta?.ballColor ?? null,
+        ringColor: teamMeta?.ringColor ?? null,
+        textColor: teamMeta?.textColor ?? null,
+      };
+    };
+
+    const buildFixtureOddsCard = (
+      title: string,
+      fixture: {
+        id: number;
+        gw?: string;
+        division?: string;
+        stage?: TrioFixture['stage'];
+        homeTeam: string;
+        awayTeam: string;
+        result?: 'home' | 'away' | 'draw' | 'pending';
+        homeSeed?: number | null;
+        awaySeed?: number | null;
+        homeProfit?: number;
+        awayProfit?: number;
+      },
+      competition: 'division' | 'master' | 'trio' | 'cup' | 'master_cup',
+      currentRowsByTeamId: Map<number, OddsCurrentRow>,
+      explicitTeamCount?: number,
+      detail?: string,
+    ): FixtureOddsCard | null => {
+      const homeTeamId = teamIdByName.get(fixture.homeTeam);
+      const awayTeamId = teamIdByName.get(fixture.awayTeam);
+      if (!homeTeamId || !awayTeamId) {
+        return null;
+      }
+      const homeProfile = oddsProfileByTeamId.get(homeTeamId);
+      const awayProfile = oddsProfileByTeamId.get(awayTeamId);
+      if (!homeProfile || !awayProfile) {
+        return null;
+      }
+      const allowsDraw = !(
+        competition === 'division'
+        && fixture.gw
+        && fixture.division
+        && isGw8DivisionPlayoffFixture({ gw: fixture.gw, division: fixture.division })
+      ) && !(
+        competition === 'trio'
+        && fixture.stage
+        && !trioFixtureAllowsDraw({ stage: fixture.stage })
+      );
+      const teamCount = explicitTeamCount ?? Math.max(2, currentRowsByTeamId.size || 2);
+      const homeRow = currentRowsByTeamId.get(homeTeamId) ?? null;
+      const awayRow = currentRowsByTeamId.get(awayTeamId) ?? null;
+      const model = buildFixtureOdds({
+        home: homeProfile,
+        away: awayProfile,
+        homeRow,
+        awayRow,
+        teamCount,
+        competition,
+        homeSeed: fixture.homeSeed ?? null,
+        awaySeed: fixture.awaySeed ?? null,
+      });
+      const homeEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.homeTeam) ?? 0;
+      const awayEntries = currentGwEntryCountByTeamNameWithPending.get(fixture.awayTeam) ?? 0;
+      const liveHomeProfit = typeof fixture.homeProfit === 'number'
+        ? fixture.homeProfit
+        : (currentGwProfitByTeamNameForStudio.get(fixture.homeTeam) ?? 0);
+      const liveAwayProfit = typeof fixture.awayProfit === 'number'
+        ? fixture.awayProfit
+        : (currentGwProfitByTeamNameForStudio.get(fixture.awayTeam) ?? 0);
+      const liveEntryTotal = homeEntries + awayEntries;
+      const liveProfitGap = liveHomeProfit - liveAwayProfit;
+      let adjustedHomeProbability = model.homeProbability;
+      let adjustedDrawProbability = model.drawProbability;
+      let adjustedAwayProbability = model.awayProbability;
+      if (liveEntryTotal > 0) {
+        const profitSwing = Math.max(-0.16, Math.min(0.16, liveProfitGap * 0.09));
+        const entrySwing = Math.max(-0.06, Math.min(0.06, (homeEntries - awayEntries) * 0.012));
+        const totalSwing = Math.max(-0.18, Math.min(0.18, profitSwing + entrySwing));
+        const drawSqueeze = Math.max(0, Math.min(0.06, Math.abs(totalSwing) * 0.45 + liveEntryTotal * 0.0025));
+        const normalized = normalizeMarketProbabilities(
+          model.homeProbability + totalSwing,
+          model.drawProbability - drawSqueeze,
+          model.awayProbability - totalSwing,
+        );
+        adjustedHomeProbability = normalized.home;
+        adjustedDrawProbability = normalized.draw;
+        adjustedAwayProbability = normalized.away;
+      }
+      if (!allowsDraw) {
+        const twoWayTotal = Math.max(0.001, adjustedHomeProbability + adjustedAwayProbability);
+        adjustedHomeProbability /= twoWayTotal;
+        adjustedAwayProbability /= twoWayTotal;
+        adjustedDrawProbability = 0;
+      }
+      const homeMeta = teamMetaByName.get(fixture.homeTeam);
+      const awayMeta = teamMetaByName.get(fixture.awayTeam);
+      const liveMarketLine = liveEntryTotal > 0
+        ? `${liveProfitGap === 0 ? 'Live market level' : `${liveProfitGap > 0 ? fixture.homeTeam : fixture.awayTeam} currently lead the live board by ${Math.abs(liveProfitGap).toFixed(2)}`}.`
+        : null;
+      const marketGap = Math.abs(adjustedHomeProbability - adjustedAwayProbability);
+      const strongestSelection = [
+        { label: fixture.homeTeam, probability: adjustedHomeProbability },
+        ...(allowsDraw ? [{ label: 'Draw', probability: adjustedDrawProbability }] : []),
+        { label: fixture.awayTeam, probability: adjustedAwayProbability },
+      ].sort((left, right) => right.probability - left.probability)[0];
+      const stamp = liveEntryTotal > 0
+        ? 'MARKET MOVING'
+        : allowsDraw && strongestSelection.label === 'Draw'
+          ? 'DRAW LIVE'
+          : marketGap <= 0.05
+            ? 'COIN FLIP'
+            : 'EDGE';
+      const stampTone: FixtureOddsCard['stampTone'] = liveEntryTotal > 0
+        ? 'movement'
+        : allowsDraw && strongestSelection.label === 'Draw'
+          ? 'fixtures'
+          : marketGap <= 0.05
+            ? 'warning'
+            : 'positive';
+      const marketNote = !allowsDraw
+        ? `${strongestSelection.label} are market favourite at ${formatProbability(strongestSelection.probability)}. Level profit goes to penalties.`
+        : strongestSelection.label === 'Draw'
+        ? `Draw is the shortest route at ${formatProbability(adjustedDrawProbability)}.`
+        : `${strongestSelection.label} are market favourite at ${formatProbability(strongestSelection.probability)}.`;
+      return {
+        key: `${competition}-${fixture.id}`,
+        title,
+        fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        badgeTone: competitionBadgeTone(competition),
+        stamp,
+        stampTone,
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+        homeOdds: probabilityToOdds(adjustedHomeProbability),
+        drawOdds: allowsDraw ? probabilityToOdds(adjustedDrawProbability) : null,
+        awayOdds: probabilityToOdds(adjustedAwayProbability),
+        homeProbability: adjustedHomeProbability,
+        drawProbability: adjustedDrawProbability,
+        awayProbability: adjustedAwayProbability,
+        allowsDraw,
+        reason: liveMarketLine
+          ? `${model.reason}. ${liveMarketLine}${allowsDraw ? '' : ' Level profit goes to penalties.'}`
+          : allowsDraw
+            ? model.reason
+            : `${model.reason}. Level profit goes to penalties.`,
+        detail: liveEntryTotal > 0
+          ? `${detail ? `${detail} ` : ''}Live pricing is reacting to ${liveEntryTotal} entry updates on this tie.`
+          : detail,
+        marketNote,
+        homeFacts: buildTeamFactChips(homeProfile, homeRow, teamCount, fixture.homeSeed ?? null, liveHomeProfit, homeEntries, 3),
+        drawFacts: allowsDraw
+          ? buildDrawFactChips(homeRow, awayRow, competition, title, liveProfitGap, liveEntryTotal)
+          : [{ label: 'Level profit -> your penalties', tone: 'accent' }],
+        awayFacts: buildTeamFactChips(awayProfile, awayRow, teamCount, fixture.awaySeed ?? null, liveAwayProfit, awayEntries, 3),
+        homeBallColor: homeMeta?.ballColor ?? null,
+        homeRingColor: homeMeta?.ringColor ?? null,
+        homeTextColor: homeMeta?.textColor ?? null,
+        awayBallColor: awayMeta?.ballColor ?? null,
+        awayRingColor: awayMeta?.ringColor ?? null,
+        awayTextColor: awayMeta?.textColor ?? null,
+      };
+    };
+
+    const buildFixturePackage = (
+      id: string,
+      label: string,
+      headline: string,
+      kicker: string,
+      subtitle: string,
+      cards: FixtureOddsCard[],
+    ): SkyStudioBroadcastPackage | null => {
+      if (cards.length === 0) {
+        return null;
+      }
+      const shortestPrice = cards
+        .flatMap((card) => ([
+          { label: card.homeTeam, odds: card.homeOdds },
+          ...(card.allowsDraw && card.drawOdds !== null ? [{ label: 'Draw', odds: card.drawOdds }] : []),
+          { label: card.awayTeam, odds: card.awayOdds },
+        ]))
+        .sort((left, right) => left.odds - right.odds)[0] ?? null;
+      return {
+        id,
+        label,
+        headline,
+        alert: kicker,
+        durationMs: 18000,
+        tone: 'fixtures',
+        lines: cards.slice(0, 3).map((card) => (
+          card.allowsDraw && card.drawOdds !== null
+            ? `${card.fixture} • ${card.homeTeam} ${formatOdds(card.homeOdds)} (${formatProbability(card.homeProbability)}) • Draw ${formatOdds(card.drawOdds)} • ${card.awayTeam} ${formatOdds(card.awayOdds)} (${formatProbability(card.awayProbability)})`
+            : `${card.fixture} • ${card.homeTeam} ${formatOdds(card.homeOdds)} (${formatProbability(card.homeProbability)}) • ${card.awayTeam} ${formatOdds(card.awayOdds)} (${formatProbability(card.awayProbability)}) • Level profit goes to penalties`
+        )),
+        content: (
+          <div className="studio-odds-slide">
+            <div className="studio-fixtures-head studio-odds-head">
+              <span className="studio-kicker">{kicker}</span>
+              <h3>{headline}</h3>
+              <p>{subtitle}</p>
+            </div>
+            <div className="studio-odds-summary-strip">
+              <span className="studio-odds-summary-pill">{cards.length} live market{cards.length === 1 ? '' : 's'}</span>
+              {shortestPrice ? (
+                <span className="studio-odds-summary-pill accent">
+                  Shortest price: {shortestPrice.label} {formatOdds(shortestPrice.odds)}
+                </span>
+              ) : null}
+            </div>
+            <div className={`studio-odds-grid studio-scroll-panel ${cards.length === 1 ? 'single' : cards.length >= 6 ? 'dense' : 'balanced'}`}>
+              {cards.map((card) => (
+                <article key={card.key} className="studio-odds-card">
+                  <div className="studio-odds-card-head">
+                    <div className="studio-odds-card-title">
+                      <span className={`studio-comp-badge ${card.badgeTone}`}>{card.title}</span>
+                      <strong>{card.fixture}</strong>
+                    </div>
+                    <span className={`studio-story-stamp tone-${card.stampTone}`}>{card.stamp}</span>
+                  </div>
+                  <div className="studio-matchup-note">
+                    <span>{card.marketNote}</span>
+                    <em>{card.allowsDraw ? '3-way market' : '2-way market • penalties if level'}</em>
+                  </div>
+                  <div className={`studio-odds-market-grid ${card.allowsDraw ? '' : 'two-way'}`}>
+                    <section className="studio-odds-market">
+                      <div className="studio-odds-market-head">
+                        <div className="team-name">
+                          <TeamBadge
+                            name={card.homeTeam}
+                            ballColor={card.homeBallColor}
+                            ringColor={card.homeRingColor}
+                            textColor={card.homeTextColor}
+                            size={28}
+                          />
+                          <div className="studio-odds-market-copy">
+                            <span className="studio-odds-market-label">Home</span>
+                            <strong>{card.homeTeam}</strong>
+                          </div>
+                        </div>
+                        <div className="studio-odds-price-stack">
+                          <strong>{formatOdds(card.homeOdds)}</strong>
+                          <span>{formatProbability(card.homeProbability)}</span>
+                        </div>
+                      </div>
+                      <LiveOddsMeter
+                        probability={card.homeProbability}
+                        fillStyle={{
+                          background: `linear-gradient(90deg, ${card.homeBallColor ?? '#72d9ff'}, ${card.homeRingColor ?? '#e2ecff'})`,
+                        }}
+                      />
+                      {renderFactChips(card.homeFacts)}
+                    </section>
+                    {card.allowsDraw && card.drawOdds !== null ? (
+                      <section className="studio-odds-market draw">
+                        <div className="studio-odds-market-head">
+                          <div className="studio-odds-draw-head">
+                            <span className="studio-odds-draw-badge">X</span>
+                            <div className="studio-odds-market-copy">
+                              <span className="studio-odds-market-label">Draw</span>
+                              <strong>Level on profit</strong>
+                            </div>
+                          </div>
+                          <div className="studio-odds-price-stack">
+                            <strong>{formatOdds(card.drawOdds)}</strong>
+                            <span>{formatProbability(card.drawProbability)}</span>
+                          </div>
+                        </div>
+                        <LiveOddsMeter probability={card.drawProbability} draw />
+                        {renderFactChips(card.drawFacts)}
+                      </section>
+                    ) : null}
+                    <section className="studio-odds-market away">
+                      <div className="studio-odds-market-head">
+                        <div className="team-name">
+                          <TeamBadge
+                            name={card.awayTeam}
+                            ballColor={card.awayBallColor}
+                            ringColor={card.awayRingColor}
+                            textColor={card.awayTextColor}
+                            size={28}
+                          />
+                          <div className="studio-odds-market-copy">
+                            <span className="studio-odds-market-label">Away</span>
+                            <strong>{card.awayTeam}</strong>
+                          </div>
+                        </div>
+                        <div className="studio-odds-price-stack">
+                          <strong>{formatOdds(card.awayOdds)}</strong>
+                          <span>{formatProbability(card.awayProbability)}</span>
+                        </div>
+                      </div>
+                      <LiveOddsMeter
+                        probability={card.awayProbability}
+                        fillStyle={{
+                          background: `linear-gradient(90deg, ${card.awayBallColor ?? '#8ef6cb'}, ${card.awayRingColor ?? '#f3fbff'})`,
+                        }}
+                      />
+                      {renderFactChips(card.awayFacts)}
+                    </section>
+                  </div>
+                  <div className="studio-odds-note-row">
+                    <p>{card.reason}</p>
+                    {card.detail ? <p className="studio-muted">{card.detail}</p> : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ),
+      };
+    };
+
+    const buildOutrightPackage = (
+      id: string,
+      label: string,
+      headline: string,
+      kicker: string,
+      subtitle: string,
+      rows: OddsBoardRow[],
+    ): SkyStudioBroadcastPackage | null => {
+      if (rows.length === 0) {
+        return null;
+      }
+      const favourite = rows[0] ?? null;
+      return {
+        id,
+        label,
+        headline,
+        alert: kicker,
+        durationMs: 20000,
+        tone: 'movement',
+        lines: rows.slice(0, 3).map((row) => `${row.label} ${formatOdds(row.odds)} (${formatProbability(row.probability)})`),
+        content: (
+          <div className="studio-odds-slide">
+            <div className="studio-fixtures-head studio-odds-head">
+              <span className="studio-kicker">{kicker}</span>
+              <h3>{headline}</h3>
+              <p>{subtitle}</p>
+            </div>
+            <div className="studio-odds-summary-strip">
+              <span className="studio-odds-summary-pill">{rows.length} runners priced</span>
+              {favourite ? (
+                <span className="studio-odds-summary-pill accent">
+                  Favourite: {favourite.label} {formatOdds(favourite.odds)}
+                </span>
+              ) : null}
+            </div>
+            <div className={`studio-odds-board studio-scroll-panel ${rows.length > 12 ? 'dense wide' : rows.length > 8 ? 'dense' : ''}`}>
+              {rows.map((row, index) => (
+                <article key={row.key} className="studio-odds-board-row">
+                  <div className="studio-odds-board-rank">{index + 1}</div>
+                  <div className="studio-odds-board-team">
+                    <div className="team-name">
+                      <TeamBadge
+                        name={row.label}
+                        ballColor={row.ballColor}
+                        ringColor={row.ringColor}
+                        textColor={row.textColor}
+                        size={26}
+                      />
+                      <div className="studio-odds-board-copy">
+                        <strong>{row.label}</strong>
+                        {row.detail ? <span>{row.detail}</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="studio-odds-board-market">
+                    <strong>{formatOdds(row.odds)}</strong>
+                    <span>{formatProbability(row.probability)}</span>
+                    <LiveOddsMeter
+                      probability={row.probability}
+                      compact
+                      fillStyle={{
+                        background: `linear-gradient(90deg, ${row.ballColor ?? '#7fcfff'}, ${row.ringColor ?? '#eef6ff'})`,
+                      }}
+                    />
+                  </div>
+                  {renderFactChips(row.facts)}
+                </article>
+              ))}
+            </div>
+          </div>
+        ),
+      };
+    };
+
+    recapDivisionOrder.forEach((division) => {
+      const rows = (leagueTable[division] ?? []).slice().sort(compareLeagueRowsByRank);
+      const fixture = currentLeagueFixturesForStudio.find((entry) => entry.division === division);
+      if (!fixture) {
+        return;
+      }
+      const packageCard = buildFixtureOddsCard(
+        displayDivisionName(division),
+        fixture,
+        'division',
+        divisionOddsRowByTeamId,
+        rows.length,
+        rows.length > 0
+          ? officialDivisionSeasonComplete
+            ? `Final table: ${rows[0]?.teamName ?? 'Winner pending'} won ${displayDivisionName(division)} on ${rows[0]?.points ?? 0} points.`
+            : `Table snapshot: ${rows[0]?.teamName ?? 'Leader pending'} lead ${displayDivisionName(division)} on ${rows[0]?.points ?? 0} points.`
+          : undefined,
+      );
+      const oddsPackage = buildFixturePackage(
+        `division-odds-${division}-${currentGw}`,
+        `${displayDivisionName(division)} Odds`,
+        `${displayDivisionName(division)} odds desk`,
+        'ODDS DESK',
+        'Three-way prices are built from current position, profit pace, and archived finishes.',
+        packageCard ? [packageCard] : [],
+      );
+      if (oddsPackage) {
+        packages.push(oddsPackage);
+      }
+    });
+
+    const masterCards = currentMasterLeagueFixturesForStudio
+      .map((fixture) => buildFixtureOddsCard(
+        'Master League',
+        fixture,
+        'master',
+        masterOddsRowByTeamId,
+        masterLeagueTable.length,
+      ))
+      .filter((card): card is FixtureOddsCard => Boolean(card));
+    const masterPackage = buildFixturePackage(
+      `master-odds-${currentGw}`,
+      'Master League Odds',
+      'Master League odds desk',
+      'MASTER ODDS',
+      'Master prices lean on the full-table rating, current output, and historical league strength.',
+      masterCards,
+    );
+    if (masterPackage) {
+      packages.push(masterPackage);
+    }
+
+    const trioDivisions = Array.from(new Set(currentTrioLeagueFixturesForStudio.map((fixture) => fixture.division)));
+    trioDivisions.forEach((division) => {
+      const groupRows = trioLeagueTable.filter((row) => row.division === division).slice().sort(compareLeagueRowsByRank);
+      const cards = currentTrioLeagueFixturesForStudio
+        .filter((fixture) => fixture.division === division)
+        .map((fixture) => buildFixtureOddsCard(
+          division,
+          fixture,
+          'trio',
+          trioOddsRowByTeamId,
+          groupRows.length,
+          fixture.stage === 'regular' ? 'Regular-season trio prices.' : 'Promotion playoff prices.',
+        ))
+        .filter((card): card is FixtureOddsCard => Boolean(card));
+      const trioPackage = buildFixturePackage(
+        `trio-odds-${division}-${currentGw}`,
+        `${division} Odds`,
+        `${division} odds desk`,
+        'TRIO ODDS',
+        'Trio prices are based on the division table, profit pace, and multi-season strength.',
+        cards,
+      );
+      if (trioPackage) {
+        packages.push(trioPackage);
+      }
+    });
+
+    const cupCards = currentCupFixtures
+      .filter((fixture) => fixture.homeTeam && fixture.awayTeam)
+      .map((fixture) => buildFixtureOddsCard(
+        fixture.roundName,
+        { id: fixture.id, homeTeam: fixture.homeTeam!, awayTeam: fixture.awayTeam! },
+        'cup',
+        divisionOddsRowByTeamId,
+        Math.max(2, teams.length),
+        'Cup ties stay one-leg all the way through the semi-finals, so the current form edge matters more.',
+      ))
+      .filter((card): card is FixtureOddsCard => Boolean(card));
+    const cupPackage = buildFixturePackage(
+      `cup-odds-${currentGw}`,
+      'Bookie Ball Cup Odds',
+      'Bookie Ball Cup odds desk',
+      'CUP ODDS',
+      'Bookie Ball Cup is still priced as a single-leg tie, with draw odds reflecting level-profit risk before tie-breaks.',
+      cupCards,
+    );
+    if (cupPackage) {
+      packages.push(cupPackage);
+    }
+
+    const masterCupCards = currentMasterCupFixtures
+      .filter((fixture) => fixture.homeTeam && fixture.awayTeam)
+      .map((fixture) => buildFixtureOddsCard(
+        fixture.roundName,
+        {
+          id: fixture.id,
+          homeTeam: fixture.homeTeam!,
+          awayTeam: fixture.awayTeam!,
+          homeSeed: fixture.homeSeed,
+          awaySeed: fixture.awaySeed,
+        },
+        'master_cup',
+        masterOddsRowByTeamId,
+        16,
+        fixture.stage === 'semi_final'
+          ? 'Master Cup semi-final legs are priced with seed and aggregate context in mind.'
+          : 'Master Cup knockouts are priced from the master table plus the seeded bracket.',
+      ))
+      .filter((card): card is FixtureOddsCard => Boolean(card));
+    const masterCupPackage = buildFixturePackage(
+      `master-cup-odds-${currentGw}`,
+      'Master Cup Odds',
+      'Master Cup odds desk',
+      'MASTER CUP',
+      'Master Cup carries two-legged semi-finals only, while the rest of the bracket is single-match.',
+      masterCupCards,
+    );
+    if (masterCupPackage) {
+      packages.push(masterCupPackage);
+    }
+
+    if (currentGw === 'GW1') {
+      recapDivisionOrder.forEach((division) => {
+        const rows = (leagueTable[division] ?? []).slice().sort(compareLeagueRowsByRank);
+        const oddsRows = buildOutrightOdds(
+          rows
+            .map((row) => {
+              const profile = oddsProfileByTeamId.get(row.teamId);
+              return profile ? { profile, currentRow: divisionOddsRowByTeamId.get(row.teamId) ?? null } : null;
+            })
+            .filter((entry): entry is { profile: OddsTeamProfile; currentRow: OddsCurrentRow | null } => Boolean(entry)),
+          rows.length,
+        ).map((row) => {
+          const currentRow = rows.find((entry) => entry.teamId === row.teamId);
+          return buildOutrightRow(
+            `${division}-${row.teamId}`,
+            row.teamId,
+            row.teamName,
+            row.odds,
+            row.probability,
+            currentRow ? toOddsCurrentRow(currentRow) : null,
+            rows.length,
+            'Opening division title price from the archive.',
+          );
+        });
+        const outrightPackage = buildOutrightPackage(
+          `division-outright-${division}-${currentSeason}`,
+          `${displayDivisionName(division)} Title Odds`,
+          `${displayDivisionName(division)} title market`,
+          'SEASON ODDS',
+          'Preseason prices are based on archived league finishes, profit history, and any favourite tag already in the system.',
+          oddsRows,
+        );
+        if (outrightPackage) {
+          packages.push(outrightPackage);
+        }
+      });
+
+      const masterOddsRows = buildOutrightOdds(
+        masterLeagueTable
+          .map((row) => {
+            const profile = oddsProfileByTeamId.get(row.teamId);
+            return profile ? { profile, currentRow: masterOddsRowByTeamId.get(row.teamId) ?? null } : null;
+          })
+          .filter((entry): entry is { profile: OddsTeamProfile; currentRow: OddsCurrentRow | null } => Boolean(entry)),
+        masterLeagueTable.length,
+      ).map((row) => {
+        const currentRow = masterLeagueTable.find((entry) => entry.teamId === row.teamId);
+        return buildOutrightRow(
+          `master-${row.teamId}`,
+          row.teamId,
+          row.teamName,
+          row.odds,
+          row.probability,
+          currentRow ? toOddsCurrentRow(currentRow) : null,
+          masterLeagueTable.length,
+          'Opening master market from archive strength.',
+        );
+      });
+      const masterOutrightPackage = buildOutrightPackage(
+        `master-outright-${currentSeason}`,
+        'Master League Winner Odds',
+        'Master League winner market',
+        'SEASON ODDS',
+        'Master League prices use the full archive and the current all-team ladder.',
+        masterOddsRows,
+      );
+      if (masterOutrightPackage) {
+        packages.push(masterOutrightPackage);
+      }
+
+      const trioDivisionsForOutright = Array.from(new Set(trioLeagueTable.map((row) => row.division)));
+      trioDivisionsForOutright.forEach((division) => {
+        const rows = trioLeagueTable.filter((row) => row.division === division).slice().sort(compareLeagueRowsByRank);
+        const oddsRows = buildOutrightOdds(
+          rows
+            .map((row) => {
+              const profile = oddsProfileByTeamId.get(row.teamId);
+              return profile ? { profile, currentRow: trioOddsRowByTeamId.get(row.teamId) ?? null } : null;
+            })
+            .filter((entry): entry is { profile: OddsTeamProfile; currentRow: OddsCurrentRow | null } => Boolean(entry)),
+          rows.length,
+        ).map((row) => {
+          const currentRow = rows.find((entry) => entry.teamId === row.teamId);
+          return buildOutrightRow(
+            `${division}-${row.teamId}`,
+            row.teamId,
+            row.teamName,
+            row.odds,
+            row.probability,
+            currentRow ? toOddsCurrentRow(currentRow) : null,
+            rows.length,
+            'Opening trio division price from archive strength.',
+          );
+        });
+        const trioOutrightPackage = buildOutrightPackage(
+          `trio-outright-${division}-${currentSeason}`,
+          `${division} Winner Odds`,
+          `${division} winner market`,
+          'SEASON ODDS',
+          'Trio markets are seeded from archive quality and the live trio ladder.',
+          oddsRows,
+        );
+        if (trioOutrightPackage) {
+          packages.push(trioOutrightPackage);
+        }
+      });
+
+      const cupOutrightRows = buildOutrightOdds(
+        teams
+          .map((team) => {
+            const profile = oddsProfileByTeamId.get(team.id);
+            return profile ? { profile, currentRow: divisionOddsRowByTeamId.get(team.id) ?? null } : null;
+          })
+          .filter((entry): entry is { profile: OddsTeamProfile; currentRow: OddsCurrentRow | null } => Boolean(entry)),
+        teams.length,
+      ).map((row) => buildOutrightRow(
+        `cup-outright-${row.teamId}`,
+        row.teamId,
+        row.teamName,
+        row.odds,
+        row.probability,
+        divisionOddsRowByTeamId.get(row.teamId) ?? null,
+        teams.length,
+        'Archive-based cup outright price.',
+      ));
+      const cupOutrightPackage = buildOutrightPackage(
+        `cup-outright-${currentSeason}`,
+        'Bookie Ball Cup Winner Odds',
+        'Bookie Ball Cup winner market',
+        'SEASON ODDS',
+        'Cup prices are derived from the archive because the live draw is kept separate from fixture generation.',
+        cupOutrightRows,
+      );
+      if (cupOutrightPackage) {
+        packages.push(cupOutrightPackage);
+      }
+
+      const masterCupParticipants = Array.from(new Map(
+        allMasterCupFixtures
+          .flatMap((fixture) => (
+            [
+              fixture.homeTeamId ? { teamId: fixture.homeTeamId, teamName: fixture.homeTeam } : null,
+              fixture.awayTeamId ? { teamId: fixture.awayTeamId, teamName: fixture.awayTeam } : null,
+            ]
+          ))
+          .filter((entry): entry is { teamId: number; teamName: string | null } => Boolean(entry))
+          .map((entry) => [entry.teamId, entry]),
+      ).values());
+      const masterCupOutrightRows = buildOutrightOdds(
+        masterCupParticipants
+          .map((entry) => {
+            const profile = oddsProfileByTeamId.get(entry.teamId);
+            return profile ? { profile, currentRow: masterOddsRowByTeamId.get(entry.teamId) ?? null } : null;
+          })
+          .filter((entry): entry is { profile: OddsTeamProfile; currentRow: OddsCurrentRow | null } => Boolean(entry)),
+        Math.max(2, masterCupParticipants.length),
+      ).map((row) => buildOutrightRow(
+        `master-cup-outright-${row.teamId}`,
+        row.teamId,
+        row.teamName,
+        row.odds,
+        row.probability,
+        masterOddsRowByTeamId.get(row.teamId) ?? null,
+        Math.max(2, masterCupParticipants.length),
+        'Seeded bracket outright price.',
+      ));
+      const masterCupOutrightPackage = buildOutrightPackage(
+        `master-cup-outright-${currentSeason}`,
+        'Master Cup Winner Odds',
+        'Master Cup winner market',
+        'SEASON ODDS',
+        'Master Cup prices blend archive strength with the seeded top-16 bracket.',
+        masterCupOutrightRows,
+      );
+      if (masterCupOutrightPackage) {
+        packages.push(masterCupOutrightPackage);
+      }
+    }
+
+    return packages;
+  }, [
+    allMasterCupFixtures,
+    currentCupFixtures,
+    currentGw,
+    currentLeagueFixturesForStudio,
+    currentMasterCupFixtures,
+    currentMasterLeagueFixturesForStudio,
+    currentSeason,
+    currentTrioLeagueFixturesForStudio,
+    divisionOddsRowByTeamId,
+    leagueTable,
+    masterLeagueTable,
+    masterOddsRowByTeamId,
+    oddsProfileByTeamId,
+    recapDivisionOrder,
+    teamIdByName,
+    teamMetaByName,
+    teams,
+    trioLeagueTable,
+    trioOddsRowByTeamId,
+  ]);
+
+  const competitionBracketPackages = useMemo<SkyStudioBroadcastPackage[]>(() => {
+    const packages: SkyStudioBroadcastPackage[] = [];
+
+    const participant = (
+      teamName: string | null | undefined,
+      score: string | null | undefined,
+      winnerTeamName: string | null | undefined,
+    ) => {
+      const safeTeamName = teamName ?? 'TBD';
+      const meta = teamMetaByName.get(safeTeamName);
+      return {
+        teamName: safeTeamName,
+        score: score ?? 'TBD',
+        winner: Boolean(winnerTeamName) && winnerTeamName === safeTeamName,
+        ballColor: meta?.ballColor ?? null,
+        ringColor: meta?.ringColor ?? null,
+        textColor: meta?.textColor ?? null,
+      };
+    };
+
+    const cupRoundSortValue = (roundName: string): number => {
+      const normalized = roundName.toLowerCase();
+      if (/round\s*of\s*32|r32/.test(normalized)) {
+        return 1;
+      }
+      if (/round\s*of\s*16|r16/.test(normalized)) {
+        return 2;
+      }
+      if (/quarter/.test(normalized)) {
+        return 3;
+      }
+      if (/semi/.test(normalized)) {
+        return 4;
+      }
+      if (/\bfinal\b/.test(normalized)) {
+        return 5;
+      }
+      return 99;
+    };
+
+    if (cupFixtures.length > 0) {
+      const roundMap = new Map<string, typeof cupFixtures>();
+      cupFixtures.forEach((fixture) => {
+        const roundFixtures = roundMap.get(fixture.roundName) ?? [];
+        roundFixtures.push(fixture);
+        roundMap.set(fixture.roundName, roundFixtures);
+      });
+      const rounds: CompetitionBracketRound[] = Array.from(roundMap.entries())
+        .sort((left, right) => cupRoundSortValue(left[0]) - cupRoundSortValue(right[0]))
+        .map(([roundName, fixtures]) => ({
+          key: roundName,
+          label: roundName,
+          ties: fixtures
+            .slice()
+            .sort((left, right) => left.id - right.id)
+            .map((fixture) => ({
+              id: `cup-${fixture.id}`,
+              title: fixture.gw,
+              detail: fixture.decidedBy === 'bye' ? 'Bye awarded' : cupFixtureDetailLabel(fixture),
+              statusLabel: fixture.winnerTeam ? 'winner' : fixture.gw === currentGw ? 'live' : 'pending',
+              active: fixture.gw === currentGw,
+              resolved: Boolean(fixture.winnerTeam),
+              winnerPath: Boolean(fixture.winnerTeam),
+              home: participant(
+                cupSideLabel(fixture, 'home'),
+                fixture.decidedBy === 'bye' ? null : fixture.homeTeam ? fixture.homeProfit.toFixed(2) : null,
+                fixture.winnerTeam,
+              ),
+              away: participant(
+                cupSideLabel(fixture, 'away'),
+                fixture.decidedBy === 'bye' ? null : fixture.awayTeam ? fixture.awayProfit.toFixed(2) : null,
+                fixture.winnerTeam,
+              ),
+            })),
+        }));
+      packages.push({
+        id: `cup-bracket-graphic-${currentGw}`,
+        label: 'Bookie Ball Cup Bracket',
+        headline: 'Bookie Ball Cup bracket',
+        alert: 'BRACKET',
+        durationMs: 17000,
+        tone: 'cup',
+        lines: [
+          `${cupFixtures.filter((fixture) => fixture.winnerTeam).length}/${cupFixtures.length} cup ties resolved.`,
+          currentCupFixtures[0] ? `${currentCupFixtures[0].roundName} is the live cup focus.` : 'Cup bracket is building.',
+        ],
+        content: (
+          <CompetitionBracketBoard
+            kicker="Cup Bracket"
+            title="Bookie Ball Cup path"
+            subtitle="Winner paths light up as each single-leg tie resolves."
+            rounds={rounds}
+            summary={[
+              `${cupFixtures.filter((fixture) => fixture.winnerTeam).length} winners confirmed`,
+              `${currentCupFixtures.length} ties on the ${currentGw} board`,
+            ]}
+          />
+        ),
+      });
+    }
+
+    if (isSeasonFiveOrLater(currentSeason) && allMasterCupFixtures.length > 0) {
+      const stageLabel = (stage: MasterCupFixture['stage']): string => {
+        if (stage === 'round_of_16') {
+          return 'Round of 16';
+        }
+        if (stage === 'quarter_final') {
+          return 'Quarterfinals';
+        }
+        if (stage === 'semi_final') {
+          return 'Semifinals';
+        }
+        if (stage === 'third_place_playoff') {
+          return 'Third Place';
+        }
+        return 'Final';
+      };
+      const rounds: CompetitionBracketRound[] = [];
+      const singleLegStage = (stage: MasterCupFixture['stage']) =>
+        allMasterCupFixtures
+          .filter((fixture) => fixture.stage === stage)
+          .slice()
+          .sort((left, right) => left.tieSlot - right.tieSlot || left.id - right.id);
+      (['round_of_16', 'quarter_final'] as const).forEach((stage) => {
+        const fixtures = singleLegStage(stage);
+        if (fixtures.length === 0) {
+          return;
+        }
+        rounds.push({
+          key: stage,
+          label: stageLabel(stage),
+          ties: fixtures.map((fixture) => ({
+            id: `master-cup-${fixture.id}`,
+            title: `Seed ${fixture.homeSeed ?? '?'} v ${fixture.awaySeed ?? '?'}`,
+            detail: fixture.roundName,
+            statusLabel: fixture.winnerTeam ? 'winner' : fixture.gw === currentGw ? 'live' : fixture.gw.toLowerCase(),
+            active: fixture.gw === currentGw,
+            resolved: Boolean(fixture.winnerTeam),
+            winnerPath: Boolean(fixture.winnerTeam),
+            home: participant(fixture.homeTeam, fixture.homeTeam ? fixture.homeProfit.toFixed(2) : null, fixture.winnerTeam),
+            away: participant(fixture.awayTeam, fixture.awayTeam ? fixture.awayProfit.toFixed(2) : null, fixture.winnerTeam),
+          })),
+        });
+      });
+      const semiTies = Array.from(new Set(allMasterCupFixtures.filter((fixture) => fixture.stage === 'semi_final').map((fixture) => fixture.tieSlot)))
+        .sort((left, right) => left - right)
+        .map((tieSlot) => {
+          const legs = allMasterCupFixtures
+            .filter((fixture) => fixture.stage === 'semi_final' && fixture.tieSlot === tieSlot)
+            .slice()
+            .sort((left, right) => left.legNumber - right.legNumber);
+          const firstLeg = legs[0] ?? null;
+          const secondLeg = legs[1] ?? null;
+          const reference = secondLeg ?? firstLeg;
+          if (!reference) {
+            return null;
+          }
+          const aggregateAvailable = secondLeg && secondLeg.aggregateHomeProfit !== null && secondLeg.aggregateAwayProfit !== null;
+          return {
+            id: `master-cup-semi-${tieSlot}`,
+            title: `Semi ${tieSlot}`,
+            detail: aggregateAvailable
+              ? `L1 ${firstLeg?.homeProfit.toFixed(2) ?? '0.00'}-${firstLeg?.awayProfit.toFixed(2) ?? '0.00'} • L2 ${secondLeg?.homeProfit.toFixed(2) ?? '0.00'}-${secondLeg?.awayProfit.toFixed(2) ?? '0.00'}`
+              : 'Two-leg semi-final',
+            statusLabel: reference.winnerTeam ? 'winner' : reference.gw === currentGw ? 'live' : reference.gw.toLowerCase(),
+            active: legs.some((fixture) => fixture.gw === currentGw),
+            resolved: Boolean(reference.winnerTeam),
+            winnerPath: Boolean(reference.winnerTeam),
+            home: participant(
+              reference.homeTeam,
+              aggregateAvailable ? `Agg ${secondLeg?.aggregateHomeProfit?.toFixed(2) ?? '0.00'}` : (reference.homeTeam ? reference.homeProfit.toFixed(2) : null),
+              reference.winnerTeam,
+            ),
+            away: participant(
+              reference.awayTeam,
+              aggregateAvailable ? `Agg ${secondLeg?.aggregateAwayProfit?.toFixed(2) ?? '0.00'}` : (reference.awayTeam ? reference.awayProfit.toFixed(2) : null),
+              reference.winnerTeam,
+            ),
+          };
+        })
+        .filter((tie): tie is CompetitionBracketRound['ties'][number] => Boolean(tie));
+      if (semiTies.length > 0) {
+        rounds.push({
+          key: 'semi_final',
+          label: 'Semifinals',
+          ties: semiTies,
+        });
+      }
+      const finalDayFixtures = allMasterCupFixtures
+        .filter((fixture) => fixture.stage === 'third_place_playoff' || fixture.stage === 'final')
+        .slice()
+        .sort((left, right) => {
+          const stageWeight = left.stage === right.stage ? 0 : left.stage === 'third_place_playoff' ? -1 : 1;
+          return stageWeight || left.id - right.id;
+        });
+      if (finalDayFixtures.length > 0) {
+        rounds.push({
+          key: 'master-cup-finals',
+          label: 'Final Day',
+          ties: finalDayFixtures.map((fixture) => ({
+            id: `master-cup-final-day-${fixture.id}`,
+            title: fixture.stage === 'third_place_playoff' ? 'Third-place playoff' : 'Final',
+            detail: fixture.roundName,
+            statusLabel: fixture.winnerTeam ? 'winner' : fixture.gw === currentGw ? 'live' : fixture.gw.toLowerCase(),
+            active: fixture.gw === currentGw,
+            resolved: Boolean(fixture.winnerTeam),
+            winnerPath: Boolean(fixture.winnerTeam),
+            home: participant(fixture.homeTeam, fixture.homeTeam ? fixture.homeProfit.toFixed(2) : null, fixture.winnerTeam),
+            away: participant(fixture.awayTeam, fixture.awayTeam ? fixture.awayProfit.toFixed(2) : null, fixture.winnerTeam),
+          })),
+        });
+      }
+      packages.push({
+        id: `master-cup-bracket-graphic-${currentGw}`,
+        label: 'Master Cup Bracket',
+        headline: 'Master Cup bracket',
+        alert: 'MASTER CUP',
+        durationMs: 17000,
+        tone: 'competition',
+        lines: [
+          `${allMasterCupFixtures.filter((fixture) => fixture.winnerTeam).length}/${allMasterCupFixtures.length} master cup ties resolved.`,
+          'Two-legged semi-finals stay on one bracket board with aggregate totals.',
+        ],
+        content: (
+          <CompetitionBracketBoard
+            kicker="Master Cup"
+            title="Master Cup seeded route"
+            subtitle="Seeded ties with two-leg semi-finals and lit winner paths."
+            rounds={rounds}
+            summary={[
+              `${allMasterCupFixtures.filter((fixture) => fixture.stage === 'semi_final').length} semi-final legs logged`,
+              `${currentMasterCupFixtures.length} live fixtures on the ${currentGw} slate`,
+            ]}
+          />
+        ),
+      });
+    }
+
+    const trioPlayoffFixtures = allTrioLeagueFixturesForStudio.filter((fixture) => fixture.stage !== 'regular');
+    if (trioPlayoffFixtures.length > 0) {
+      const playoffDivisions = Array.from(new Set(trioPlayoffFixtures.map((fixture) => fixture.division)));
+      const rounds: CompetitionBracketRound[] = [
+        {
+          key: 'trio-playoff-semis',
+          label: 'Semifinals',
+          ties: playoffDivisions.flatMap((division) => (
+            trioPlayoffFixtures
+              .filter((fixture) => fixture.division === division && fixture.stage === 'playoff_semi')
+              .slice()
+              .sort((left, right) => left.groupSlot - right.groupSlot || left.id - right.id)
+              .map((fixture) => ({
+                id: `trio-semi-${fixture.id}`,
+                title: division,
+                detail: `Semi ${fixture.groupSlot + 1}`,
+                statusLabel: fixture.result === 'pending' ? (fixture.gw === currentGw ? 'live' : fixture.gw.toLowerCase()) : 'winner',
+                active: fixture.gw === currentGw,
+                resolved: fixture.result !== 'pending',
+                winnerPath: fixture.winnerTeamId !== null,
+                home: participant(fixture.homeTeam, fixture.homeProfit.toFixed(2), fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam : fixture.winnerTeamId === fixture.awayTeamId ? fixture.awayTeam : null),
+                away: participant(fixture.awayTeam, fixture.awayProfit.toFixed(2), fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam : fixture.winnerTeamId === fixture.awayTeamId ? fixture.awayTeam : null),
+              }))
+          )),
+        },
+        {
+          key: 'trio-playoff-finals',
+          label: 'Finals',
+          ties: playoffDivisions.flatMap((division) => (
+            trioPlayoffFixtures
+              .filter((fixture) => fixture.division === division && fixture.stage === 'playoff_final')
+              .slice()
+              .sort((left, right) => left.id - right.id)
+              .map((fixture) => ({
+                id: `trio-final-${fixture.id}`,
+                title: division,
+                detail: 'Promotion final',
+                statusLabel: fixture.result === 'pending' ? (fixture.gw === currentGw ? 'live' : fixture.gw.toLowerCase()) : 'winner',
+                active: fixture.gw === currentGw,
+                resolved: fixture.result !== 'pending',
+                winnerPath: fixture.winnerTeamId !== null,
+                home: participant(fixture.homeTeam, fixture.homeProfit.toFixed(2), fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam : fixture.winnerTeamId === fixture.awayTeamId ? fixture.awayTeam : null),
+                away: participant(fixture.awayTeam, fixture.awayProfit.toFixed(2), fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam : fixture.winnerTeamId === fixture.awayTeamId ? fixture.awayTeam : null),
+              }))
+          )),
+        },
+      ].filter((round) => round.ties.length > 0);
+      packages.push({
+        id: `trio-playoff-bracket-${currentGw}`,
+        label: 'Trio Playoff Bracket',
+        headline: 'Trio playoff bracket',
+        alert: 'TRIO PLAYOFFS',
+        durationMs: 16000,
+        tone: 'competition',
+        lines: [
+          `${trioPlayoffFixtures.filter((fixture) => fixture.winnerTeamId !== null).length}/${trioPlayoffFixtures.length} trio playoff ties resolved.`,
+          'Semifinal winners feed directly into the promotion final board.',
+        ],
+        content: (
+          <CompetitionBracketBoard
+            kicker="Trio Playoffs"
+            title="Trio playoff path"
+            subtitle="Semis and finals sit on one board, with promoted paths lighting up."
+            rounds={rounds}
+            summary={[
+              `${playoffDivisions.length} divisions carrying playoff brackets`,
+              `${currentTrioLeagueFixturesForStudio.filter((fixture) => fixture.stage !== 'regular').length} playoff ties live this week`,
+            ]}
+          />
+        ),
+      });
+    }
+
+    return packages;
+  }, [
+    allMasterCupFixtures,
+    allTrioLeagueFixturesForStudio,
+    currentCupFixtures,
+    currentGw,
+    currentMasterCupFixtures,
+    currentSeason,
+    currentTrioLeagueFixturesForStudio,
+    cupFixtures,
+    teamMetaByName,
   ]);
 
   const studioBroadcastPackages = useMemo<SkyStudioBroadcastPackage[]>(() => {
@@ -2738,6 +6404,28 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       ? pickPregamePreviewLines(`${currentSeason}-${currentGw}-${kickoffDayPhase.label}`, 2)
       : [];
     packages.push({
+      id: `tonight-board-${currentGw}`,
+      label: 'Tonight\'s Board',
+      headline: `${currentGw} across divisions, trio, master, and cup`,
+      lines: [
+        `Divisions: ${currentLeagueFixturesForStudio.length} fixtures on the main ladder tonight.`,
+        isSeasonFiveOrLater(currentSeason)
+          ? `Trio League: ${currentTrioLeagueFixturesForStudio.length} fixtures with the three-tier race now live.`
+          : 'Trio League launches from Season 5, so tonight stays on divisions, master, and cup.',
+        `Master League: ${currentMasterLeagueFixturesForStudio.length} fixtures on the cross-table board.`,
+        currentSuperCupFixtures.length > 0
+          ? `Super Cup: ${currentSuperCupFixtures.length} standalone prestige opener on the board.`
+          : 'Super Cup: no curtain-raiser on tonight\'s board.',
+        currentCupFixtures.length > 0
+          ? `Cup: ${currentCupFixtures.length} live ties in the knockout bracket.`
+          : 'Cup: no live ties on tonight\'s board.',
+      ],
+      tone: 'fixtures',
+      alert: 'RUNNING ORDER',
+    });
+    packages.push(...kickoffOddsPackages);
+    packages.push(...competitionBracketPackages);
+    packages.push({
       id: `day-phase-${currentGw}`,
       label: `${kickoffDayPhase.label} Desk`,
       headline: `${currentGw} day-cycle context`,
@@ -2751,6 +6439,139 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       ],
       tone: 'fixtures',
       alert: studioTruthLabel,
+    });
+    const leagueResolvedCount = currentLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length;
+    const masterResolvedCount = currentMasterLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length;
+    const trioResolvedCount = currentTrioLeagueFixturesForStudio.filter((fixture) => fixture.result !== 'pending').length;
+    const cupResolvedCount = currentCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length;
+    const superCupResolvedCount = currentSuperCupFixtures.filter((fixture) => fixture.winnerTeam !== null).length;
+    const superCupStatusLine = currentSuperCupFixtures.length > 0
+      ? `Super Cup ${superCupResolvedCount}/${currentSuperCupFixtures.length} updated`
+      : 'Super Cup idle';
+    const leagueDivisionCalls = recapDivisionOrder
+      .map((division) => {
+        const fixture = currentLeagueFixturesForStudio.find((row) => row.division === division);
+        if (!fixture) {
+          return null;
+        }
+        const leader = fixture.result === 'pending'
+          ? null
+          : fixture.result === 'draw'
+            ? 'level'
+            : fixture.result === 'home'
+              ? fixture.homeTeam
+              : fixture.awayTeam;
+        return `${displayDivisionName(division)}: ${leader ? `as it stands ${leader}` : 'no leader yet'} in ${fixture.homeTeam} vs ${fixture.awayTeam}.`;
+      })
+      .filter((line): line is string => Boolean(line));
+    const cupLiveCall = (() => {
+      const fixture = currentCupFixtures.find((row) => row.winnerTeam === null) ?? currentCupFixtures[0];
+      if (!fixture) {
+        return 'Cup board is waiting for fixture updates.';
+      }
+      const home = cupSideLabel(fixture, 'home');
+      const away = cupSideLabel(fixture, 'away');
+      return fixture.winnerTeam
+        ? `Cup board: ${home} vs ${away}, ${fixture.winnerTeam} currently through.`
+        : `Cup board: ${home} vs ${away} is still in play.`;
+    })();
+    const superCupLiveCall = (() => {
+      const fixture = currentSuperCupFixtures[0];
+      if (!fixture) {
+        return 'Super Cup slot is empty on this board.';
+      }
+      return fixture.winnerTeam
+        ? `Super Cup: ${fixture.homeTeam} vs ${fixture.awayTeam}, ${fixture.winnerTeam} currently hold the curtain-raiser.`
+        : `Super Cup: ${fixture.homeTeam} vs ${fixture.awayTeam} is the standalone prestige opener and is still live.`;
+    })();
+    const masterLiveCall = (() => {
+      const fixture = currentMasterLeagueFixturesForStudio.find((row) => row.result === 'pending')
+        ?? currentMasterLeagueFixturesForStudio[0];
+      if (!fixture) {
+        return 'Master League board has no active fixture updates yet.';
+      }
+      const leader = fixture.result === 'pending'
+        ? null
+        : fixture.result === 'draw'
+          ? 'level'
+          : fixture.result === 'home'
+            ? fixture.homeTeam
+            : fixture.awayTeam;
+      return leader
+        ? `Master League: ${fixture.homeTeam} vs ${fixture.awayTeam}, as it stands ${leader} lead.`
+        : `Master League: ${fixture.homeTeam} vs ${fixture.awayTeam} is still live.`;
+    })();
+    const trioLiveCall = (() => {
+      const fixture = currentTrioLeagueFixturesForStudio.find((row) => row.result === 'pending')
+        ?? currentTrioLeagueFixturesForStudio[0];
+      if (!fixture) {
+        return 'Trio League board has no active fixture updates yet.';
+      }
+      const leader = fixture.result === 'pending'
+        ? null
+        : fixture.result === 'draw'
+          ? 'level'
+          : fixture.result === 'home'
+            ? fixture.homeTeam
+            : fixture.awayTeam;
+      return leader
+        ? `${trioFixtureCompetitionLabel(fixture)}: ${fixture.homeTeam} vs ${fixture.awayTeam}, as it stands ${leader} lead.`
+        : `${trioFixtureCompetitionLabel(fixture)}: ${fixture.homeTeam} vs ${fixture.awayTeam} is still live.`;
+    })();
+    if (isSeasonFiveOrLater(currentSeason)) {
+      const premierRows = trioLeagueTable.filter((row) => row.division === 'Premier League').slice().sort((a, b) => a.rank - b.rank);
+      const ligueRows = trioLeagueTable.filter((row) => row.division === 'Ligue 1').slice().sort((a, b) => a.rank - b.rank);
+      const bundesligaRows = trioLeagueTable.filter((row) => row.division === 'Bundesliga').slice().sort((a, b) => a.rank - b.rank);
+      packages.push({
+        id: `stakes-desk-${currentGw}`,
+        label: 'What Matters Today',
+        headline: 'Promotion, playoffs, and drop-zone stakes',
+        lines: [
+          currentGw === 'GW8'
+            ? 'Division GW8 is pure playoff and friendly territory, so the tables give way to direct one-off outcomes.'
+            : 'Division tables still drive the main season picture, but tonight is also shaping movement elsewhere.',
+          `Trio Premier League: ${premierRows.slice(-2).map((row) => row.teamName).join(' and ') || 'the bottom two'} are currently in the relegation places.`,
+          `Trio Ligue 1: ${ligueRows[0]?.teamName ?? 'Leader pending'} hold the automatic promotion place, while ${ligueRows.slice(1, 5).map((row) => row.teamName).join(', ') || 'the playoff pack'} sit on the playoff board for the second promotion slot.`,
+          `Trio Bundesliga: ${bundesligaRows[0]?.teamName ?? 'Leader pending'} are on the direct route up, with ${bundesligaRows.slice(1, 5).map((row) => row.teamName).join(', ') || 'the playoff line still forming'} chasing the second promotion place.`,
+        ],
+        tone: 'competition',
+        alert: 'STAKES',
+      });
+      packages.push({
+        id: `trio-desk-${currentGw}`,
+        label: 'Trio League Desk',
+        headline: 'Three-tier trio league check-in',
+        lines: [
+          premierRows[0]
+            ? `Premier League: ${premierRows[0].teamName} lead, while ${premierRows.slice(-2).map((row) => row.teamName).join(' and ')} sit in the current relegation zone.`
+            : 'Premier League trio table is still loading.',
+          ligueRows[0]
+            ? `Ligue 1: ${ligueRows[0].teamName} sit in the automatic promotion place, with ${ligueRows.slice(1, 5).map((row) => row.teamName).join(', ')} on the playoff board.`
+            : 'Ligue 1 trio table is still loading.',
+          bundesligaRows[0]
+            ? `Bundesliga: ${bundesligaRows[0].teamName} hold the direct promotion place, with ${bundesligaRows.slice(1, 5).map((row) => row.teamName).join(', ')} chasing the playoff route.`
+            : 'Bundesliga trio table is still loading.',
+          trioLiveCall,
+        ],
+        tone: 'competition',
+        alert: 'TRIO LEAGUE',
+      });
+    }
+    packages.push({
+      id: `gw-roundup-${currentGw}`,
+      label: `Game Week Round-Up • ${currentGw}`,
+      headline: `${currentGw} round-up across league, cup, master, and trio`,
+      lines: [
+        `${currentGw} status board: League ${leagueResolvedCount}/${currentLeagueFixturesForStudio.length} updated, ${superCupStatusLine}, Cup ${cupResolvedCount}/${currentCupFixtures.length} updated, Master ${masterResolvedCount}/${currentMasterLeagueFixturesForStudio.length} updated, Trio ${trioResolvedCount}/${currentTrioLeagueFixturesForStudio.length} updated.`,
+        leagueDivisionCalls[0] ?? 'Division callouts are still pending this cycle.',
+        leagueDivisionCalls[1] ?? leagueDivisionCalls[2] ?? 'Secondary division boards remain live.',
+        superCupLiveCall,
+        cupLiveCall,
+        masterLiveCall,
+        trioLiveCall,
+      ],
+      tone: 'results',
+      alert: 'ROUND-UP',
     });
 
     if (recapTarget) {
@@ -2826,18 +6647,17 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
 
     if (bookieDorBoard?.holder) {
       const weights = bookieDorBoard.weights;
-      const weightLine = `Model weights • League ${Math.round(weights.league * 100)}% • Cup ${Math.round(weights.cup * 100)}% • Master ${Math.round(weights.master * 100)}% • Consistency ${Math.round(weights.consistency * 100)}%`;
       const runnerUp = bookieDorBoard.leaderboard[1];
       packages.push({
         id: `bookie-dor-${bookieDorBoard.season}-${bookieDorBoard.gw}`,
         label: "Bookie d'Or Watch",
         headline: `${bookieDorBoard.holder.teamName} currently leads the Bookie d'Or race`,
         lines: [
-          `${bookieDorBoard.holder.teamName} on ${bookieDorBoard.holder.score.toFixed(2)} with balanced scoring across league, cup, master league, and consistency.`,
+          `${bookieDorBoard.holder.teamName} on ${bookieDorBoard.holder.score.toFixed(2)} with scoring drawn from divisions, cups, master league, trio league, and tier league.`,
           runnerUp
             ? `${runnerUp.teamName} are the nearest challenger on ${runnerUp.score.toFixed(2)}.`
             : 'No close challenger has formed yet.',
-          weightLine,
+          `Category shares • Divisions ${Math.round(weights.league * 100)}% • Cups ${Math.round(weights.cup * 100)}% • Master ${Math.round(weights.master * 100)}% • Trio + Tier ${Math.round(weights.consistency * 100)}%`,
         ],
         tone: 'movement',
         alert: 'BOOKIE D’OR',
@@ -3173,7 +6993,35 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           return;
         }
         disagreementCount += 1;
-        disagreements.push(`${fixture.homeTeam ?? 'BYE'} vs ${fixture.awayTeam ?? 'BYE'}: Jay on ${jayPick}, Computer on ${computerPick}.`);
+        disagreements.push(`${cupSideLabel(fixture, 'home')} vs ${cupSideLabel(fixture, 'away')}: Jay on ${jayPick}, Computer on ${computerPick}.`);
+      });
+      currentMasterLeagueFixtures.forEach((fixture) => {
+        const picks = currentPredictionMap.get(`master-${fixture.id}`);
+        const jayPick = pickName(picks?.Jay);
+        const computerPick = pickName(picks?.Computer);
+        if (!jayPick || !computerPick) {
+          return;
+        }
+        if (jayPick === computerPick) {
+          overlapCount += 1;
+          return;
+        }
+        disagreementCount += 1;
+        disagreements.push(`${fixture.homeTeam} vs ${fixture.awayTeam} (Master): Jay on ${jayPick}, Computer on ${computerPick}.`);
+      });
+      currentTrioLeagueFixtures.forEach((fixture) => {
+        const picks = currentPredictionMap.get(`trio-${fixture.id}`);
+        const jayPick = pickName(picks?.Jay);
+        const computerPick = pickName(picks?.Computer);
+        if (!jayPick || !computerPick) {
+          return;
+        }
+        if (jayPick === computerPick) {
+          overlapCount += 1;
+          return;
+        }
+        disagreementCount += 1;
+        disagreements.push(`${fixture.homeTeam} vs ${fixture.awayTeam} (${fixture.division}): Jay on ${jayPick}, Computer on ${computerPick}.`);
       });
       const riskLine = disagreementCount >= overlapCount
         ? 'Risk profile is aggressive: more split calls than overlaps.'
@@ -3195,7 +7043,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
 
     if (currentGw === 'GW1') {
       const launchLines: string[] = [];
-      RECAP_DIVISION_ORDER.forEach((division) => {
+      recapDivisionOrder.forEach((division) => {
         const firstFixture = currentLeagueFixturesForStudio.find((fixture) => fixture.division === division);
         if (!firstFixture) {
           return;
@@ -3208,13 +7056,22 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           launchLines.push(`Master League launch tie: ${masterLead.homeTeam} vs ${masterLead.awayTeam}.`);
         }
       }
+      if (currentTrioLeagueFixturesForStudio.length > 0) {
+        const trioLead = currentTrioLeagueFixturesForStudio[0];
+        if (trioLead) {
+          launchLines.push(`${trioFixtureCompetitionLabel(trioLead)} opens with ${trioLead.homeTeam} vs ${trioLead.awayTeam}.`);
+        }
+      }
+      if (currentSuperCupFixtures[0]) {
+        launchLines.push(`Super Cup curtain-raiser: ${currentSuperCupFixtures[0].homeTeam} vs ${currentSuperCupFixtures[0].awayTeam}.`);
+      }
       if (allTimeLeagues?.pointsTable?.[0]) {
         launchLines.push(`All-time leader right now is ${allTimeLeagues.pointsTable[0].teamName}.`);
       }
       packages.push({
         id: `matchday-launch-${currentGw}`,
         label: 'Matchday Launch Show',
-        headline: `Matchday 1 hype across divisions, master league, and all-time boards`,
+        headline: `Matchday 1 hype across divisions, trio, master league, and all-time boards`,
         lines: launchLines.slice(0, 6),
         tone: 'fixtures',
         alert: 'LAUNCH NIGHT',
@@ -3224,7 +7081,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     if (currentGw === 'GW1') {
       const cupDrawLines = currentCupFixtures
         .slice(0, 6)
-        .map((fixture) => `${fixture.homeTeam ?? 'BYE'} vs ${fixture.awayTeam ?? 'BYE'}.`);
+        .map((fixture) => `${cupSideLabel(fixture, 'home')} vs ${cupSideLabel(fixture, 'away')}.`);
       packages.push({
         id: `cup-draw-tease-${currentGw}`,
         label: 'Cup Draw Tomorrow',
@@ -3240,33 +7097,34 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     if (draw) {
       const spotlightTeam = studioTeams.find((team) => team.id === draw.teamId) ?? null;
       if (spotlightTeam) {
-        const lastSeasonLine = spotlightTeam.lastSeasonSummary
-          ? `${spotlightTeam.name} ended last season ${ordinal(spotlightTeam.lastSeasonSummary.rank)} in ${spotlightTeam.lastSeasonSummary.division}.`
-          : `${spotlightTeam.name} have limited archived league finish data.`;
-        const currentSeasonLine = spotlightTeam.rank
-          ? `Current season, as it stands: ${ordinal(spotlightTeam.rank)} in ${spotlightTeam.league} with ${spotlightTeam.points} points.`
-          : `Current season position is still forming for ${spotlightTeam.name}.`;
-        const latestCupRound = spotlightTeam.currentCupJourney?.length
-          ? spotlightTeam.currentCupJourney[spotlightTeam.currentCupJourney.length - 1] ?? null
-          : null;
-        const cupLine = latestCupRound
-          ? `Cup path: ${latestCupRound.result} in ${latestCupRound.round}.`
-          : 'Cup storyline is still developing.';
-        const liveTruthLine = currentGwLocked
-          ? 'This tie is provisionally called and will only be confirmed after rollover.'
-          : 'Still in play: entries can land through the day, so calls remain provisional.';
+        const masterRow = masterLeagueTable.find((row) => row.teamId === spotlightTeam.id);
+        const trioRow = trioLeagueTable.find((row) => row.teamId === spotlightTeam.id) ?? null;
+        const tierRow = tierLeagueTable.find((row) => row.teamId === spotlightTeam.id) ?? null;
+        const leagueLines = [
+          spotlightTeam.rank
+            ? `Sydney: ${spotlightTeam.league} - ${ordinal(spotlightTeam.rank)} on ${spotlightTeam.points} points with ${formatSigned(spotlightTeam.seasonProfit)} profit.`
+            : `Sydney: ${spotlightTeam.league} position is still pending.`,
+          masterRow
+            ? `Jess: Master League - ${ordinal(masterRow.rank)} on ${masterRow.points} points with ${formatSigned(masterRow.profit)} profit.`
+            : null,
+          trioRow
+            ? `Miles: Trio League • ${trioRow.division} - ${ordinal(trioRow.rank)} on ${trioRow.points} points with ${formatSigned(trioRow.profit)} profit.`
+            : null,
+          tierRow
+            ? `Sydney: Tier League • ${tierRow.division} - ${ordinal(tierRow.rank)} on ${tierRow.points} points with ${formatSigned(tierRow.profit)} profit.`
+            : null,
+        ].filter((line): line is string => line !== null);
+        const fixtureLines = (spotlightTeam.weeklyFixtures ?? []).map((fixture, index) => {
+          const speaker = index % 3 === 0 ? 'Sydney' : index % 3 === 1 ? 'Jess' : 'Miles';
+          return `${speaker}: ${fixture.competition} - ${fixture.fixture}. ${fixture.status}.`;
+        });
         packages.push({
           id: `kickoff-team-brief-${spotlightTeam.id}-${currentGw}`,
           label: 'Kick-Off Team Brief',
-          headline: `${spotlightTeam.name} spotlight deep-dive`,
+          headline: `${spotlightTeam.name} league positions and fixtures`,
           lines: [
-            kickoffDayPhase.line,
-            lastSeasonLine,
-            currentSeasonLine,
-            spotlightTeam.playoffContext?.trendLine ?? `${spotlightTeam.divisionMovement} with form ${spotlightTeam.leagueForm.join('-') || 'N/A'}.`,
-            cupLine,
-            spotlightTeam.playoffContext?.actionLine ?? `Next up: ${spotlightTeam.nextLeagueFixture}.`,
-            liveTruthLine,
+            ...leagueLines,
+            ...fixtureLines,
           ],
           tone: 'team',
           alert: 'SPOTLIGHT TEAM',
@@ -3303,7 +7161,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
       });
     }
 
-    return packages.slice(0, 12);
+    return packages.slice(0, 30);
   }, [
     allTimeLeagues,
     bookieDorBoard,
@@ -3313,7 +7171,14 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     currentGw,
     currentLeagueFixtures,
     currentLeagueFixturesForStudio,
+    currentMasterLeagueFixtures,
     currentMasterLeagueFixturesForStudio,
+    currentSuperCupFixtures,
+    currentTierLeagueFixturesForStudio,
+    currentTrioLeagueFixtures,
+    currentTrioLeagueFixturesForStudio,
+    tierLeagueTable,
+    trioLeagueTable,
     currentPredictionMap,
     draw,
     predictionsLocked,
@@ -3322,7 +7187,10 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
     prevPredictionMap,
     prevWeekScores,
     recapTarget,
+    recapDivisionOrder,
     scoreboardTotals,
+    competitionBracketPackages,
+    kickoffOddsPackages,
     studioMovements,
     studioTeams,
     kickoffDayPhase.label,
@@ -3331,13 +7199,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   ]);
 
   const recapFixtureRows = useMemo(() => {
-    const divisionIndex = new Map(RECAP_DIVISION_ORDER.map((division, idx) => [division, idx]));
+    const divisionIndex = new Map(recapDivisionOrder.map((division, idx) => [division, idx]));
 
     const leagueRows = currentLeagueFixtures
       .slice()
       .sort((a, b) => {
-        const aIdx = divisionIndex.get(a.division) ?? RECAP_DIVISION_ORDER.length;
-        const bIdx = divisionIndex.get(b.division) ?? RECAP_DIVISION_ORDER.length;
+        const aIdx = divisionIndex.get(a.division) ?? recapDivisionOrder.length;
+        const bIdx = divisionIndex.get(b.division) ?? recapDivisionOrder.length;
         return aIdx - bIdx || a.id - b.id;
       })
       .map((fixture) => {
@@ -3408,8 +7276,20 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         };
       });
 
-    return [...leagueRows, ...masterRows, ...cupRows];
-  }, [currentCupFixtures, currentLeagueFixtures, currentMasterLeagueFixtures]);
+    const superCupRows = currentSuperCupFixtures
+      .slice()
+      .sort((a, b) => a.id - b.id)
+      .map((fixture) => ({
+        id: `super-cup-${fixture.id}`,
+        competition: 'Super Cup',
+        fixture: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        score: fixture.played ? `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}` : 'Pending',
+        outcome: fixture.winnerTeam ? `${fixture.winnerTeam} won` : 'Pending',
+        profit: fixture.pairingExplanation,
+      }));
+
+    return [...leagueRows, ...masterRows, ...cupRows, ...superCupRows];
+  }, [currentCupFixtures, currentLeagueFixtures, currentMasterLeagueFixtures, currentSuperCupFixtures, recapDivisionOrder]);
 
   const recapFixturePages = useMemo(() => {
     if (recapFixtureRows.length === 0) {
@@ -3438,85 +7318,207 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
   const canStartKickoffShow = predictionsLocked && !kickoffBlocked;
   const leagueFixturesReady = currentLeagueFixtures.length > 0;
   const masterFixturesReady = currentMasterLeagueFixtures.length > 0;
-  const gw1FixtureSetupNeeded = currentGw === 'GW1' && (!leagueFixturesReady || !masterFixturesReady);
-  const activeKickoffFlowStep: KickoffFlowStep = studioOnly ? 'show' : kickoffFlowStep;
+  const masterCupFixturesReady = !isSeasonFiveOrLater(currentSeason) || currentMasterCupFixtures.length > 0;
+  const trioFixturesReady = !isSeasonFiveOrLater(currentSeason) || currentTrioLeagueFixtures.length > 0;
+  const gw1FixtureSetupNeeded = currentGw === 'GW1' && (!leagueFixturesReady || !masterFixturesReady || !masterCupFixturesReady || !trioFixturesReady);
+  const activeKickoffFlowStep: KickoffFlowStep = kickoffFlowStep;
   const showOnlyKickoffStudio = activeKickoffFlowStep === 'show' || activeKickoffFlowStep === 'recap';
+  const divisionCarouselActive = drawWheelStage === 'division' || drawWheelStage === 'division-result';
+  const teamCarouselActive = drawWheelStage === 'team' || drawWheelStage === 'team-result';
+  const selectedDivisionLabel = displayDivisionName(selectedDrawDivision?.division);
+  const divisionCarouselBaseItems = drawPool.map((group) => ({
+    id: group.division,
+    label: displayDivisionName(group.division),
+    helper: `${group.teams.length} team${group.teams.length === 1 ? '' : 's'} ready`,
+    accent: group.teams[0]?.ballColor ?? '#f6bf4f',
+    textColor: group.teams[0]?.textColor ?? '#10213a',
+  }));
+  const divisionCarouselItems = orderKickoffItems(divisionCarouselBaseItems, divisionCarouselOrderIds);
+  const teamCarouselBaseItems = (selectedDrawDivision?.teams ?? []).map((team) => ({
+    id: String(team.teamId),
+    label: team.teamName,
+    helper: `${team.leagueOpponent} • ${team.cupOpponent}`,
+    badge: (
+      <TeamBadge
+        name={team.teamName}
+        ballColor={team.ballColor}
+        ringColor={team.ringColor}
+        textColor={team.textColor}
+        size={28}
+      />
+    ),
+    accent: team.ballColor ?? '#77efdb',
+    textColor: team.textColor ?? '#10213a',
+  }));
+  const teamCarouselItems = orderKickoffItems(teamCarouselBaseItems, teamCarouselOrderIds);
+  const divisionCarouselLabelList = divisionCarouselItems.map((item) => item.label).join(', ');
 
-  if (studioOnly) {
-    return (
-      <section className="page news-page">
-        <h1>Sky Sports News Live</h1>
-        <p className="muted">Watch the studio any time with live table highlights, fixture stories, and ticker updates.</p>
-        {currentGw === 'GW1' && (
-          <div className={`kickoff-locked-summary${gw1FixtureSetupNeeded ? ' warning' : ''}`}>
-            <span className="muted">
-              GW1 fixtures: League {leagueFixturesReady ? 'loaded' : 'missing'} • Master {masterFixturesReady ? 'loaded' : 'missing'}
-            </span>
-            <div className="grid-row">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void loadLeagueFixturesForGw()}
-                disabled={fixtureSetupBusy !== null}
-              >
-                {fixtureSetupBusy === 'league' ? 'Loading League Fixtures...' : 'Load League Fixtures'}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void loadMasterFixturesForGw()}
-                disabled={fixtureSetupBusy !== null}
-              >
-                {fixtureSetupBusy === 'master' ? 'Loading Master Fixtures...' : 'Load Master Fixtures'}
-              </button>
-            </div>
-            {fixtureSetupNotice && (
-              <span className="muted" style={fixtureSetupNotice.type === 'error' ? { color: 'var(--danger)' } : undefined}>
-                {fixtureSetupNotice.text}
-              </span>
-            )}
-          </div>
-        )}
-        <div className="studio-news-shell">
-            <SkyStudioPanel
-              currentSeason={currentSeason}
-              currentGw={currentGw}
-              gwLocked={currentGwLocked}
-              fixtureCount={studioFixtureCount}
-              resolvedCount={studioResolvedCount}
-              teams={studioTeams}
-              tableDivisions={studioTableDivisions}
-              masterLeagueRows={studioMasterLeagueRows}
-              fixtureGroups={studioFixtureGroups}
-              cupFixtures={cupFixtures}
-              allTimeLeagues={allTimeLeagues}
-              rivalries={studioRivalries}
-              movements={studioMovements}
-              tickerItems={studioTickerItems}
-              broadcastPackages={studioBroadcastPackages}
-              spotlightPulse={spotlightPulse}
-              scoreUpdateAlert={scoreUpdateAlert}
-              skySportsNews={true}
-              dayPhaseLabel={kickoffDayPhase.label}
-            dayPhaseLine={kickoffDayPhase.line}
-            truthLabel={studioTruthLabel}
-            presentationMode="lean"
-          />
-        </div>
-      </section>
-    );
+  let kickoffWheelHeadline = 'Preparing the live draw';
+  let kickoffWheelCopy = 'Loading the remaining divisions and teams for this gameweek.';
+  if (drawWheelStage === 'division') {
+    kickoffWheelHeadline = 'Division carousel shuffling';
+    kickoffWheelCopy = divisionCarouselLabelList
+      ? `${divisionCarouselLabelList} ${divisionCarouselItems.length === 1 ? 'is' : 'are'} cycling through the live draw.`
+      : 'The remaining divisions are in the mix.';
+  } else if (drawWheelStage === 'division-result' && selectedDivisionLabel) {
+    kickoffWheelHeadline = `${selectedDivisionLabel} locked in`;
+    kickoffWheelCopy = 'Bringing the four-team carousel on next.';
+  } else if (drawWheelStage === 'team' && selectedDivisionLabel) {
+    kickoffWheelHeadline = `${selectedDivisionLabel} team carousel shuffling`;
+    kickoffWheelCopy = 'One team from the selected division will be sent straight into the show.';
+  } else if (drawWheelStage === 'team-result' && selectedDrawTeam) {
+    kickoffWheelHeadline = `${selectedDrawTeam.teamName} selected`;
+    kickoffWheelCopy = 'Opening the team in the kickoff studio now.';
   }
+
+  const activeStepLabel =
+    activeKickoffFlowStep === 'results'
+      ? 'Results Desk'
+      : activeKickoffFlowStep === 'picks'
+        ? 'Prediction Slate'
+        : activeKickoffFlowStep === 'show'
+          ? 'Live Studio'
+          : 'End Recap';
+  const kickoffReadinessLabel = canStartKickoffShow
+    ? 'Ready'
+    : kickoffBlocked
+      ? 'Draw First'
+      : predictionsLocked
+        ? 'Stand By'
+        : 'Lock Picks';
+  const kickoffReadinessDetail = canStartKickoffShow
+    ? 'Predictions are locked and the studio can go live.'
+    : kickoffBlocked
+      ? 'GW1 still needs the BookieBall Cup draw completed.'
+      : predictionsLocked
+        ? 'The slate is locked, but another setup block still needs clearing.'
+        : 'Finish the slate and lock predictions to open the studio.';
+  const kickoffShowTeam = useMemo(() => {
+    if (!draw) {
+      return null;
+    }
+    return studioTeams.find((team) => team.id === draw.teamId) ?? null;
+  }, [draw, studioTeams]);
+  const kickoffShowPositionRows = useMemo(() => {
+    if (!kickoffShowTeam) {
+      return [] as Array<{ label: string; detail: string }>;
+    }
+    const rows = [
+      {
+        label: kickoffShowTeam.league,
+        detail: `${ordinal(kickoffShowTeam.rank)} • ${kickoffShowTeam.points} pts`,
+      },
+    ];
+    if (kickoffShowTeam.masterPosition) {
+      rows.push({
+        label: 'Master League',
+        detail: `${ordinal(kickoffShowTeam.masterPosition.rank)} • ${kickoffShowTeam.masterPosition.points} pts`,
+      });
+    }
+    const trioRow = trioLeagueTable.find((row) => row.teamId === kickoffShowTeam.id) ?? null;
+    if (trioRow) {
+      rows.push({
+        label: `Trio League • ${trioRow.division}`,
+        detail: `${ordinal(trioRow.rank)} • ${trioRow.points} pts`,
+      });
+    }
+    const tierRow = tierLeagueTable.find((row) => row.teamId === kickoffShowTeam.id) ?? null;
+    if (tierRow) {
+      rows.push({
+        label: `Tier League • ${tierRow.division}`,
+        detail: `${ordinal(tierRow.rank)} • ${tierRow.points} pts`,
+      });
+    }
+    return rows;
+  }, [kickoffShowTeam, tierLeagueTable, trioLeagueTable]);
+  const kickoffShowFixtureRows = useMemo(() => {
+    if (kickoffShowTeam?.weeklyFixtures?.length) {
+      return kickoffShowTeam.weeklyFixtures.map((fixture) => ({
+        id: fixture.id,
+        competition: fixture.competition,
+        fixture: fixture.fixture,
+        status: fixture.status,
+      }));
+    }
+    if (!draw) {
+      return [] as Array<{ id: string; competition: string; fixture: string; status: string }>;
+    }
+    const fallbackRows: Array<{ id: string; competition: string; fixture: string; status: string }> = [];
+    if (draw.leagueOpponent && draw.leagueOpponent !== 'No Fixture') {
+      fallbackRows.push({
+        id: `fallback-league-${draw.teamId}`,
+        competition: 'League',
+        fixture: `${draw.teamName} vs ${draw.leagueOpponent}`,
+        status: currentGw,
+      });
+    }
+    if (draw.cupOpponent && draw.cupOpponent !== 'No Fixture') {
+      fallbackRows.push({
+        id: `fallback-cup-${draw.teamId}`,
+        competition: 'Cup',
+        fixture: `${draw.teamName} vs ${draw.cupOpponent}`,
+        status: currentGw,
+      });
+    }
+    return fallbackRows;
+  }, [currentGw, draw, kickoffShowTeam]);
+  const kickoffHeroMetrics = [
+    {
+      label: 'Live Window',
+      value: `${currentSeason} ${currentGw}`,
+      detail: currentGwLocked ? 'Gameweek locked' : 'Gameweek open',
+    },
+    {
+      label: 'Prediction Slate',
+      value: String(predictionSlate.length || 0),
+      detail: `${predictionSlateMissingCount > 0 ? `${predictionSlateMissingCount} still loading` : 'All fixtures loaded'}`,
+    },
+    {
+      label: 'Studio Gate',
+      value: kickoffReadinessLabel,
+      detail: kickoffReadinessDetail,
+    },
+    {
+      label: 'Current Focus',
+      value: activeStepLabel,
+      detail: `Step ${activeKickoffFlowStep === 'results' ? '1' : activeKickoffFlowStep === 'picks' ? '2' : activeKickoffFlowStep === 'show' ? '3' : '4'} of 4`,
+    },
+  ] as const;
 
   return (
     <section className={`page gameshow-page${showOnlyKickoffStudio ? ' kickoff-show-page' : ''}`}>
-      <h1>{studioOnly ? 'Sky Sports News Live' : 'The Kick-Off Show'}</h1>
-      <p className="muted">
-        {studioOnly
-          ? 'Always-on studio feed for tables, fixtures, trends, and ticker updates.'
-          : 'Prediction results first, then weekly guesses, then the one-screen kick-off studio.'}
-      </p>
-      {!studioOnly && (
-        <div className="kickoff-step-strip" role="tablist" aria-label="Kick-Off steps">
+      <div className="hub-showcase">
+        <div className="hub-showcase-hero hub-showcase-hero-gameshow">
+          <div className="hub-showcase-hero-head">
+            <div className="hub-showcase-hero-copy">
+              <span className="hub-showcase-kicker">Interactive Show Hub</span>
+              <h1>The Kick-Off Show</h1>
+              <p>
+                Prediction results first, then weekly guesses, then the live one-screen studio.
+                This top layer now mirrors the same visual language as the Analytics Hub, Leagues,
+                and Cups launch pages.
+              </p>
+            </div>
+            <div className="hub-showcase-link-row">
+              <Link to="/reports" className="hub-showcase-link">Open Analytics Hub</Link>
+              <Link to="/fixtures" className="hub-showcase-link">Browse Fixtures</Link>
+              <Link to="/cup-draw" className="hub-showcase-link">Cup Draw Studio</Link>
+            </div>
+          </div>
+
+          <div className="hub-showcase-meta-grid">
+            {kickoffHeroMetrics.map((item) => (
+              <article key={item.label} className="hub-showcase-meta-card">
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+                <p>{item.detail}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="kickoff-step-strip" role="tablist" aria-label="Kick-Off steps">
         <button
           type="button"
           className={`kickoff-step-chip${activeKickoffFlowStep === 'results' ? ' active' : ''}`}
@@ -3549,19 +7551,17 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         >
           Step 4 • End Recap
         </button>
-        </div>
-      )}
+      </div>
 
       {activeKickoffFlowStep === 'results' && (
         <div className="panel kickoff-panel kickoff-flow-shell kickoff-flow-shell-results">
           <div className="kickoff-header">
             <div>
               <h3>Step 1 • Prediction Results</h3>
-              <p className="muted">Review last gameweek outcomes and prediction scores, then press Done.</p>
+              <p className="muted">The opening screen shows the last completed 10-game prediction slate only.</p>
               <p className="muted">Last completed gameweek: {recapTargetLabel ?? 'None yet'} • Current gameweek: {currentSeason} {currentGw}</p>
             </div>
             <div className="kickoff-header-actions">
-              <span className={`lock-chip ${predictionsLocked ? 'locked' : 'open'}`}>{predictionsLocked ? 'Locked' : 'Open'}</span>
               <button
                 className="action"
                 type="button"
@@ -3572,163 +7572,45 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             </div>
           </div>
           <div className="kickoff-grid kickoff-grid-results">
-            <div className="kickoff-card kickoff-card-scroll">
+            <div className="kickoff-card kickoff-card-scroll kickoff-results-board-card">
               <div className="panel-header">
-                <h4>Previous Results</h4>
-                <span className="muted">{recapTargetLabel ?? 'N/A'}</span>
+                <h4>{recapTargetLabel ? `${recapTargetLabel} Prediction Results` : 'Previous Prediction Results'}</h4>
+                <span className="muted">{previousPredictionRecapRows.length}/10 games</span>
               </div>
-              <div className="recap-list">
-                {recapTarget ? (
-                  <>
-                    <div className="recap-group">
-                      <span className="muted">League</span>
-                      {prevLeagueFixtures.length > 0 ? (
-                        prevLeagueFixtures.map((fixture) => (
-                          <div key={`prev-league-${fixture.id}`} className="recap-item">
-                            {fixture.result === 'pending' ? (
-                              `${fixture.homeTeam} vs ${fixture.awayTeam} (TBD)`
-                            ) : fixture.result === 'draw' ? (
-                              `${fixture.homeTeam} drew ${fixture.awayTeam}`
-                            ) : (
-                              `${fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam} beat ${fixture.result === 'home' ? fixture.awayTeam : fixture.homeTeam}`
-                            )}
+              {previousPredictionRecapRows.length > 0 ? (
+                <div className="kickoff-results-board">
+                  {previousPredictionRecapColumns.map((column, columnIdx) => (
+                    <div key={`previous-results-column-${columnIdx + 1}`} className="kickoff-results-column">
+                      {column.map((row) => (
+                        <article key={row.key} className="kickoff-results-item">
+                          <div className="kickoff-results-item-head">
+                            <span className="news-chip">Game {previousPredictionRecapRows.indexOf(row) + 1}</span>
+                            <span className="muted">{row.competitionLabel} • {row.detailLabel}</span>
                           </div>
-                        ))
-                      ) : (
-                        <p className="muted">No league fixtures recorded.</p>
-                      )}
+                          <strong>{row.fixtureLabel}</strong>
+                          <div className="kickoff-results-item-lines">
+                            <div className="kickoff-results-line">
+                              <span className="muted">You</span>
+                              <strong>{row.jayPick}</strong>
+                              <span className={`kickoff-results-state ${row.jayState}`}>{row.jayState === 'correct' ? 'Correct' : row.jayState === 'missed' ? 'Missed' : 'Pending'}</span>
+                            </div>
+                            <div className="kickoff-results-line">
+                              <span className="muted">Computer</span>
+                              <strong>{row.computerPick}</strong>
+                              <span className={`kickoff-results-state ${row.computerState}`}>{row.computerState === 'correct' ? 'Correct' : row.computerState === 'missed' ? 'Missed' : 'Pending'}</span>
+                            </div>
+                            <div className="kickoff-results-line kickoff-results-line-actual">
+                              <span className="muted">Actual</span>
+                              <strong>{row.actualLabel}</strong>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                    <div className="recap-group">
-                      <span className="muted">Cup</span>
-                      {prevCupFixtures.length > 0 ? (
-                        prevCupFixtures.map((fixture) => (
-                          <div key={`prev-cup-${fixture.id}`} className="recap-item">
-                            {fixture.homeTeam ?? 'BYE'} vs {fixture.awayTeam ?? 'BYE'} • Winner: {fixture.winnerTeam ?? 'TBD'}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="muted">No cup fixtures recorded.</p>
-                      )}
-                    </div>
-                    <div className="recap-group">
-                      <span className="muted">Last Week Picks</span>
-                      {prevLeagueFixtures.map((fixture) => {
-                        const key = `league-${fixture.id}`;
-                        const picks = prevPredictionMap.get(key);
-                        const result =
-                          fixture.result === 'pending'
-                            ? 'TBD'
-                            : fixture.result === 'draw'
-                              ? 'Draw'
-                              : fixture.result === 'home'
-                                ? fixture.homeTeam
-                                : fixture.awayTeam;
-                        return (
-                          <div key={`prev-pick-league-${fixture.id}`} className="recap-item">
-                            {fixture.homeTeam} vs {fixture.awayTeam} • Result: {result} • Jay: {pickLabel(picks?.Jay)} • Computer: {pickLabel(picks?.Computer)}
-                          </div>
-                        );
-                      })}
-                      {prevCupFixtures.map((fixture) => {
-                        const key = `cup-${fixture.id}`;
-                        const picks = prevPredictionMap.get(key);
-                        const result = fixture.winnerTeam ?? 'TBD';
-                        return (
-                          <div key={`prev-pick-cup-${fixture.id}`} className="recap-item">
-                            {fixture.homeTeam ?? 'BYE'} vs {fixture.awayTeam ?? 'BYE'} • Result: {result} • Jay: {pickLabel(picks?.Jay)} • Computer: {pickLabel(picks?.Computer)}
-                          </div>
-                        );
-                      })}
-                      {prevLeagueFixtures.length === 0 && prevCupFixtures.length === 0 && (
-                        <p className="muted">No picks recorded for {recapTargetLabel ?? 'that period'}.</p>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <p className="muted">No previous gameweek yet.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="kickoff-card kickoff-card-scroll kickoff-results-scorecard">
-              <div className="panel-header">
-                <h4>Prediction Mini-League</h4>
-                <span className="news-chip">Jay vs Computer</span>
-              </div>
-              <table className="scoreboard-table">
-                <thead>
-                  <tr>
-                    <th>Player</th>
-                    <th>Pts</th>
-                    <th>Correct</th>
-                    <th>Perfect</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scoreboardTotals.map((row) => (
-                    <tr key={`score-${row.picker}`}>
-                      <td>{row.picker}</td>
-                      <td>{row.points}</td>
-                      <td>{row.correct}/{row.total}</td>
-                      <td>{row.perfectWeeks > 0 ? <span className="perfect-badge">{row.perfectWeeks}x</span> : '-'}</td>
-                    </tr>
                   ))}
-                </tbody>
-              </table>
-              <div className="scoreboard-week">
-                <span className="muted">Last week ({recapTargetLabel ?? 'N/A'})</span>
-                {recapTarget && prevWeekScores.length > 0 ? (
-                  prevWeekScores.map((row) => (
-                    <div key={`week-${row.picker}`} className="scoreboard-week-row">
-                      <strong>{row.picker}</strong> {row.points} pts {row.perfect && <span className="perfect-badge">Perfect</span>}
-                    </div>
-                  ))
-                ) : (
-                  <span className="muted">No scores yet.</span>
-                )}
-              </div>
-              <div className="scoreboard-week">
-                <span className="muted">Trend Snapshot</span>
-                <PredictionTrendChart
-                  title="Season to Date"
-                  weeks={predictionScores?.weeks ?? seasonOneScores?.weeks ?? null}
-                />
-              </div>
-            </div>
-
-            <div className="kickoff-card kickoff-card-scroll">
-              <div className="panel-header">
-                <h4>Bookie d&apos;Or Board</h4>
-                <span className="news-chip">{bookieDorBoard ? `${bookieDorBoard.season} ${bookieDorBoard.gw}` : `${currentSeason} ${currentGw}`}</span>
-              </div>
-              {bookieDorBoard?.holder ? (
-                <>
-                  <div className="recap-group">
-                    <span className="muted">Current Holder</span>
-                    <div className="recap-item">
-                      {bookieDorBoard.holder.teamName} • {bookieDorBoard.holder.score.toFixed(2)} pts
-                    </div>
-                    <div className="recap-item">
-                      Weighted: League {bookieDorBoard.holder.weightedLeagueScore.toFixed(2)} • Cup {bookieDorBoard.holder.weightedCupScore.toFixed(2)} • Master {bookieDorBoard.holder.weightedMasterScore.toFixed(2)} • Consistency {bookieDorBoard.holder.weightedConsistencyScore.toFixed(2)}
-                    </div>
-                    <div className="recap-item">
-                      Raw: League {bookieDorBoard.holder.leagueScore.toFixed(1)} • Cup {bookieDorBoard.holder.cupScore.toFixed(1)} • Master {bookieDorBoard.holder.masterScore.toFixed(1)} • Consistency {bookieDorBoard.holder.consistencyScore.toFixed(1)}
-                    </div>
-                  </div>
-                  <div className="recap-group">
-                    <span className="muted">Top Leaderboard</span>
-                    {bookieDorBoard.leaderboard.slice(0, 5).map((row, idx) => (
-                      <div key={`bookie-dor-row-${row.teamId}`} className="recap-item">
-                        {idx + 1}. {row.teamName} ({row.division}) • {row.score.toFixed(2)}
-                      </div>
-                    ))}
-                  </div>
-                  <p className="muted">
-                    Weights: League {Math.round(bookieDorBoard.weights.league * 100)}% • Cup {Math.round(bookieDorBoard.weights.cup * 100)}% • Master {Math.round(bookieDorBoard.weights.master * 100)}% • Consistency {Math.round(bookieDorBoard.weights.consistency * 100)}%.
-                  </p>
-                </>
+                </div>
               ) : (
-                <p className="muted">Bookie d&apos;Or standings are not available yet.</p>
+                <p className="muted">No last-gameweek prediction slate is available yet.</p>
               )}
             </div>
           </div>
@@ -3740,7 +7622,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           <div className="kickoff-header">
             <div>
               <h3>Step 2 • Weekly Prediction Guesses</h3>
-              <p className="muted">Pick every fixture for {currentGw}, lock predictions, then press Done.</p>
+              <p className="muted">Pick the {predictionSlate.length || 10}-game slate for {currentGw}, lock predictions, then press Done.</p>
             </div>
             <span className={`lock-chip ${predictionsLocked ? 'locked' : 'open'}`}>{predictionsLocked ? 'Locked' : 'Open'}</span>
           </div>
@@ -3766,7 +7648,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           {currentGw === 'GW1' && (
             <div className={`kickoff-locked-summary${gw1FixtureSetupNeeded ? ' warning' : ''}`}>
               <span className="muted">
-                Fixture setup: League {leagueFixturesReady ? `${currentLeagueFixtures.length} loaded` : 'not loaded'} • Master {masterFixturesReady ? `${currentMasterLeagueFixtures.length} loaded` : 'not loaded'}
+                Fixture setup: League {leagueFixturesReady ? `${currentLeagueFixtures.length} loaded` : 'not loaded'} • Master {masterFixturesReady ? `${currentMasterLeagueFixtures.length} loaded` : 'not loaded'}{isSeasonFiveOrLater(currentSeason) ? ` • Master Cup ${masterCupFixturesReady ? `${currentMasterCupFixtures.length} loaded` : 'not loaded'} • Trio ${trioFixturesReady ? `${currentTrioLeagueFixtures.length} loaded` : 'not loaded'}` : ''}
               </span>
               <div className="grid-row">
                 <button
@@ -3785,6 +7667,16 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                 >
                   {fixtureSetupBusy === 'master' ? 'Loading Master Fixtures...' : 'Load Master Fixtures'}
                 </button>
+                {isSeasonFiveOrLater(currentSeason) && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void loadTrioFixturesForGw()}
+                    disabled={fixtureSetupBusy !== null}
+                  >
+                    {fixtureSetupBusy === 'trio' ? 'Loading Trio Fixtures...' : 'Load Trio Fixtures'}
+                  </button>
+                )}
               </div>
               {fixtureSetupNotice && (
                 <span className="muted" style={fixtureSetupNotice.type === 'error' ? { color: 'var(--danger)' } : undefined}>
@@ -3796,109 +7688,69 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
           <div className="kickoff-grid kickoff-grid-picks">
             <div className="kickoff-card kickoff-card-scroll">
               <div className="panel-header">
-                <h4>{currentGw} Cup Picks</h4>
-                <span className="muted">{currentCupFixtures.length} fixtures</span>
+                <h4>{currentGw} 10-Game Slate</h4>
+                <span className="muted">{predictionSlate.length} selected</span>
               </div>
               <div className="prediction-list">
-                {currentCupFixtures.length > 0 ? (
-                  currentCupFixtures.map((fixture) => {
-                    const key = `cup-${fixture.id}`;
-                    const homeLabel = fixture.homeTeam ?? 'BYE';
-                    const awayLabel = fixture.awayTeam ?? 'BYE';
-                    const homeId = fixture.homeTeam ? teamIdByName.get(fixture.homeTeam) : null;
-                    const awayId = fixture.awayTeam ? teamIdByName.get(fixture.awayTeam) : null;
-                    const selected = predictionSelections[key];
-                    const currentPredictions = currentPredictionMap.get(key);
-                    return (
-                      <div key={key} className="prediction-fixture">
-                        <div className="prediction-team-row">
-                          <button
-                            type="button"
-                            className={`prediction-team ${selected === 'home' ? 'active' : ''}`}
-                            onClick={() => homeId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [key]: 'home' }))}
-                            disabled={!homeId || predictionsLocked}
-                          >
-                            {homeLabel}
-                          </button>
-                          <span className="prediction-vs">VS</span>
-                          <button
-                            type="button"
-                            className={`prediction-team ${selected === 'away' ? 'active' : ''}`}
-                            onClick={() => awayId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [key]: 'away' }))}
-                            disabled={!awayId || predictionsLocked}
-                          >
-                            {awayLabel}
-                          </button>
-                        </div>
-                        {predictionsLocked && (
-                          <div className="prediction-meta-row">
-                            <span>Jay: {pickLabel(currentPredictions?.Jay)}</span>
-                            <span>Computer: {pickLabel(currentPredictions?.Computer)}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                {predictionSlate.length === 0 ? (
+                  <p className="muted">No prediction slate has been generated for {currentGw} yet.</p>
+                ) : predictionSlateMissingCount > 0 ? (
+                  <p className="muted">Loading {predictionSlateMissingCount} slate fixtures...</p>
                 ) : (
-                  <p className="muted">No cup fixtures for {currentGw}.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="kickoff-card kickoff-card-scroll">
-              <div className="panel-header">
-                <h4>{currentGw} League Picks</h4>
-                <span className="muted">{currentLeagueFixtures.length} fixtures</span>
-              </div>
-              <div className="prediction-list">
-                {currentLeagueFixtures.length > 0 ? (
-                  currentLeagueFixtures.map((fixture) => {
-                    const key = `league-${fixture.id}`;
-                    const homeId = teamIdByName.get(fixture.homeTeam);
-                    const awayId = teamIdByName.get(fixture.awayTeam);
-                    const selected = predictionSelections[key];
-                    const currentPredictions = currentPredictionMap.get(key);
+                  predictionSlateFixtures.map((fixture, index) => {
+                    const selected = predictionSelections[fixture.key];
+                    const currentPredictions = currentPredictionMap.get(fixture.key);
                     return (
-                      <div key={key} className="prediction-fixture">
-                        <div className="prediction-team-row prediction-team-row-3">
+                      <div key={fixture.key} className="prediction-fixture">
+                        <div className="prediction-meta-row">
+                          <span>{index + 1}. {fixture.competitionLabel}</span>
+                          <span>{fixture.detailLabel}</span>
+                        </div>
+                        <div className={`prediction-team-row ${fixture.allowsDraw ? 'prediction-team-row-3' : 'prediction-team-row-2'}`}>
                           <button
                             type="button"
                             className={`prediction-team ${selected === 'home' ? 'active' : ''}`}
-                            onClick={() => homeId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [key]: 'home' }))}
-                            disabled={!homeId || predictionsLocked}
+                            onClick={() => fixture.homeTeamId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [fixture.key]: 'home' }))}
+                            disabled={!fixture.homeTeamId || predictionsLocked}
                           >
                             {fixture.homeTeam}
                           </button>
-                          <button
-                            type="button"
-                            className={`prediction-team ${selected === 'draw' ? 'active' : ''}`}
-                            onClick={() => !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [key]: 'draw' }))}
-                            disabled={predictionsLocked}
-                          >
-                            Draw
-                          </button>
+                          {fixture.allowsDraw ? (
+                            <button
+                              type="button"
+                              className={`prediction-team ${selected === 'draw' ? 'active' : ''}`}
+                              onClick={() => !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [fixture.key]: 'draw' }))}
+                              disabled={predictionsLocked}
+                            >
+                              Draw
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className={`prediction-team ${selected === 'away' ? 'active' : ''}`}
-                            onClick={() => awayId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [key]: 'away' }))}
-                            disabled={!awayId || predictionsLocked}
+                            onClick={() => fixture.awayTeamId && !predictionsLocked && setPredictionSelections((prev) => ({ ...prev, [fixture.key]: 'away' }))}
+                            disabled={!fixture.awayTeamId || predictionsLocked}
                           >
                             {fixture.awayTeam}
                           </button>
                         </div>
-                        {predictionsLocked && (
+                        {!fixture.allowsDraw ? (
+                          <div className="prediction-rule-note">Level profit goes to penalties</div>
+                        ) : null}
+                        {predictionsLocked ? (
                           <div className="prediction-meta-row">
                             <span>Jay: {pickLabel(currentPredictions?.Jay)}</span>
                             <span>Computer: {pickLabel(currentPredictions?.Computer)}</span>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })
-                ) : (
-                  <p className="muted">No league fixtures for {currentGw}.</p>
                 )}
               </div>
+              {predictionSlate.length > 0 && predictionSlateMissingCount === 0 ? (
+                <p className="muted">The slate mixes random fixtures from leagues and cups across the full app for one quicker weekly round.</p>
+              ) : null}
             </div>
           </div>
 
@@ -3962,7 +7814,9 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                                     ...r,
                                     entryType: nextType,
                                     spins: nextType === 'bonus' ? '' : r.spins,
-                                    stake: nextType === 'bonus' ? '' : (r.stake || '0.10'),
+                                    stake: nextType === 'bonus'
+                                      ? (r.entryType === 'bonus' ? r.stake : '')
+                                      : (r.stake || '0.10'),
                                   }
                                 : r
                             )));
@@ -3981,8 +7835,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                           type="number"
                           step="0.01"
                           placeholder="Stake"
-                          value={row.entryType === 'bonus' ? '' : row.stake}
-                          disabled={row.entryType === 'bonus'}
+                          value={row.stake}
                           onChange={(e) => setLogRows((prev) => prev.map((r, i) => (i === idx ? { ...r, stake: e.target.value } : r)))}
                         />
                       </label>
@@ -4083,31 +7936,69 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
             {drawError && <div className="kickoff-show-notice muted">{drawError}</div>}
           </div>
 
-          <div className="studio-news-shell">
-            <SkyStudioPanel
-              currentSeason={currentSeason}
-              currentGw={currentGw}
-              gwLocked={currentGwLocked}
-              fixtureCount={studioFixtureCount}
-              resolvedCount={studioResolvedCount}
-              teams={studioTeams}
-              tableDivisions={studioTableDivisions}
-              masterLeagueRows={studioMasterLeagueRows}
-              fixtureGroups={studioFixtureGroups}
-              cupFixtures={cupFixtures}
-              allTimeLeagues={allTimeLeagues}
-              rivalries={studioRivalries}
-              movements={studioMovements}
-              tickerItems={studioTickerItems}
-              broadcastPackages={studioBroadcastPackages}
-              spotlightPulse={spotlightPulse}
-              scoreUpdateAlert={scoreUpdateAlert}
-              skySportsNews={false}
-              focusTeamId={draw?.teamId ?? null}
-              dayPhaseLabel={kickoffDayPhase.label}
-              dayPhaseLine={kickoffDayPhase.line}
-              truthLabel={studioTruthLabel}
-            />
+          <div className="kickoff-simple-shell">
+            {!kickoffShowTeam ? (
+              <div className="panel kickoff-simple-empty">
+                <h3>Press Start to draw a team</h3>
+                <p className="muted">Once a team is selected, this screen will show that team, their current table positions, and every game they have in {currentGw}.</p>
+              </div>
+            ) : (
+              <div className="kickoff-simple-grid">
+                <section className="panel kickoff-simple-card kickoff-simple-team-card">
+                  <div className="kickoff-simple-team-head">
+                    <TeamBadge
+                      name={kickoffShowTeam.name}
+                      ballColor={kickoffShowTeam.ballColor}
+                      ringColor={kickoffShowTeam.ringColor}
+                      textColor={kickoffShowTeam.textColor}
+                      size={64}
+                    />
+                    <div>
+                      <span className="news-chip">{currentSeason} {currentGw}</span>
+                      <h2>{kickoffShowTeam.name}</h2>
+                      <p className="muted">{kickoffShowTeam.league}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel kickoff-simple-card">
+                  <div className="panel-header">
+                    <h3>Current Table Positions</h3>
+                  </div>
+                  {kickoffShowPositionRows.length > 0 ? (
+                    <div className="kickoff-simple-list">
+                      {kickoffShowPositionRows.map((row) => (
+                        <div key={`position-${row.label}`} className="kickoff-simple-row">
+                          <strong>{row.label}</strong>
+                          <span>{row.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No table positions available yet.</p>
+                  )}
+                </section>
+
+                <section className="panel kickoff-simple-card">
+                  <div className="panel-header">
+                    <h3>Games This Gameweek</h3>
+                  </div>
+                  {kickoffShowFixtureRows.length > 0 ? (
+                    <div className="kickoff-simple-fixtures">
+                      {kickoffShowFixtureRows.map((fixture) => (
+                        <article key={fixture.id} className="kickoff-simple-fixture">
+                          <span className="news-chip">{fixture.competition}</span>
+                          <strong>{fixture.fixture}</strong>
+                          <span className="muted">{fixture.status}</span>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No games are loaded for {kickoffShowTeam.name} in {currentGw} yet.</p>
+                  )}
+                </section>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -4186,7 +8077,7 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                 <span className="muted">Movement vs previous GW</span>
               </div>
               <div className="kickoff-recap-division-list">
-                {RECAP_DIVISION_ORDER.map((division) => {
+                {recapDivisionOrder.map((division) => {
                   const rows = leagueTable[division] ?? [];
                   return (
                     <div key={`recap-division-${division}`} className="kickoff-recap-division">
@@ -4199,9 +8090,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                             <tr>
                               <th>#</th>
                               <th>Team</th>
+                              <th>PLD</th>
+                              <th>W</th>
+                              <th>L</th>
+                              <th>D</th>
                               <th>Pts</th>
-                              <th>Prof</th>
                               <th>Spins</th>
+                              <th>Profit</th>
                               <th>Move</th>
                             </tr>
                           </thead>
@@ -4214,9 +8109,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                                 <tr key={`recap-${division}-${row.teamId}`}>
                                   <td>{row.rank}</td>
                                   <td>{row.teamName}</td>
+                                  <td>{row.played}</td>
+                                  <td>{row.wins}</td>
+                                  <td>{row.losses}</td>
+                                  <td>{row.draws}</td>
                                   <td>{row.points}</td>
-                                  <td>{row.profit}</td>
                                   <td>{row.spins}</td>
+                                  <td>{row.profit}</td>
                                   <td><span className={moveClass}>{moveLabel}</span></td>
                                 </tr>
                               );
@@ -4243,9 +8142,13 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                     <tr>
                       <th>#</th>
                       <th>Team</th>
-                      <th>P</th>
+                      <th>PLD</th>
+                      <th>W</th>
+                      <th>L</th>
+                      <th>D</th>
                       <th>Pts</th>
-                      <th>Prof</th>
+                      <th>Spins</th>
+                      <th>Profit</th>
                       <th>Move</th>
                     </tr>
                   </thead>
@@ -4259,7 +8162,11 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
                           <td>{row.rank}</td>
                           <td>{row.teamName}</td>
                           <td>{row.played}</td>
+                          <td>{row.wins}</td>
+                          <td>{row.losses}</td>
+                          <td>{row.draws}</td>
                           <td>{row.points}</td>
+                          <td>{row.spins}</td>
                           <td>{row.profit.toFixed(2)}</td>
                           <td><span className={moveClass}>{moveLabel}</span></td>
                         </tr>
@@ -4273,9 +8180,70 @@ export function GameshowPage({ studioOnly = false }: GameshowPageProps) {
         </div>
       )}
 
-      {countdown !== null && (
-        <div className="overlay">
-          <div className="countdown">{countdown}</div>
+      {drawWheelStage !== null && (
+        <div className="overlay kickoff-wheel-overlay">
+          <div className="kickoff-wheel-overlay-card">
+            <div className="kickoff-wheel-overlay-head">
+              <span className="news-chip">{teamCarouselActive ? 'Team Carousel' : divisionCarouselActive ? 'Division Carousel' : 'Draw Pool'}</span>
+              <h2>{kickoffWheelHeadline}</h2>
+              <p>{kickoffWheelCopy}</p>
+            </div>
+
+            {drawWheelStage === 'loading' ? (
+              <div className="kickoff-wheel-loading">
+                <div className="kickoff-wheel-loading-disc" aria-hidden="true" />
+                <strong>Building the live pool...</strong>
+                <span>Only undrawn teams for {currentSeason} {currentGw} are included.</span>
+              </div>
+            ) : divisionCarouselActive ? (
+              <KickoffSpinCarousel
+                eyebrow="Stage 1"
+                title="Division Selection"
+                subtitle="One division appears at a time until the live draw locks the chosen board."
+                statusLabel={drawWheelStage === 'division-result' ? 'Locked In' : 'Shuffling'}
+                items={divisionCarouselItems}
+                activeId={activeDrawDivisionId}
+                lockedId={selectedDrawDivision?.division ?? null}
+              />
+            ) : (
+              <div className="kickoff-wheel-stage-grid">
+                <div className="kickoff-wheel-locked-card">
+                  <span className="news-chip">Division Locked</span>
+                  <h3>{selectedDivisionLabel || 'Division pending'}</h3>
+                  <div className="kickoff-wheel-team-list">
+                    {(selectedDrawDivision?.teams ?? []).map((team) => (
+                      <div
+                        key={`locked-division-team-${team.teamId}`}
+                        className={`kickoff-wheel-team-row${selectedDrawTeam?.teamId === team.teamId ? ' active' : ''}`}
+                      >
+                        <TeamBadge
+                          name={team.teamName}
+                          ballColor={team.ballColor}
+                          ringColor={team.ringColor}
+                          textColor={team.textColor}
+                          size={28}
+                        />
+                        <div>
+                          <strong>{team.teamName}</strong>
+                          <span>{team.leagueOpponent} • {team.cupOpponent}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <KickoffSpinCarousel
+                  eyebrow="Stage 2"
+                  title="Team Selection"
+                  subtitle={`Four teams from ${selectedDivisionLabel || 'the selected division'} are cycling through the live draw.`}
+                  statusLabel={drawWheelStage === 'team-result' && selectedDrawTeam ? 'Selected' : 'Shuffling'}
+                  items={teamCarouselItems}
+                  activeId={activeDrawTeamId}
+                  lockedId={selectedDrawTeam ? String(selectedDrawTeam.teamId) : null}
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

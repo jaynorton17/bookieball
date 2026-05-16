@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { TeamBadge } from './TeamBadge';
+import { buildTableCutLines } from '../lib/tableCutLines';
 
 export type StudioTableRow = {
   teamId: number;
@@ -41,6 +42,7 @@ type StudioTableCarouselProps = {
   activeDivisionId?: string;
   highlightedTeamId?: number | null;
   onCycleComplete?: () => void;
+  onActiveDivisionChange?: (division: StudioTableDivision | null) => void;
   presentationMode?: StudioTablePresentationMode;
   readabilityMode?: StudioTableReadabilityMode;
 };
@@ -48,6 +50,41 @@ type StudioTableCarouselProps = {
 function formatSigned(value: number): string {
   const sign = value > 0 ? '+' : '';
   return `${sign}${value.toFixed(2)}`;
+}
+
+function compareRowsByRank(left: StudioTableRow, right: StudioTableRow): number {
+  const equalStandingsMetrics = (
+    left.points === right.points
+    && left.profit === right.profit
+    && left.spins === right.spins
+    && left.wins === right.wins
+  );
+  if (equalStandingsMetrics) {
+    return left.teamName.localeCompare(right.teamName);
+  }
+  const leftRank = Number(left.rank);
+  const rightRank = Number(right.rank);
+  const hasLeftRank = Number.isFinite(leftRank) && leftRank > 0;
+  const hasRightRank = Number.isFinite(rightRank) && rightRank > 0;
+  if (hasLeftRank && hasRightRank && leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  if (hasLeftRank !== hasRightRank) {
+    return hasLeftRank ? -1 : 1;
+  }
+  if (right.points !== left.points) {
+    return right.points - left.points;
+  }
+  if (right.profit !== left.profit) {
+    return right.profit - left.profit;
+  }
+  if (right.spins !== left.spins) {
+    return right.spins - left.spins;
+  }
+  if (right.wins !== left.wins) {
+    return right.wins - left.wins;
+  }
+  return left.teamName.localeCompare(right.teamName);
 }
 
 type TableView = {
@@ -65,13 +102,14 @@ export function StudioTableCarousel({
   activeDivisionId,
   highlightedTeamId = null,
   onCycleComplete,
+  onActiveDivisionChange,
   presentationMode = 'clean',
   readabilityMode = 'comfortable',
 }: StudioTableCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeViewIndex, setActiveViewIndex] = useState(0);
   const isCleanMode = presentationMode === 'clean';
-  const showExtendedColumns = !isCleanMode && readabilityMode === 'compact';
+  const showTrendIcon = true;
 
   useEffect(() => {
     if (activeDivisionId || divisions.length < 2) {
@@ -100,6 +138,14 @@ export function StudioTableCarousel({
     }
   }, [activeIndex, divisions.length]);
 
+  useEffect(() => {
+    if (!onActiveDivisionChange) {
+      return;
+    }
+    const division = divisions[activeIndex] ?? null;
+    onActiveDivisionChange(division);
+  }, [activeIndex, divisions, onActiveDivisionChange]);
+
   const previousIndexRef = useRef(activeIndex);
   useEffect(() => {
     const lastIndex = divisions.length - 1;
@@ -115,7 +161,7 @@ export function StudioTableCarousel({
     if (!activeDivision) {
       return [];
     }
-    const divisionRows = activeDivision.rows.slice().sort((a, b) => a.rank - b.rank);
+    const divisionRows = activeDivision.rows.slice().sort(compareRowsByRank);
     const views: TableView[] = [
       {
         id: `division-${activeDivision.id}`,
@@ -150,6 +196,13 @@ export function StudioTableCarousel({
   }, [intervalMs, tableViews.length]);
 
   const active = tableViews.length > 0 ? tableViews[activeViewIndex % tableViews.length] : null;
+  const activeCutLines = useMemo(() => (
+    active ? buildTableCutLines(active.title, active.rows.length) : []
+  ), [active]);
+  const cutLineByRank = useMemo(
+    () => new Map(activeCutLines.map((line) => [line.afterRank, line])),
+    [activeCutLines],
+  );
   const featuredRow = active
     ? active.rows.find((row) => row.teamId > 0 && row.teamId === highlightedTeamId)
       ?? active.rows.find((row) => row.teamId > 0)
@@ -208,17 +261,18 @@ export function StudioTableCarousel({
 
               <div className="studio-table-columns">
                 <span>Team</span>
-                <span className="studio-table-num-head num">P</span>
-                {showExtendedColumns && <span className="studio-table-num-head num">W</span>}
-                {showExtendedColumns && <span className="studio-table-num-head num">D</span>}
-                {showExtendedColumns && <span className="studio-table-num-head num">L</span>}
+                <span className="studio-table-num-head num">Pld</span>
+                <span className="studio-table-num-head num">W</span>
+                <span className="studio-table-num-head num">L</span>
+                <span className="studio-table-num-head num">D</span>
                 <span className="studio-table-num-head num">Pts</span>
+                <span className="studio-table-num-head num">Spins</span>
                 <span className="studio-table-num-head num">Profit</span>
                 <span className="studio-table-form-head">Form</span>
               </div>
 
               <div className="studio-table-rows">
-                {active.rows.map((row) => {
+                {active.rows.map((row, index) => {
                   const isHighlighted = row.teamId > 0 && row.teamId === highlightedTeamId;
                   const isTopZone = row.rank === 1;
                   const isDropZone = row.rank === active.rows.length;
@@ -228,64 +282,88 @@ export function StudioTableCarousel({
                     ? 'Mathematical champion'
                     : undefined;
                   const formEntries = row.form?.slice(-5) ?? [];
+                  const cutLine = cutLineByRank.get(row.rank) ?? null;
                   return (
-                    <div
-                      key={`${active.id}-${row.teamId}`}
-                      className={`studio-table-row${isHighlighted ? ' is-highlighted' : ''}${isTopZone ? ' zone-top' : ''}${isDropZone ? ' zone-drop' : ''}`}
-                      aria-current={isHighlighted ? 'true' : undefined}
-                    >
-                      <span className="studio-row-team teamCell">
-                        <span className="studio-row-team-icons" aria-hidden="true">
-                          <span className="studio-team-icon-wrap teamIconWrap">
-                            <TeamBadge
-                              name={row.teamName}
-                              ballColor={row.ballColor}
-                              ringColor={row.ringColor}
-                              textColor={row.textColor}
-                              size={20}
-                            />
+                    <Fragment key={`${active.id}-${row.teamId}`}>
+                      <motion.div
+                        layout
+                        className={`studio-table-row${isHighlighted ? ' is-highlighted' : ''}${isTopZone ? ' zone-top' : ''}${isDropZone ? ' zone-drop' : ''}`}
+                        aria-current={isHighlighted ? 'true' : undefined}
+                        initial={{
+                          opacity: 0,
+                          y: row.trend === 'up' ? 12 : row.trend === 'down' ? -12 : 0,
+                          scale: 0.985,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                          scale: 1,
+                        }}
+                        transition={{
+                          duration: 0.34,
+                          delay: Math.min(index * 0.03, 0.18),
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                      >
+                        <span className="studio-row-team teamCell">
+                          <span className="studio-row-team-icons" aria-hidden="true">
+                            <span className="studio-team-icon-wrap teamIconWrap">
+                              <TeamBadge
+                                name={row.teamName}
+                                ballColor={row.ballColor}
+                                ringColor={row.ringColor}
+                                textColor={row.textColor}
+                                size={20}
+                              />
+                            </span>
+                            {(!isCleanMode || row.isChampion) && (
+                              <span className="studio-team-icon-wrap teamIconWrap">
+                                <span className={statusBadgeClass} title={statusBadgeTitle}>
+                                  {statusBadgeLabel}
+                                </span>
+                              </span>
+                            )}
+                            {showTrendIcon && (
+                              <span className="studio-team-icon-wrap teamIconWrap">
+                                <span className={`studio-trend-pill trend-${row.trend}`}>
+                                  {row.trend === 'up' ? '↑' : row.trend === 'down' ? '↓' : '→'}
+                                </span>
+                              </span>
+                            )}
                           </span>
-                          {(!isCleanMode || row.isChampion) && (
-                            <span className="studio-team-icon-wrap teamIconWrap">
-                              <span className={statusBadgeClass} title={statusBadgeTitle}>
-                                {statusBadgeLabel}
+                          <span className="studio-row-team-name teamName">
+                            <span className="studio-row-rank-mini">{row.rank}.</span>
+                            {row.teamName}
+                            {row.isRelegated && <span className="relegation-r-inline"> R</span>}
+                            {isTopZone && <span className="studio-zone-chip top">Top</span>}
+                            {isDropZone && <span className="studio-zone-chip drop">Drop</span>}
+                          </span>
+                        </span>
+                        <span className="studio-table-cell-num num">{row.played}</span>
+                        <span className="studio-table-cell-num num">{row.wins}</span>
+                        <span className="studio-table-cell-num num">{row.losses}</span>
+                        <span className="studio-table-cell-num num">{row.draws}</span>
+                        <span className="studio-table-cell-num num">{row.points}</span>
+                        <span className="studio-table-cell-num num">{row.spins}</span>
+                        <span className="studio-table-cell-num num">{formatSigned(row.profit)}</span>
+                        <span className="studio-table-cell-form">
+                          {formEntries.length > 0 ? (
+                            formEntries.map((result, index) => (
+                              <span key={`${row.teamId}-form-${index}`} className={`studio-form-pill ${result.toLowerCase()}`}>
+                                {result}
                               </span>
-                            </span>
-                          )}
-                          {showExtendedColumns && (
-                            <span className="studio-team-icon-wrap teamIconWrap">
-                              <span className={`studio-trend-pill trend-${row.trend}`}>
-                                {row.trend === 'up' ? '↑' : row.trend === 'down' ? '↓' : '→'}
-                              </span>
-                            </span>
+                            ))
+                          ) : (
+                            <span className="studio-form-pill empty">—</span>
                           )}
                         </span>
-                        <span className="studio-row-team-name teamName">
-                          <span className="studio-row-rank-mini">{row.rank}.</span>
-                          {row.teamName}
-                          {row.isRelegated && <span className="relegation-r-inline"> R</span>}
-                          {isTopZone && <span className="studio-zone-chip top">Top</span>}
-                          {isDropZone && <span className="studio-zone-chip drop">Drop</span>}
-                        </span>
-                      </span>
-                      <span className="studio-table-cell-num num">{row.played}</span>
-                      {showExtendedColumns && <span className="studio-table-cell-num num">{row.wins}</span>}
-                      {showExtendedColumns && <span className="studio-table-cell-num num">{row.draws}</span>}
-                      {showExtendedColumns && <span className="studio-table-cell-num num">{row.losses}</span>}
-                      <span className="studio-table-cell-num num">{row.points}</span>
-                      <span className="studio-table-cell-num num">{formatSigned(row.profit)}</span>
-                      <span className="studio-table-cell-form">
-                        {formEntries.length > 0 ? (
-                          formEntries.map((result, index) => (
-                            <span key={`${row.teamId}-form-${index}`} className={`studio-form-pill ${result.toLowerCase()}`}>
-                              {result}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="studio-form-pill empty">—</span>
-                        )}
-                      </span>
-                    </div>
+                      </motion.div>
+                      {cutLine && (
+                        <div className={`studio-table-cutline tone-${cutLine.tone}`}>
+                          <span>{cutLine.label}</span>
+                        </div>
+                      )}
+                    </Fragment>
                   );
                 })}
               </div>

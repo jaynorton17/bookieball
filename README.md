@@ -15,6 +15,7 @@ Local-only Node.js CLI + web app for running a GW1..GW8 gameshow league and cup.
 
 - DB directory: `~/.bookieball`
 - DB file: `~/.bookieball/bookieball.db`
+- Bundled repo snapshot: `bookieball.db`
 - Built-in seed is the exact 20-team list you provided (name, url, colors).
 - Optional override file: `~/.bookieball/teams.json` (20 rows, supports `team_id`, `name`, `url`, `ball_color`, `ring_color`, `text_color`).
 - Template file in repo: `teams.seed.example.json`.
@@ -24,7 +25,8 @@ Local-only Node.js CLI + web app for running a GW1..GW8 gameshow league and cup.
 - `npm install`
 - `npm run init`
   - Creates `~/.bookieball`
-  - Creates DB, runs migrations, seeds settings and teams
+  - Copies bundled `bookieball.db` into `~/.bookieball` when no local DB exists
+  - Otherwise creates DB, runs migrations, seeds settings and teams
   - Assigns divisions (4/4/4/4/4)
   - Generates cup draw scaffold from GW2 to GW6
 - `npm run dev`
@@ -49,7 +51,7 @@ You can also run the CLI directly:
 - Division ranking is fixture-based by points (Win=3, Draw=1, Loss=0), then profit, then wins, then random
 - Season-end promotion/relegation: bottom of each higher division swaps with top of next lower division
 - Cup:
-  - GW1 runs the cup draw ceremony (20 teams + 12 byes), with no BYE vs BYE pairings
+  - GW1 runs the cup draw ceremony from a 32-ball pool, with BYEs equal to `32 - current team count` and no BYE vs BYE pairings
   - GW2 Round of 32, GW3 Round of 16, GW4 Quarterfinals, GW5 Semifinals, GW6 Final
   - Winner by GW profit, then random tiebreak for equal profit
   - A GW's cup result is only finalized after advancing to the next GW
@@ -63,7 +65,7 @@ You can also run the CLI directly:
   - Start the Gameshow
 - Cup Draw (separate screen):
   - GW1-only start button
-  - Draws from one pool of 32 balls (20 teams + 12 BYEs)
+  - Draws from one pool of 32 balls with BYEs equal to `32 - current team count`
   - Reveals pairings two-at-a-time: Team A then Team B => `Team A vs Team B`
   - BYE never plays BYE
   - Shows a visual bracket tree from GW2 to GW6
@@ -125,4 +127,5 @@ You can also run the CLI directly:
 
 - No Google Sheets or external services are used.
 - Everything persists in local SQLite.
+- A fresh install or `reset` now restores the bundled database snapshot from this repo.
 - Frontend API base can be overridden with `VITE_API_BASE` (defaults to `http://localhost:5181/api`).

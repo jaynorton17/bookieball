@@ -3,14 +3,25 @@ import express from 'express';
 import {
   advanceGameweek,
   drawRandomTeam,
+  drawSpecificTeam,
   ensureCupProgress,
   ensureCpuPredictions,
   getPredictionScoreboard,
+  getPredictionSlate,
   getSeasonGameweekProfitTotals,
   getPredictions,
+  getSuperCupArchive,
+  ensureSuperCupProgress,
+  getSuperCupFixtures,
+  getSuperCupTieFixtures,
+  getMasterCupFixtures,
   getMasterLeagueFixtures,
   getMasterLeagueMovement,
   getMasterLeagueTable,
+  getTierLeagueFixtures,
+  getTierLeagueTable,
+  getTrioLeagueFixtures,
+  getTrioLeagueTable,
   getHeadToHead,
   getSeasonAchievements,
   getSnapshots,
@@ -20,6 +31,10 @@ import {
   getCupDebug,
   getCupRoundStatus,
   getCupTieFixtures,
+  getCupTieFixturesForRange,
+  getGw8PlayoffTieFixtures,
+  getMasterCupTieFixtures,
+  getTrioPlayoffTieFixtures,
   getCupBracket,
   getAllTimeLeagues,
   getLeagueFixtures,
@@ -27,10 +42,12 @@ import {
   getSnapshotPayloadById,
   getSnapshotPayloadForGw,
   getTeamSeasonHistory,
+  getTeamHistoryStory,
   getTeamRatings,
   getEntryAuditLog,
   getEntries,
   getBookieDorSnapshot,
+  getGameshowDrawPool,
   getLastCompletedGameweek,
   getTeamTrendCache,
   getPendingSeasonFinale,
@@ -38,8 +55,12 @@ import {
   getTeamStats,
   getTeams,
   getTrophyRoom,
+  ensureSuperCupFixture,
   loadLeagueFixturesForSeason,
+  loadMasterCupFixturesForRange,
   loadMasterLeagueFixturesForRange,
+  loadTierLeagueFixturesForRange,
+  loadTrioLeagueFixturesForRange,
   lockGameweekWithSnapshot,
   refreshSnapshotsForSeason,
   markCupDrawStarted,
@@ -50,16 +71,28 @@ import {
   setPredictionsLocked,
   setCupFixtureWinner,
   setCupTieBreakMode,
+  setGw8PlayoffWinner,
+  setMasterCupWinner,
+  setSuperCupWinner,
+  setTrioPlayoffWinner,
   startCupDraw,
   resetCupFromRound,
+  rewindGameweek,
   restoreSnapshotById,
   setGameweekLock,
   setGameweek,
   undoLastEntryBatch,
 } from '../db/database.js';
-import { DIVISION_ORDER, GAMEWEEKS } from '../shared/constants.js';
+import {
+  GAMEWEEKS,
+  getDivisionOrderForSeason,
+  getTierLeagueEndGwForSeason,
+  getTierLeagueStartGwForSeason,
+  isSeasonFiveOrLater,
+  isSeasonSixOrLater,
+} from '../shared/constants.js';
 import { STUDIO_DESK_MASTER_PROMPT } from '../shared/studioDeskPrompt.js';
-import type { EntryInput } from '../shared/types.js';
+import type { EntryInput, EntryType } from '../shared/types.js';
 
 type StorylineTone = 'positive' | 'warning' | 'neutral';
 
@@ -81,9 +114,212 @@ type RivalryDeskItem = {
   narrative: string;
 };
 
+type PenaltyCompetition = 'cup' | 'super_cup' | 'master_cup' | 'gw8_playoff' | 'trio_playoff';
+
+type PenaltyQueueItem = {
+  competition: PenaltyCompetition;
+  fixtureId: number;
+  gw: string;
+  roundName: string;
+  homeTeamId: number;
+  homeTeamName: string;
+  awayTeamId: number;
+  awayTeamName: string;
+  homeProfit: number;
+  awayProfit: number;
+  homeSpins: number;
+  awaySpins: number;
+};
+
 function gwOrderValue(gw: string): number {
   const value = Number(gw.replace('GW', ''));
   return Number.isFinite(value) ? value : 99;
+}
+
+function penaltyCompetitionOrder(competition: PenaltyCompetition): number {
+  if (competition === 'super_cup') {
+    return 0;
+  }
+  if (competition === 'cup') {
+    return 1;
+  }
+  if (competition === 'master_cup') {
+    return 2;
+  }
+  if (competition === 'trio_playoff') {
+    return 3;
+  }
+  return 4;
+}
+
+function getAdminPenaltyQueue(
+  db: ReturnType<typeof openDatabase>,
+  currentSeason: ReturnType<typeof getState>['currentSeason'],
+  currentGw: ReturnType<typeof getState>['currentGw'],
+): PenaltyQueueItem[] {
+  ensureCupProgress(db, currentSeason, currentGw);
+  ensureSuperCupProgress(db, currentSeason);
+  loadMasterCupFixturesForRange(db, currentSeason, 'GW1', currentGw);
+
+  const queue: PenaltyQueueItem[] = [
+    ...getCupTieFixturesForRange(db, currentSeason, currentGw).map((tie) => ({ ...tie, competition: 'cup' as const })),
+    ...getSuperCupTieFixtures(db, currentSeason, currentGw).map((tie) => ({ ...tie, competition: 'super_cup' as const })),
+    ...getMasterCupTieFixtures(db, currentSeason, currentGw).map((tie) => ({ ...tie, competition: 'master_cup' as const })),
+    ...(currentGw === 'GW8'
+      ? getGw8PlayoffTieFixtures(db, currentSeason).map((tie) => ({ ...tie, competition: 'gw8_playoff' as const }))
+      : []),
+    ...((currentGw === 'GW7' || currentGw === 'GW8')
+      ? getTrioPlayoffTieFixtures(db, currentSeason, currentGw).map((tie) => ({ ...tie, competition: 'trio_playoff' as const }))
+      : []),
+  ];
+
+  return queue.sort((a, b) => (
+    gwOrderValue(a.gw) - gwOrderValue(b.gw)
+    || penaltyCompetitionOrder(a.competition) - penaltyCompetitionOrder(b.competition)
+    || a.fixtureId - b.fixtureId
+  ));
+}
+
+function parseFiniteNumberField(
+  value: unknown,
+  fieldLabel: string,
+  options: { required?: boolean; allowNull?: boolean } = {},
+): number | null | undefined {
+  if (value === undefined) {
+    if (options.required) {
+      throw new Error(`${fieldLabel} is required`);
+    }
+    return undefined;
+  }
+  if (value === null) {
+    if (options.allowNull) {
+      return null;
+    }
+    if (options.required) {
+      throw new Error(`${fieldLabel} is required`);
+    }
+    return undefined;
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    if (options.allowNull) {
+      return null;
+    }
+    throw new Error(`${fieldLabel} is required`);
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${fieldLabel} must be a number`);
+  }
+  return numeric;
+}
+
+function parseOptionalStringField(value: unknown, fieldLabel: string): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldLabel} must be a string`);
+  }
+  return value;
+}
+
+function parseEntryType(value: unknown, fieldLabel: string): EntryType {
+  if (value !== 'free_spins' && value !== 'bonus') {
+    throw new Error(`${fieldLabel} must be free_spins or bonus`);
+  }
+  return value;
+}
+
+function parseEntryInputRow(row: unknown, index: number): EntryInput {
+  if (!row || typeof row !== 'object') {
+    throw new Error(`Entry ${index + 1} is invalid`);
+  }
+  const payload = row as Record<string, unknown>;
+  const teamId = Number(payload.teamId);
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error(`Entry ${index + 1} teamId must be a valid team`);
+  }
+
+  const entryType = parseEntryType(payload.entryType, `Entry ${index + 1} entryType`);
+  const profit = parseFiniteNumberField(payload.profit, `Entry ${index + 1} profit`, { required: true });
+  const stake = parseFiniteNumberField(payload.stake, `Entry ${index + 1} stake`, { allowNull: true });
+  const notes = parseOptionalStringField(payload.notes, `Entry ${index + 1} notes`);
+  const noWin = payload.noWin === undefined ? undefined : Boolean(payload.noWin);
+
+  if (stake !== undefined && stake !== null && stake < 0) {
+    throw new Error(`Entry ${index + 1} stake cannot be negative`);
+  }
+
+  if (entryType === 'free_spins') {
+    const spins = parseFiniteNumberField(payload.spins, `Entry ${index + 1} spins`, { allowNull: true });
+    if (typeof spins === 'number' && spins < 0) {
+      throw new Error(`Entry ${index + 1} spins cannot be negative for free spins`);
+    }
+    return {
+      teamId,
+      entryType,
+      profit: profit ?? 0,
+      spins: typeof spins === 'number' ? spins : 0,
+      stake: stake ?? null,
+      notes: notes ?? null,
+      noWin,
+    };
+  }
+
+  return {
+    teamId,
+    entryType,
+    profit: profit ?? 0,
+    spins: null,
+    stake: stake ?? null,
+    notes: notes ?? null,
+    noWin,
+  };
+}
+
+function parseEntryUpdatePayload(payload: {
+  entryType?: unknown;
+  profit?: unknown;
+  spins?: unknown;
+  stake?: unknown;
+  notes?: unknown;
+  noWin?: unknown;
+}): { entryType: EntryType; profit: number; spins?: number | null; stake?: number | null; notes?: string | null; noWin?: boolean } {
+  const entryType = parseEntryType(payload.entryType, 'entryType');
+  const profit = parseFiniteNumberField(payload.profit, 'profit', { required: true });
+  const stake = parseFiniteNumberField(payload.stake, 'stake', { allowNull: true });
+  const notes = parseOptionalStringField(payload.notes, 'notes');
+
+  if (stake !== undefined && stake !== null && stake < 0) {
+    throw new Error('stake cannot be negative');
+  }
+
+  if (entryType === 'free_spins') {
+    const spins = parseFiniteNumberField(payload.spins, 'spins', { allowNull: true });
+    if (typeof spins === 'number' && spins < 0) {
+      throw new Error('spins cannot be negative for free spins');
+    }
+    return {
+      entryType,
+      profit: profit ?? 0,
+      spins: typeof spins === 'number' ? spins : 0,
+      stake: stake ?? null,
+      notes: notes ?? null,
+      noWin: Boolean(payload.noWin),
+    };
+  }
+
+  return {
+    entryType,
+    profit: profit ?? 0,
+    spins: null,
+    stake: stake ?? null,
+    notes: notes ?? null,
+    noWin: Boolean(payload.noWin),
+  };
 }
 
 function formatSigned(value: number, digits = 2): string {
@@ -113,10 +349,13 @@ function buildStorylineReport(db: ReturnType<typeof openDatabase>, season: `S${n
     resolved: number;
     cupFixtures: number;
     cupResolved: number;
+    superCupFixtures: number;
+    superCupResolved: number;
   };
 } {
   const leagueFixtures = getLeagueFixtures(db, season, gw);
   const cupFixtures = getCupBracket(db, season, gw).filter((fixture) => fixture.gw === gw);
+  const superCupFixtures = getSuperCupFixtures(db, season).filter((fixture) => fixture.gw === gw);
   const entries = getEntries(db, season, { gw, limit: 1000 });
   const table = getLeagueTable(db, season, gw);
   const scoreboards = getPredictionScoreboard(db, season);
@@ -168,14 +407,15 @@ function buildStorylineReport(db: ReturnType<typeof openDatabase>, season: `S${n
     .filter((row): row is NonNullable<typeof row> => row !== null)
     .sort((a, b) => b.score - a.score)[0] ?? null;
 
-  const divisionLeaderLine = DIVISION_ORDER
+  const divisionOrder = getDivisionOrderForSeason(season);
+  const divisionLeaderLine = divisionOrder
     .map((division) => table[division]?.[0])
     .filter((row): row is NonNullable<typeof row> => !!row)
     .slice(0, 3)
     .map((row) => `${row.teamName} (${row.points} pts)`)
     .join(' • ');
 
-  const relegationPressure = DIVISION_ORDER
+  const relegationPressure = divisionOrder
     .map((division) => {
       const rows = table[division] ?? [];
       if (rows.length < 2) {
@@ -198,6 +438,7 @@ function buildStorylineReport(db: ReturnType<typeof openDatabase>, season: `S${n
     .sort((a, b) => b.points - a.points || b.correct - a.correct || a.picker.localeCompare(b.picker))[0] ?? null;
 
   const cupResolved = cupFixtures.filter((fixture) => fixture.winnerTeam !== null).length;
+  const superCupResolved = superCupFixtures.filter((fixture) => fixture.winnerTeamId !== null).length;
   const storylines: ReportStoryline[] = [];
   const seed = `${season}:${gw}`;
 
@@ -212,9 +453,30 @@ function buildStorylineReport(db: ReturnType<typeof openDatabase>, season: `S${n
       ],
       `${seed}:progress`,
     ),
-    detail: `${resolvedFixtures.length}/${leagueFixtures.length} league fixtures resolved, ${cupResolved}/${cupFixtures.length} cup ties resolved.`,
+    detail: [
+      `${resolvedFixtures.length}/${leagueFixtures.length} league fixtures resolved`,
+      `${cupResolved}/${cupFixtures.length} cup ties resolved`,
+      superCupFixtures.length > 0 ? `${superCupResolved}/${superCupFixtures.length} Super Cup fixture resolved` : null,
+    ].filter((part): part is string => Boolean(part)).join(', '),
     metric: `${resolvedFixtures.length}/${leagueFixtures.length}`,
   });
+
+  const liveSuperCup = superCupFixtures[0] ?? null;
+  if (liveSuperCup) {
+    const superCupHeadline = liveSuperCup.winnerTeam
+      ? `${liveSuperCup.winnerTeam} struck first in the Super Cup`
+      : `${liveSuperCup.homeTeam} vs ${liveSuperCup.awayTeam} opens the season`;
+    const superCupDetail = liveSuperCup.winnerTeam
+      ? `${liveSuperCup.homeTeam} ${liveSuperCup.homeProfit.toFixed(2)} - ${liveSuperCup.awayProfit.toFixed(2)} ${liveSuperCup.awayTeam} • ${liveSuperCup.winnerTeam} won the curtain-raiser (${liveSuperCup.decidedBy.replace('_', ' ')}).`
+      : `${liveSuperCup.pairingExplanation} Prestige opener only - BookieBall Cup and Master Cup structures stay unchanged.`;
+    storylines.push({
+      id: 'super-cup',
+      tone: liveSuperCup.winnerTeam ? 'positive' : 'neutral',
+      headline: superCupHeadline,
+      detail: superCupDetail,
+      metric: liveSuperCup.winnerTeam ? liveSuperCup.decidedBy.replace('_', ' ') : 'Curtain-raiser',
+    });
+  }
 
   if (topProfit) {
     storylines.push({
@@ -302,6 +564,8 @@ function buildStorylineReport(db: ReturnType<typeof openDatabase>, season: `S${n
       resolved: resolvedFixtures.length,
       cupFixtures: cupFixtures.length,
       cupResolved,
+      superCupFixtures: superCupFixtures.length,
+      superCupResolved,
     },
   };
 }
@@ -418,7 +682,8 @@ function buildSnapshotCompare(
   const baselineTable = getLeagueTable(db, season, fromGw);
   const currentTable = getLeagueTable(db, season, toGw);
 
-  const divisions = DIVISION_ORDER.map((division) => {
+  const divisionOrder = getDivisionOrderForSeason(season);
+  const divisions = divisionOrder.map((division) => {
     const baseline = baselineTable[division] ?? [];
     const current = currentTable[division] ?? [];
     const baselineRank = new Map(baseline.map((row) => [row.teamId, row.rank]));
@@ -640,6 +905,9 @@ export function createApp(): express.Express {
       const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
       const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
       const includeAll = req.query.all === '1';
+      if (includeAll && season === state.currentSeason && state.currentGw === 'GW8') {
+        getLeagueFixtures(db, season, 'GW8');
+      }
       const fixtures = includeAll ? getLeagueFixtures(db, season) : getLeagueFixtures(db, season, gwParam);
       res.json(fixtures);
     } finally {
@@ -669,12 +937,161 @@ export function createApp(): express.Express {
     const db = openDatabase();
     try {
       const state = getState(db);
+      const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
+      const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
       const gwParam = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
       const includeAll = req.query.all === '1';
-      loadMasterLeagueFixturesForRange(db, state.currentSeason, 'GW1', gwParam);
+      loadMasterLeagueFixturesForRange(db, season, 'GW1', gwParam);
       const fixtures = includeAll
-        ? getMasterLeagueFixtures(db, state.currentSeason)
-        : getMasterLeagueFixtures(db, state.currentSeason, gwParam);
+        ? getMasterLeagueFixtures(db, season)
+        : getMasterLeagueFixtures(db, season, gwParam);
+      res.json(fixtures);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/master-cup/fixtures', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
+      const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
+      const gwParam = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
+      const includeAll = req.query.all === '1';
+      loadMasterCupFixturesForRange(db, season, 'GW1', gwParam);
+      const fixtures = includeAll
+        ? getMasterCupFixtures(db, season)
+        : getMasterCupFixtures(db, season, gwParam);
+      res.json(fixtures);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/super-cup', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
+      const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
+      const fixtures = getSuperCupFixtures(db, season);
+      res.json(fixtures);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/super-cup/history', (_req, res) => {
+    const db = openDatabase();
+    try {
+      res.json(getSuperCupFixtures(db));
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/super-cup/archive', (_req, res) => {
+    const db = openDatabase();
+    try {
+      res.json(getSuperCupArchive(db));
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/trio-league/table', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const gw = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
+      if (!isSeasonFiveOrLater(state.currentSeason)) {
+        res.json({ gw, enabled: false, table: [] });
+        return;
+      }
+      const table = getTrioLeagueTable(db, state.currentSeason, gw);
+      res.json({
+        gw,
+        enabled: true,
+        table,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/trio-league/fixtures', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
+      const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
+      if (!isSeasonFiveOrLater(season)) {
+        res.json([]);
+        return;
+      }
+      const gwParam = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
+      const includeAll = req.query.all === '1';
+      loadTrioLeagueFixturesForRange(db, season, 'GW1', gwParam);
+      const fixtures = includeAll
+        ? getTrioLeagueFixtures(db, season)
+        : getTrioLeagueFixtures(db, season, gwParam);
+      res.json(fixtures);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/tier-league/table', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const gw = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
+      const enabled = isSeasonSixOrLater(state.currentSeason);
+      const tierStartGw = getTierLeagueStartGwForSeason(state.currentSeason);
+      const tierEndGw = getTierLeagueEndGwForSeason(state.currentSeason);
+      const started = enabled && gwOrderValue(gw) >= gwOrderValue(tierStartGw);
+      if (!enabled) {
+        res.json({ gw, enabled: false, started: false, table: [] });
+        return;
+      }
+      if (!started) {
+        res.json({ gw, enabled: true, started: false, table: [] });
+        return;
+      }
+      loadTierLeagueFixturesForRange(db, state.currentSeason, tierStartGw, tierEndGw);
+      const table = getTierLeagueTable(db, state.currentSeason, gw);
+      res.json({
+        gw,
+        enabled: true,
+        started: true,
+        table,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/tier-league/fixtures', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const seasonParam = typeof req.query.season === 'string' ? req.query.season : null;
+      const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
+      if (!isSeasonSixOrLater(season)) {
+        res.json([]);
+        return;
+      }
+      const gwParam = typeof req.query.gw === 'string' ? req.query.gw : state.currentGw;
+      const includeAll = req.query.all === '1';
+      const tierStartGw = getTierLeagueStartGwForSeason(season);
+      const tierEndGw = getTierLeagueEndGwForSeason(season);
+      if (season !== state.currentSeason || gwOrderValue(state.currentGw) >= gwOrderValue(tierStartGw)) {
+        loadTierLeagueFixturesForRange(db, season, tierStartGw, tierEndGw);
+      }
+      const fixtures = includeAll
+        ? getTierLeagueFixtures(db, season)
+        : getTierLeagueFixtures(db, season, gwParam);
       res.json(fixtures);
     } finally {
       db.close();
@@ -873,6 +1290,28 @@ export function createApp(): express.Express {
     }
   });
 
+  app.post('/api/team/history-story-bulk', (req, res) => {
+    const requestedIds: unknown[] | null = Array.isArray(req.body?.teamIds) ? (req.body.teamIds as unknown[]) : null;
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const seasonTeams = getTeams(db, state.currentSeason).map((team) => team.id);
+      const validSet = new Set(seasonTeams);
+      const teamIds = requestedIds
+        ? requestedIds
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isFinite(value) && validSet.has(value))
+        : seasonTeams;
+      const histories: Record<number, ReturnType<typeof getTeamHistoryStory>> = {};
+      teamIds.forEach((teamId: number) => {
+        histories[teamId] = getTeamHistoryStory(db, teamId, state.currentSeason, state.currentGw);
+      });
+      res.json({ histories });
+    } finally {
+      db.close();
+    }
+  });
+
   app.get('/api/trophy-room', (_req, res) => {
     const db = openDatabase();
     try {
@@ -923,13 +1362,30 @@ export function createApp(): express.Express {
     }
   });
 
-  app.post('/api/gameshow/draw', (_req, res) => {
+  app.get('/api/gameshow/draw-pool', (_req, res) => {
     const db = openDatabase();
     try {
       const state = getState(db);
-      const draw = drawRandomTeam(db, state.currentSeason, state.currentGw);
+      res.json(getGameshowDrawPool(db, state.currentSeason, state.currentGw));
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/gameshow/draw', (req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const requestedTeamId = Number((req.body as { teamId?: unknown } | undefined)?.teamId);
+      const draw = Number.isFinite(requestedTeamId)
+        ? drawSpecificTeam(db, state.currentSeason, state.currentGw, requestedTeamId)
+        : drawRandomTeam(db, state.currentSeason, state.currentGw);
       if (!draw) {
-        res.status(409).json({ error: 'All teams already drawn for this gameweek' });
+        res.status(409).json({
+          error: Number.isFinite(requestedTeamId)
+            ? 'Selected team is no longer available for this gameweek'
+            : 'All teams already drawn for this gameweek',
+        });
         return;
       }
       res.json(draw);
@@ -946,9 +1402,14 @@ export function createApp(): express.Express {
       const state = getState(db);
       const season = seasonParam && /^S\d+$/.test(seasonParam) ? (seasonParam as `S${number}`) : state.currentSeason;
       const gw = gwParam ?? state.currentGw;
-      const predictions = getPredictions(db, season, gw);
       const locked = isPredictionsLocked(db, season, gw);
-      res.json({ season, gw, locked, predictions });
+      // Backfill missing Computer picks for locked rounds if fixtures were populated late.
+      if (locked) {
+        ensureCpuPredictions(db, season, gw);
+      }
+      const slate = getPredictionSlate(db, season, gw);
+      const predictions = getPredictions(db, season, gw);
+      res.json({ season, gw, locked, slate, predictions });
     } finally {
       db.close();
     }
@@ -985,8 +1446,8 @@ export function createApp(): express.Express {
       res.status(400).json({ error: 'gw is required' });
       return;
     }
-    if (competition !== 'league' && competition !== 'cup') {
-      res.status(400).json({ error: 'competition must be league or cup' });
+    if (competition !== 'league' && competition !== 'cup' && competition !== 'master' && competition !== 'master_cup' && competition !== 'trio' && competition !== 'tier') {
+      res.status(400).json({ error: 'competition must be league, cup, master, master_cup, trio, or tier' });
       return;
     }
     if (!Array.isArray(picks)) {
@@ -1095,7 +1556,8 @@ export function createApp(): express.Express {
     const db = openDatabase();
     try {
       const state = getState(db);
-      saveEntries(db, state, entries as EntryInput[]);
+      const parsedEntries = entries.map((row, index) => parseEntryInputRow(row, index));
+      saveEntries(db, state, parsedEntries);
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to save entries' });
@@ -1121,38 +1583,18 @@ export function createApp(): express.Express {
       actor?: unknown;
     };
 
-    if (entryType !== 'free_spins' && entryType !== 'bonus') {
-      res.status(400).json({ error: 'entryType must be free_spins or bonus' });
-      return;
-    }
-    if (!Number.isFinite(Number(profit))) {
-      res.status(400).json({ error: 'profit must be a number' });
-      return;
-    }
-    if (spins !== undefined && spins !== null && !Number.isFinite(Number(spins))) {
-      res.status(400).json({ error: 'spins must be a number' });
-      return;
-    }
-    if (stake !== undefined && stake !== null && !Number.isFinite(Number(stake))) {
-      res.status(400).json({ error: 'stake must be a number' });
-      return;
-    }
-    if (notes !== undefined && notes !== null && typeof notes !== 'string') {
-      res.status(400).json({ error: 'notes must be a string' });
-      return;
-    }
-
     const db = openDatabase();
     try {
       const state = getState(db);
-      updateEntry(db, state, entryId, {
+      const parsedUpdate = parseEntryUpdatePayload({
         entryType,
-        profit: Number(profit),
-        spins: spins === undefined ? undefined : spins === null ? null : Number(spins),
-        stake: stake === undefined ? undefined : stake === null ? null : Number(stake),
-        notes: notes === undefined ? undefined : notes === null ? null : notes,
-        noWin: Boolean(noWin),
-      }, typeof actor === 'string' ? actor : 'admin');
+        profit,
+        spins,
+        stake,
+        notes,
+        noWin,
+      });
+      updateEntry(db, state, entryId, parsedUpdate, typeof actor === 'string' ? actor : 'admin');
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to update entry' });
@@ -1177,8 +1619,68 @@ export function createApp(): express.Express {
   app.post('/api/admin/advance-gw', (_req, res) => {
     const db = openDatabase();
     try {
-      const state = advanceGameweek(db);
+      const state = getState(db);
+      ensureCupProgress(db, state.currentSeason, state.currentGw);
+      const unresolvedTies = getCupTieFixturesForRange(db, state.currentSeason, state.currentGw);
+      if (unresolvedTies.length > 0) {
+        res.status(400).json({
+          error: `Complete penalty shootouts for ${unresolvedTies.length} tied cup fixture(s) before advancing.`,
+          ties: unresolvedTies,
+        });
+        return;
+      }
+      const unresolvedSuperCupTies = getSuperCupTieFixtures(db, state.currentSeason, state.currentGw);
+      if (unresolvedSuperCupTies.length > 0) {
+        res.status(400).json({
+          error: `Complete penalty shootouts for ${unresolvedSuperCupTies.length} tied Super Cup fixture(s) before advancing.`,
+          ties: unresolvedSuperCupTies,
+        });
+        return;
+      }
+      const unresolvedMasterCupTies = getMasterCupTieFixtures(db, state.currentSeason, state.currentGw);
+      if (unresolvedMasterCupTies.length > 0) {
+        res.status(400).json({
+          error: `Complete penalty shootouts for ${unresolvedMasterCupTies.length} tied Master Cup fixture(s) before advancing.`,
+          ties: unresolvedMasterCupTies,
+        });
+        return;
+      }
+      const unresolvedGw8PlayoffTies = state.currentGw === 'GW8'
+        ? getGw8PlayoffTieFixtures(db, state.currentSeason)
+        : [];
+      if (unresolvedGw8PlayoffTies.length > 0) {
+        res.status(400).json({
+          error: `Complete penalty shootouts for ${unresolvedGw8PlayoffTies.length} tied GW8 playoff fixture(s) before advancing.`,
+          ties: unresolvedGw8PlayoffTies,
+        });
+        return;
+      }
+      const unresolvedTrioPlayoffTies = (state.currentGw === 'GW7' || state.currentGw === 'GW8')
+        ? getTrioPlayoffTieFixtures(db, state.currentSeason, state.currentGw)
+        : [];
+      if (unresolvedTrioPlayoffTies.length > 0) {
+        res.status(400).json({
+          error: `Complete penalty shootouts for ${unresolvedTrioPlayoffTies.length} tied Trio playoff fixture(s) before advancing.`,
+          ties: unresolvedTrioPlayoffTies,
+        });
+        return;
+      }
+      const next = advanceGameweek(db);
+      res.json(next);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to advance gameweek' });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/rewind-gw', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = rewindGameweek(db);
       res.json(state);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to rewind gameweek' });
     } finally {
       db.close();
     }
@@ -1190,6 +1692,42 @@ export function createApp(): express.Express {
       const state = getState(db);
       const created = loadLeagueFixturesForSeason(db, state.currentSeason);
       res.json({ ok: true, message: 'League fixtures loaded', created });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/generate-all-fixtures', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const season = state.currentSeason;
+      const divisionCreated = loadLeagueFixturesForSeason(db, season);
+      const masterCreated = loadMasterLeagueFixturesForRange(db, season, 'GW1', 'GW8');
+      const superCupCreated = ensureSuperCupFixture(db, season);
+      const masterCupCreated = isSeasonFiveOrLater(season)
+        ? loadMasterCupFixturesForRange(db, season, 'GW1', 'GW6')
+        : 0;
+      const trioCreated = isSeasonFiveOrLater(season)
+        ? loadTrioLeagueFixturesForRange(db, season, 'GW1', 'GW6')
+        : 0;
+      const tierStartGw = getTierLeagueStartGwForSeason(season);
+      const tierEndGw = getTierLeagueEndGwForSeason(season);
+      const tierCreated = isSeasonSixOrLater(season) && gwOrderValue(state.currentGw) >= gwOrderValue(tierStartGw)
+        ? loadTierLeagueFixturesForRange(db, season, tierStartGw, tierEndGw)
+        : 0;
+      const totalCreated = divisionCreated + masterCreated + superCupCreated + masterCupCreated + trioCreated + tierCreated;
+      res.json({
+        ok: true,
+        season,
+        divisionCreated,
+        masterCreated,
+        superCupCreated,
+        masterCupCreated,
+        trioCreated,
+        tierCreated,
+        totalCreated,
+      });
     } finally {
       db.close();
     }
@@ -1220,6 +1758,87 @@ export function createApp(): express.Express {
       }
 
       const created = loadMasterLeagueFixturesForRange(db, state.currentSeason, targetFrom, targetTo);
+      res.json({ ok: true, created, fromGw: targetFrom, toGw: targetTo });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/trio-league/generate-upcoming', (req, res) => {
+    const { fromGw, toGw } = req.body as { fromGw?: string; toGw?: string };
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      if (!isSeasonFiveOrLater(state.currentSeason)) {
+        res.status(400).json({ error: 'Trio League fixture generation starts in Season 5.' });
+        return;
+      }
+      const currentIdx = GAMEWEEKS.indexOf(state.currentGw as (typeof GAMEWEEKS)[number]);
+      const defaultFrom = currentIdx >= 0 && currentIdx < GAMEWEEKS.length - 1
+        ? GAMEWEEKS[currentIdx + 1]
+        : GAMEWEEKS[GAMEWEEKS.length - 1];
+      const targetFrom = fromGw ?? defaultFrom;
+      const targetTo = toGw ?? 'GW8';
+
+      if (!GAMEWEEKS.includes(targetFrom as (typeof GAMEWEEKS)[number]) || !GAMEWEEKS.includes(targetTo as (typeof GAMEWEEKS)[number])) {
+        res.status(400).json({ error: 'Invalid fromGw or toGw' });
+        return;
+      }
+
+      const fromIdx = GAMEWEEKS.indexOf(targetFrom as (typeof GAMEWEEKS)[number]);
+      const toIdx = GAMEWEEKS.indexOf(targetTo as (typeof GAMEWEEKS)[number]);
+      if (fromIdx > toIdx) {
+        res.json({ ok: true, created: 0, fromGw: targetFrom, toGw: targetTo });
+        return;
+      }
+
+      const created = loadTrioLeagueFixturesForRange(db, state.currentSeason, targetFrom, targetTo);
+      res.json({ ok: true, created, fromGw: targetFrom, toGw: targetTo });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/tier-league/generate-upcoming', (req, res) => {
+    const { fromGw, toGw } = req.body as { fromGw?: string; toGw?: string };
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      if (!isSeasonSixOrLater(state.currentSeason)) {
+        res.status(400).json({ error: 'Tier League fixture generation starts in Season 6.' });
+        return;
+      }
+      const tierStartGw = getTierLeagueStartGwForSeason(state.currentSeason);
+      const tierEndGw = getTierLeagueEndGwForSeason(state.currentSeason);
+      const startIdx = GAMEWEEKS.indexOf(tierStartGw);
+      const endIdx = GAMEWEEKS.indexOf(tierEndGw);
+      const currentIdx = GAMEWEEKS.indexOf(state.currentGw as (typeof GAMEWEEKS)[number]);
+      const defaultFrom = currentIdx >= 0 && currentIdx < GAMEWEEKS.length - 1
+        ? GAMEWEEKS[Math.max(currentIdx + 1, startIdx)]
+        : tierEndGw;
+      const targetFrom = fromGw ?? defaultFrom;
+      const targetTo = toGw ?? tierEndGw;
+
+      if (!GAMEWEEKS.includes(targetFrom as (typeof GAMEWEEKS)[number]) || !GAMEWEEKS.includes(targetTo as (typeof GAMEWEEKS)[number])) {
+        res.status(400).json({ error: 'Invalid fromGw or toGw' });
+        return;
+      }
+
+      const fromIdx = GAMEWEEKS.indexOf(targetFrom as (typeof GAMEWEEKS)[number]);
+      const toIdx = GAMEWEEKS.indexOf(targetTo as (typeof GAMEWEEKS)[number]);
+      const clampedFromIdx = Math.max(fromIdx, startIdx);
+      const clampedToIdx = Math.min(toIdx, endIdx);
+      if (clampedFromIdx > clampedToIdx) {
+        res.json({ ok: true, created: 0, fromGw: targetFrom, toGw: targetTo });
+        return;
+      }
+
+      const created = loadTierLeagueFixturesForRange(
+        db,
+        state.currentSeason,
+        GAMEWEEKS[clampedFromIdx] ?? tierStartGw,
+        GAMEWEEKS[clampedToIdx] ?? tierEndGw,
+      );
       res.json({ ok: true, created, fromGw: targetFrom, toGw: targetTo });
     } finally {
       db.close();
@@ -1333,6 +1952,7 @@ export function createApp(): express.Express {
     try {
       const state = getState(db);
       setGameweekLock(db, state.currentSeason, state.currentGw, true);
+      ensureCupProgress(db, state.currentSeason, state.currentGw);
       res.json({ ok: true });
     } finally {
       db.close();
@@ -1344,6 +1964,7 @@ export function createApp(): express.Express {
     try {
       const state = getState(db);
       lockGameweekWithSnapshot(db, state);
+      ensureCupProgress(db, state.currentSeason, state.currentGw);
       res.json({ ok: true });
     } finally {
       db.close();
@@ -1372,11 +1993,77 @@ export function createApp(): express.Express {
     }
   });
 
+  app.get('/api/admin/penalty-queue', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      res.json(getAdminPenaltyQueue(db, state.currentSeason, state.currentGw));
+    } finally {
+      db.close();
+    }
+  });
+
   app.get('/api/admin/cup/ties', (_req, res) => {
     const db = openDatabase();
     try {
       const state = getState(db);
       const ties = getCupTieFixtures(db, state.currentSeason, state.currentGw);
+      res.json(ties);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/admin/gw8/playoff-ties', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      if (state.currentGw !== 'GW8') {
+        res.json([]);
+        return;
+      }
+      const ties = getGw8PlayoffTieFixtures(db, state.currentSeason);
+      res.json(ties);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/admin/master-cup/ties', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      if (!isSeasonFiveOrLater(state.currentSeason) || !['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6'].includes(state.currentGw)) {
+        res.json([]);
+        return;
+      }
+      const ties = getMasterCupTieFixtures(db, state.currentSeason, state.currentGw);
+      res.json(ties);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/admin/super-cup/ties', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      const ties = getSuperCupTieFixtures(db, state.currentSeason, state.currentGw);
+      res.json(ties);
+    } finally {
+      db.close();
+    }
+  });
+
+  app.get('/api/admin/trio/playoff-ties', (_req, res) => {
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      if (state.currentGw !== 'GW7' && state.currentGw !== 'GW8') {
+        res.json([]);
+        return;
+      }
+      const ties = getTrioPlayoffTieFixtures(db, state.currentSeason, state.currentGw);
       res.json(ties);
     } finally {
       db.close();
@@ -1418,6 +2105,94 @@ export function createApp(): express.Express {
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to set winner' });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/gw8/set-playoff-winner', (req, res) => {
+    const { fixtureId, winnerTeamId } = req.body as { fixtureId?: number; winnerTeamId?: number | null };
+    if (!Number.isFinite(fixtureId)) {
+      res.status(400).json({ error: 'Invalid fixtureId' });
+      return;
+    }
+    if (winnerTeamId !== null && winnerTeamId !== undefined && !Number.isFinite(winnerTeamId)) {
+      res.status(400).json({ error: 'Invalid winnerTeamId' });
+      return;
+    }
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      setGw8PlayoffWinner(db, state.currentSeason, Number(fixtureId), winnerTeamId ?? null);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to set GW8 playoff winner' });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/master-cup/set-winner', (req, res) => {
+    const { fixtureId, winnerTeamId } = req.body as { fixtureId?: number; winnerTeamId?: number | null };
+    if (!Number.isFinite(fixtureId)) {
+      res.status(400).json({ error: 'Invalid fixtureId' });
+      return;
+    }
+    if (winnerTeamId !== null && winnerTeamId !== undefined && !Number.isFinite(winnerTeamId)) {
+      res.status(400).json({ error: 'Invalid winnerTeamId' });
+      return;
+    }
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      setMasterCupWinner(db, state.currentSeason, Number(fixtureId), winnerTeamId ?? null);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to set Master Cup winner' });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/super-cup/set-winner', (req, res) => {
+    const { fixtureId, winnerTeamId } = req.body as { fixtureId?: number; winnerTeamId?: number | null };
+    if (!Number.isFinite(fixtureId)) {
+      res.status(400).json({ error: 'Invalid fixtureId' });
+      return;
+    }
+    if (winnerTeamId !== null && winnerTeamId !== undefined && !Number.isFinite(winnerTeamId)) {
+      res.status(400).json({ error: 'Invalid winnerTeamId' });
+      return;
+    }
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      setSuperCupWinner(db, state.currentSeason, Number(fixtureId), winnerTeamId ?? null);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to set Super Cup winner' });
+    } finally {
+      db.close();
+    }
+  });
+
+  app.post('/api/admin/trio/set-playoff-winner', (req, res) => {
+    const { fixtureId, winnerTeamId } = req.body as { fixtureId?: number; winnerTeamId?: number | null };
+    if (!Number.isFinite(fixtureId)) {
+      res.status(400).json({ error: 'Invalid fixtureId' });
+      return;
+    }
+    if (winnerTeamId !== null && winnerTeamId !== undefined && !Number.isFinite(winnerTeamId)) {
+      res.status(400).json({ error: 'Invalid winnerTeamId' });
+      return;
+    }
+    const db = openDatabase();
+    try {
+      const state = getState(db);
+      setTrioPlayoffWinner(db, state.currentSeason, Number(fixtureId), winnerTeamId ?? null);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to set Trio playoff winner' });
     } finally {
       db.close();
     }

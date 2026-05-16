@@ -1,0 +1,335 @@
+{
+  "showId": "sky_sports_news",
+  "version": "1.0.0",
+  "defaults": {
+    "transitionLabel": {
+      "skySportsNewsEntry": "Divisions Round Up"
+    },
+    "layout": {
+      "tableWidthPercent": 33,
+      "visualWidthPercent": 66
+    },
+    "timing": {
+      "stepSeconds": 1,
+      "maxTeamSpotlightSeconds": 60
+    }
+  },
+  "dataModel": {
+    "divisions": [
+      "Champions",
+      "Premier",
+      "Division1",
+      "Division2",
+      "Division3"
+    ],
+    "seasonKey": "seasonNumber",
+    "gameWeekKey": "gameWeekNumber",
+    "teamKey": "teamId"
+  },
+  "rules": {
+    "divisionRoundup": {
+      "graph": {
+        "type": "bingoBallPositionTimeline",
+        "xAxis": "gameWeek",
+        "yAxis": "tablePosition",
+        "range": {
+          "fromGameWeek": 1,
+          "toLatestPlayedGameWeek": true
+        },
+        "animation": {
+          "mode": "step",
+          "stepEverySeconds": 1,
+          "stepUnit": "gameWeek",
+          "holdFinalFrameSeconds": 1
+        },
+        "rendering": {
+          "leftPane": "table",
+          "rightPane": "graph",
+          "tableIncludes": [
+            "rank",
+            "teamName",
+            "points",
+            "played",
+            "wins",
+            "draws",
+            "losses",
+            "profitFor",
+            "profitAgainst"
+          ],
+          "graphIncludes": [
+            "bingoBallPerTeam",
+            "positionLineOrTrailOptional"
+          ]
+        }
+      },
+      "afterGraphSlide": {
+        "type": "resultsAndFixtures",
+        "selectionLogic": {
+          "ifLatestPlayedGameWeekLessThanCurrentGameWeek": {
+            "show": [
+              "yesterdaysResults",
+              "todaysFixtures"
+            ]
+          },
+          "ifOnFinalGameWeekForSeason": {
+            "show": [
+              "allResultsFromWeek1ToWeekN",
+              "allFixtures"
+            ]
+          }
+        }
+      }
+    },
+    "cup": {
+      "alwaysShow": [
+        "previousWinners"
+      ],
+      "roundsInOrder": [
+        "RoundOf32",
+        "RoundOf16",
+        "QuarterFinal",
+        "SemiFinal",
+        "Final"
+      ],
+      "roundDisplayLogic": {
+        "forEachRound": {
+          "ifRoundExists": true,
+          "ifRoundPlayed": "showResults",
+          "ifRoundNotPlayedYet": "showFixtures"
+        },
+        "skipUndecidedFutureRounds": true,
+        "keepPlayedRoundsAndNextPlayableRound": true
+      }
+    },
+    "championsDivisionSpotlight": {
+      "perTeamSequence": [
+        {
+          "type": "multiSeasonDivisionJourneyGraph",
+          "graph": {
+            "type": "bingoBallDivisionJourney",
+            "xAxis": "season",
+            "yAxis": "divisionTier",
+            "divisionTierOrderTopToBottom": [
+              "Champions",
+              "Premier",
+              "Division1",
+              "Division2",
+              "Division3"
+            ],
+            "animation": {
+              "mode": "step",
+              "stepEverySeconds": 1,
+              "stepUnit": "season",
+              "holdFinalFrameSeconds": 1
+            }
+          }
+        },
+        {
+          "type": "teamStats",
+          "stats": [
+            "biggestProfitWeek",
+            "biggestWin",
+            "biggestLoss",
+            "longestUnbeatenRun",
+            "bestEverSeason"
+          ]
+        },
+        {
+          "type": "allTimeAndMasterLeagueStatus",
+          "includes": [
+            "allTimeLeagueRank",
+            "masterLeagueRank",
+            "recentFixturesAndResults"
+          ]
+        },
+        {
+          "type": "trophies",
+          "includes": [
+            "divisionTitles",
+            "cupWins",
+            "specialAwardsOptional"
+          ]
+        },
+        {
+          "type": "prediction",
+          "description": "How the computer thinks the team will perform this season in their current division",
+          "inputs": [
+            "currentForm",
+            "pointsPerGameTrend",
+            "profitTrend",
+            "opponentStrengthOptional"
+          ],
+          "output": [
+            "predictedFinalRankRange",
+            "confidenceScore",
+            "keyRiskNote",
+            "keyUpsideNote"
+          ]
+        }
+      ],
+      "maxDurationSeconds": 60
+    }
+  },
+  "runOrder": [
+    {
+      "id": "division_roundup_champions",
+      "title": "Division Roundup",
+      "division": "Champions",
+      "sequence": [
+        "divisionRoundup.graph",
+        "divisionRoundup.afterGraphSlide"
+      ]
+    },
+    {
+      "id": "division_roundup_premier",
+      "title": "Premier Bookies",
+      "division": "Premier",
+      "sequence": [
+        "divisionRoundup.graph",
+        "divisionRoundup.afterGraphSlide"
+      ]
+    },
+    {
+      "id": "division_roundup_div1",
+      "title": "Division 1",
+      "division": "Division1",
+      "sequence": [
+        "divisionRoundup.graph",
+        "divisionRoundup.afterGraphSlide"
+      ]
+    },
+    {
+      "id": "division_roundup_div2",
+      "title": "Division 2",
+      "division": "Division2",
+      "sequence": [
+        "divisionRoundup.graph",
+        "divisionRoundup.afterGraphSlide"
+      ]
+    },
+    {
+      "id": "division_roundup_div3",
+      "title": "Division 3",
+      "division": "Division3",
+      "sequence": [
+        "divisionRoundup.graph",
+        "divisionRoundup.afterGraphSlide"
+      ]
+    },
+    {
+      "id": "champions_spotlight_block",
+      "title": "Champions Division Spotlight",
+      "sequence": [
+        "championsDivisionSpotlight.perTeamSequence"
+      ]
+    },
+    {
+      "id": "cup_block",
+      "title": "Cup",
+      "sequence": [
+        "cup.previousWinners",
+        "cup.roundsInOrder"
+      ]
+    },
+    {
+      "id": "premier_spotlight_block",
+      "title": "Premier Spotlights",
+      "sequence": [
+        "premierDivisionSpotlight.perTeamSequence"
+      ]
+    },
+    {
+      "id": "master_league_block",
+      "title": "Master League",
+      "sequence": [
+        "masterLeague.previousWinners",
+        "masterLeague.fixturesAndResults",
+        "masterLeague.watchList",
+        "masterLeague.fixtureDifficulty",
+        "masterLeague.crossCompetitionContext",
+        "masterLeague.prediction"
+      ]
+    },
+    {
+      "id": "div1_spotlight_block",
+      "title": "Division 1 Spotlights",
+      "sequence": [
+        "division1Spotlight.perTeamSequence"
+      ]
+    },
+    {
+      "id": "all_time_pick_two_block",
+      "title": "All-Time League Pick Two",
+      "sequence": [
+        "allTime.pickTwo"
+      ]
+    },
+    {
+      "id": "all_time_points_block",
+      "title": "All-Time Points",
+      "sequence": [
+        "allTime.points"
+      ]
+    },
+    {
+      "id": "div2_spotlight_pass1_block",
+      "title": "Division 2 Spotlights (Pass 1)",
+      "sequence": [
+        "division2Spotlight.perTeamSequence.pass1"
+      ]
+    },
+    {
+      "id": "current_spins_block",
+      "title": "Current Spins",
+      "sequence": [
+        "spins.currentSeason"
+      ]
+    },
+    {
+      "id": "all_time_spins_block",
+      "title": "All-Time Spins",
+      "sequence": [
+        "allTime.spins"
+      ]
+    },
+    {
+      "id": "div2_spotlight_pass2_block",
+      "title": "Division 2 Spotlights (Pass 2)",
+      "sequence": [
+        "division2Spotlight.perTeamSequence.pass2"
+      ]
+    },
+    {
+      "id": "all_time_profit_block",
+      "title": "All-Time Profit",
+      "sequence": [
+        "allTime.profit"
+      ]
+    },
+    {
+      "id": "div3_spotlight_block",
+      "title": "Division 3 Spotlights",
+      "sequence": [
+        "division3Spotlight.perTeamSequence"
+      ]
+    },
+    {
+      "id": "reset_loop_block",
+      "title": "Reset And Loop",
+      "sequence": [
+        "show.resetAndLoop"
+      ]
+    }
+  ],
+  "uiTextOverrides": {
+    "entryTransitionText": {
+      "SkySportsNews": "Divisions Round Up"
+    },
+    "sectionTitles": {
+      "divisionRoundup": "Division Roundup",
+      "resultsFixtures": "Results & Fixtures",
+      "cup": "Cup Update",
+      "championsSpotlight": "Champions Spotlight"
+    }
+  }
+}

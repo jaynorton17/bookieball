@@ -1,13 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { displayDivisionName } from '../lib/divisionLabels';
+import { sortWinnersMostRecent } from '../lib/formUtils';
+
+const TIER_LEAGUE_ORDER = ['Legendary', 'Masters', 'Elite', 'Superior', 'Standard', 'Average', 'Poor', 'Awful'] as const;
+
+type TrophyWinner = { season: string; teamName: string };
 
 type TrophyRoomData = {
-  cup: Array<{ season: string; teamName: string }>;
-  divisions: Record<string, Array<{ season: string; teamName: string }>>;
-  goalsOfSeason: Record<string, Array<{ season: string; teamName: string }>>;
-  bookieDor: Array<{ season: string; teamName: string }>;
-  masterLeague: Array<{ season: string; teamName: string }>;
+  cup: TrophyWinner[];
+  divisions: Record<string, TrophyWinner[]>;
+  goalsOfSeason: Record<string, TrophyWinner[]>;
+  bookieDor: TrophyWinner[];
+  masterLeague: TrophyWinner[];
+  masterCup: TrophyWinner[];
+  superCup: TrophyWinner[];
+  tierLeagues: Record<string, TrophyWinner[]>;
+};
+
+type TrophyCard = {
+  key: string;
+  title: string;
+  icon: string;
+  winners: TrophyWinner[];
 };
 
 export function TrophyRoomPage() {
@@ -17,87 +33,85 @@ export function TrophyRoomPage() {
     goalsOfSeason: {},
     bookieDor: [],
     masterLeague: [],
+    masterCup: [],
+    superCup: [],
+    tierLeagues: {},
   });
 
   useEffect(() => {
-    api.trophyRoom().then(setTrophyRoom);
+    api.trophyRoom().then((payload) => {
+      setTrophyRoom({
+        cup: Array.isArray(payload?.cup) ? payload.cup : [],
+        divisions: payload?.divisions && typeof payload.divisions === 'object' ? payload.divisions : {},
+        goalsOfSeason: payload?.goalsOfSeason && typeof payload.goalsOfSeason === 'object' ? payload.goalsOfSeason : {},
+        bookieDor: Array.isArray(payload?.bookieDor) ? payload.bookieDor : [],
+        masterLeague: Array.isArray(payload?.masterLeague) ? payload.masterLeague : [],
+        masterCup: Array.isArray(payload?.masterCup) ? payload.masterCup : [],
+        superCup: Array.isArray(payload?.superCup) ? payload.superCup : [],
+        tierLeagues: payload?.tierLeagues && typeof payload.tierLeagues === 'object' ? payload.tierLeagues : {},
+      });
+    }).catch(() => {
+      setTrophyRoom({
+        cup: [],
+        divisions: {},
+        goalsOfSeason: {},
+        bookieDor: [],
+        masterLeague: [],
+        masterCup: [],
+        superCup: [],
+        tierLeagues: {},
+      });
+    });
   }, []);
 
-  const divisionTrophy = (division: string): { icon: string; className: string } => {
-    switch (division) {
-      case 'Champions Bookies':
-        return { icon: '🏆', className: 'trophy-gold' };
-      case 'Premier Bookies':
-        return { icon: '🥈', className: 'trophy-silver' };
-      case 'Average Bookies':
-        return { icon: '🥉', className: 'trophy-bronze' };
-      case 'Struggling Bookies':
-        return { icon: '🏅', className: 'trophy-green' };
-      case 'Awful Bookies':
-        return { icon: '🎖️', className: 'trophy-blue' };
-      default:
-        return { icon: '🏆', className: 'trophy-gold' };
-    }
-  };
+  const cards = useMemo<TrophyCard[]>(() => {
+    const coreCards: TrophyCard[] = [
+      { key: 'bookie-dor', title: "Bookie d'Or", icon: '👑', winners: sortWinnersMostRecent(Array.isArray(trophyRoom.bookieDor) ? trophyRoom.bookieDor : []) },
+      { key: 'super-cup', title: 'Super Cup', icon: '✨', winners: sortWinnersMostRecent(Array.isArray(trophyRoom.superCup) ? trophyRoom.superCup : []) },
+      { key: 'cup', title: 'Bookie Ball Cup', icon: '🏆', winners: sortWinnersMostRecent(Array.isArray(trophyRoom.cup) ? trophyRoom.cup : []) },
+      { key: 'master-league', title: 'Master League', icon: '🎯', winners: sortWinnersMostRecent(Array.isArray(trophyRoom.masterLeague) ? trophyRoom.masterLeague : []) },
+      { key: 'master-cup', title: 'Master Cup', icon: '🥇', winners: sortWinnersMostRecent(Array.isArray(trophyRoom.masterCup) ? trophyRoom.masterCup : []) },
+    ];
+    const tierCards = TIER_LEAGUE_ORDER.map((division) => ({
+      key: `tier-${division}`,
+      title: `Tier League: ${division}`,
+      icon: '🪜',
+      winners: sortWinnersMostRecent(Array.isArray(trophyRoom.tierLeagues?.[division]) ? trophyRoom.tierLeagues[division] : []),
+    }));
+    const divisionCards = Object.entries(trophyRoom.divisions ?? {}).map(([division, winners]) => ({
+      key: division,
+      title: displayDivisionName(division),
+      icon: '🏅',
+      winners: sortWinnersMostRecent(Array.isArray(winners) ? winners : []),
+    }));
+    return [...coreCards, ...tierCards, ...divisionCards];
+  }, [trophyRoom]);
 
   return (
-    <section className="page">
+    <section className="page page-dashboard">
       <h1>Trophy Room</h1>
-      <div className="panel">
-        <h3 className="trophy-title"><span className="trophy-icon trophy-cup">🏆</span> Cup Trophy</h3>
-        {trophyRoom.cup.length === 0 ? (
-          <p className="muted">No winners yet.</p>
-        ) : (
-          trophyRoom.cup.map((item, idx) => <div key={`${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-        )}
-      </div>
+      <p className="muted">Winners archive for the live competitions and the home of Bookie d&apos;Or.</p>
 
       <div className="panel">
-        <h3 className="trophy-title"><span className="trophy-icon trophy-dor">👑</span> Bookie d&apos;Or</h3>
-        {trophyRoom.bookieDor.length === 0 ? (
-          <p className="muted">No winners yet.</p>
-        ) : (
-          trophyRoom.bookieDor.map((item, idx) => <div key={`${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-        )}
-      </div>
-
-      <div className="panel">
-        <h3 className="trophy-title"><span className="trophy-icon trophy-green">🎯</span> Master League Trophy</h3>
-        {trophyRoom.masterLeague.length === 0 ? (
-          <p className="muted">No winners yet.</p>
-        ) : (
-          trophyRoom.masterLeague.map((item, idx) => <div key={`master-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-        )}
+        <h3>Season Finale</h3>
+        <p className="muted">Open the end-of-season presentation deck from here.</p>
+        <Link className="action" to="/season-finale">Open Season Finale</Link>
       </div>
 
       <div className="tile-grid">
-        {Object.entries(trophyRoom.divisions).map(([division, winners]) => (
-          <div key={division} className="panel">
-            {(() => {
-              const t = divisionTrophy(division);
-              return (
-                <h3 className="trophy-title">
-                  <span className={`trophy-icon ${t.className}`}>{t.icon}</span> {displayDivisionName(division)} Trophy
-                </h3>
-              );
-            })()}
-            {winners.length === 0 ? (
+        {cards.map((card) => (
+          <div key={card.key} className="panel">
+            <h3 className="trophy-title">
+              <span className="trophy-icon">{card.icon}</span> {card.title}
+            </h3>
+            {card.winners.length === 0 ? (
               <p className="muted">No winners yet.</p>
             ) : (
-              winners.map((item, idx) => <div key={`${division}-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="tile-grid">
-        {Object.entries(trophyRoom.goalsOfSeason).map(([division, winners]) => (
-          <div key={division} className="panel">
-            <h3 className="trophy-title"><span className="trophy-icon trophy-goal">⚽</span> {displayDivisionName(division)} Goal of the Season</h3>
-            {winners.length === 0 ? (
-              <p className="muted">No winners yet.</p>
-            ) : (
-              winners.map((item, idx) => <div key={`${division}-goal-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
+              card.winners.map((winner, index) => (
+                <div key={`${card.key}-${winner.season}-${winner.teamName}-${index}`}>
+                  {winner.season}: {winner.teamName}
+                </div>
+              ))
             )}
           </div>
         ))}

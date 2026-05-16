@@ -1,5 +1,27 @@
 const rawApiBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:5181/api';
 const API_BASE = rawApiBase.replace(/\/+$/, '');
+type PredictionCompetition = 'league' | 'cup' | 'master' | 'master_cup' | 'trio' | 'tier';
+
+type GameshowDrawTeam = {
+  teamId: number;
+  teamKey: string | null;
+  teamName: string;
+  division: string;
+  teamUrl: string;
+  ballColor: string | null;
+  ringColor: string | null;
+  textColor: string | null;
+  cupOpponent: string;
+  leagueOpponent: string;
+  alreadyPlayed: boolean;
+  currentGwProfit: number;
+  currentGwSpins: number;
+};
+
+type GameshowDrawPoolDivision = {
+  division: string;
+  teams: GameshowDrawTeam[];
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -99,7 +121,7 @@ export const api = {
       params.set('season', season);
     }
     const qs = params.toString();
-    return request<Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>>(
+    return request<Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; played: boolean; result: 'home' | 'away' | 'draw' | 'pending' }>>(
       `/league-fixtures${qs ? `?${qs}` : ''}`,
     );
   },
@@ -124,7 +146,7 @@ export const api = {
         rank: number;
       }>;
     }>(`/master-league/table${gw ? `?gw=${encodeURIComponent(gw)}` : ''}`),
-  masterLeagueFixtures: (gw?: string, all?: boolean) =>
+  masterLeagueFixtures: (gw?: string, all?: boolean, season?: string) =>
     request<Array<{
       id: number;
       gw: string;
@@ -137,7 +159,194 @@ export const api = {
       homeSpins: number;
       awaySpins: number;
       result: 'home' | 'away' | 'draw' | 'pending';
-    }>>(`/master-league/fixtures${all ? '?all=1' : gw ? `?gw=${encodeURIComponent(gw)}` : ''}`),
+    }>>(`/master-league/fixtures${queryString({ gw, all: all ? '1' : undefined, season })}`),
+  masterCupFixtures: (gw?: string, all?: boolean, season?: string) =>
+    request<Array<{
+      id: number;
+      gw: string;
+      stage: 'round_of_16' | 'quarter_final' | 'semi_final' | 'third_place_playoff' | 'final';
+      legNumber: number;
+      tieSlot: number;
+      roundName: string;
+      homeTeamId: number | null;
+      awayTeamId: number | null;
+      homeTeam: string | null;
+      awayTeam: string | null;
+      homeSeed: number | null;
+      awaySeed: number | null;
+      winnerTeamId: number | null;
+      winnerTeam: string | null;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+      aggregateHomeProfit: number | null;
+      aggregateAwayProfit: number | null;
+      aggregateHomeSpins: number | null;
+      aggregateAwaySpins: number | null;
+      played: boolean;
+      result: 'home' | 'away' | 'draw' | 'pending';
+      decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending';
+    }>>(`/master-cup/fixtures${queryString({ gw, all: all ? '1' : undefined, season })}`),
+  superCup: (season?: string) =>
+    request<Array<{
+      id: number;
+      season: string;
+      gw: string;
+      sourceSeason: string;
+      pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+      pairingExplanation: string;
+      homeTeamId: number;
+      awayTeamId: number;
+      homeTeam: string;
+      awayTeam: string;
+      winnerTeamId: number | null;
+      winnerTeam: string | null;
+      runnerUpTeamId: number | null;
+      runnerUpTeam: string | null;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+      played: boolean;
+      result: 'home' | 'away' | 'pending';
+      decidedBy: 'profit' | 'penalties' | 'spins' | 'team_id' | 'pending';
+      bookieballWinnerTeamId: number;
+      bookieballWinnerTeam: string;
+      bookieballRunnerUpTeamId: number;
+      bookieballRunnerUpTeam: string;
+      masterCupWinnerTeamId: number;
+      masterCupWinnerTeam: string;
+      masterCupRunnerUpTeamId: number;
+      masterCupRunnerUpTeam: string;
+    }>>(`/super-cup${queryString({ season })}`),
+  superCupHistory: () =>
+    request<Array<{
+      id: number;
+      season: string;
+      gw: string;
+      sourceSeason: string;
+      pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+      pairingExplanation: string;
+      homeTeamId: number;
+      awayTeamId: number;
+      homeTeam: string;
+      awayTeam: string;
+      winnerTeamId: number | null;
+      winnerTeam: string | null;
+      runnerUpTeamId: number | null;
+      runnerUpTeam: string | null;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+      played: boolean;
+      result: 'home' | 'away' | 'pending';
+      decidedBy: 'profit' | 'penalties' | 'spins' | 'team_id' | 'pending';
+      bookieballWinnerTeamId: number;
+      bookieballWinnerTeam: string;
+      bookieballRunnerUpTeamId: number;
+      bookieballRunnerUpTeam: string;
+      masterCupWinnerTeamId: number;
+      masterCupWinnerTeam: string;
+      masterCupRunnerUpTeamId: number;
+      masterCupRunnerUpTeam: string;
+    }>>('/super-cup/history'),
+  superCupArchive: () =>
+    request<Array<{
+      season: string;
+      sourceSeason: string;
+      winnerTeamId: number | null;
+      winnerTeam: string | null;
+      runnerUpTeamId: number | null;
+      runnerUpTeam: string | null;
+      pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+      pairingExplanation: string;
+      decidedBy: 'profit' | 'penalties' | 'spins' | 'team_id' | 'pending';
+      homeProfit: number;
+      awayProfit: number;
+    }>>('/super-cup/archive'),
+  trioLeagueTable: (gw?: string) =>
+    request<{
+      gw: string;
+      enabled: boolean;
+      table: Array<{
+        division: string;
+        teamId: number;
+        teamName: string;
+        ballColor: string | null;
+        ringColor: string | null;
+        textColor: string | null;
+        played: number;
+        wins: number;
+        draws: number;
+        losses: number;
+        points: number;
+        profit: number;
+        spins: number;
+        rank: number;
+      }>;
+    }>(`/trio-league/table${gw ? `?gw=${encodeURIComponent(gw)}` : ''}`),
+  trioLeagueFixtures: (gw?: string, all?: boolean, season?: string) =>
+    request<Array<{
+      id: number;
+      gw: string;
+      division: string;
+      stage: 'regular' | 'playoff_semi' | 'playoff_final';
+      groupSlot: number;
+      homeTeamId: number;
+      awayTeamId: number;
+      homeTeam: string;
+      awayTeam: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+      played: boolean;
+      result: 'home' | 'away' | 'draw' | 'pending';
+      winnerTeamId: number | null;
+    }>>(`/trio-league/fixtures${queryString({ gw, all: all ? '1' : undefined, season })}`),
+  tierLeagueTable: (gw?: string) =>
+    request<{
+      gw: string;
+      enabled: boolean;
+      started: boolean;
+      table: Array<{
+        division: string;
+        teamId: number;
+        teamName: string;
+        ballColor: string | null;
+        ringColor: string | null;
+        textColor: string | null;
+        played: number;
+        wins: number;
+        draws: number;
+        losses: number;
+        points: number;
+        profit: number;
+        spins: number;
+        rank: number;
+      }>;
+    }>(`/tier-league/table${gw ? `?gw=${encodeURIComponent(gw)}` : ''}`),
+  tierLeagueFixtures: (gw?: string, all?: boolean, season?: string) =>
+    request<Array<{
+      id: number;
+      gw: string;
+      division: string;
+      fixtureType: 'division' | 'cross';
+      groupSlot: number;
+      homeTeamId: number;
+      awayTeamId: number;
+      homeTeam: string;
+      awayTeam: string;
+      homeDivision: string | null;
+      awayDivision: string | null;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+      result: 'home' | 'away' | 'draw' | 'pending';
+    }>>(`/tier-league/fixtures${queryString({ gw, all: all ? '1' : undefined, season })}`),
   allTimeLeagues: () =>
     request<{
       fromSeason: string;
@@ -211,6 +420,13 @@ export const api = {
         sourceMatchA: number | null;
         sourceMatchB: number | null;
         winnerTeam: string | null;
+        homeProfit: number;
+        awayProfit: number;
+        homeSpins: number;
+        awaySpins: number;
+        played: boolean;
+        result: 'home' | 'away' | 'draw' | 'pending';
+        decidedBy: 'profit' | 'spins' | 'penalties' | 'tie_break' | 'bye' | 'pending';
       }>
     >(`/cup${queryString({ gw, season })}`),
   cupStatus: () =>
@@ -246,31 +462,25 @@ export const api = {
       '/cup/start-draw',
       { method: 'POST', body: '{}' },
     ),
-  drawTeam: () =>
-    request<{
-      teamId: number;
-      teamKey: string | null;
-      teamName: string;
-      division: string;
-      teamUrl: string;
-      ballColor: string | null;
-      ringColor: string | null;
-      textColor: string | null;
-      cupOpponent: string;
-      leagueOpponent: string;
-      alreadyPlayed: boolean;
-      currentGwProfit: number;
-      currentGwSpins: number;
-    }>('/gameshow/draw', { method: 'POST', body: '{}' }),
+  gameshowDrawPool: () => request<GameshowDrawPoolDivision[]>('/gameshow/draw-pool'),
+  drawTeam: (teamId?: number) =>
+    request<GameshowDrawTeam>('/gameshow/draw', {
+      method: 'POST',
+      body: JSON.stringify(teamId === undefined ? {} : { teamId }),
+    }),
   predictions: (gw?: string, season?: string) =>
     request<{
       season: string;
       gw: string;
       locked: boolean;
+      slate: Array<{
+        competition: PredictionCompetition;
+        fixtureId: number;
+      }>;
       predictions: Array<{
         id: number;
         gw: string;
-        competition: 'league' | 'cup';
+        competition: PredictionCompetition;
         fixtureId: number;
         picker: string;
         pickOutcome: 'team' | 'draw';
@@ -283,7 +493,7 @@ export const api = {
     }>(`/predictions${queryString({ gw, season })}`),
   savePredictions: (payload: {
     gw: string;
-    competition: 'league' | 'cup';
+    competition: PredictionCompetition;
     picks: Array<{
       fixtureId: number;
       pickTeamId?: number | null;
@@ -355,6 +565,7 @@ export const api = {
         draws: number;
         losses: number;
         cupFinish: string;
+        superCupFinish: string;
       }>;
     }>(`/team/${teamId}/history`),
   teamSeasonHistoryBulk: (teamIds?: number[]) =>
@@ -371,8 +582,25 @@ export const api = {
         draws: number;
         losses: number;
         cupFinish: string;
+        superCupFinish: string;
       }>>;
     }>('/team/history-bulk', { method: 'POST', body: JSON.stringify({ teamIds }) }),
+  teamHistoryStoryBulk: (teamIds?: number[]) =>
+    request<{
+      histories: Record<number, {
+        currentSeason: string;
+        currentGw: string;
+        currentDivisionJourney: {
+          division: string;
+          points: Array<{ label: string; gw: string; rank: number; total: number }>;
+        };
+        divisionJourney: Array<{ season: string; division: string; divisionLevel: number; rank: number; total: number }>;
+        masterLeagueJourney: Array<{ season: string; rank: number; total: number }>;
+        trioLeagueJourney: Array<{ season: string; division: string; rank: number; total: number }>;
+        tierLeagueJourney: Array<{ season: string; division: string; rank: number; total: number }>;
+        allTimePointsJourney: Array<{ season: string; rank: number; total: number; points: number }>;
+      }>;
+    }>('/team/history-story-bulk', { method: 'POST', body: JSON.stringify({ teamIds }) }),
   reportStorylines: (gw?: string) =>
     request<{
       generatedAt: string;
@@ -433,7 +661,7 @@ export const api = {
         gw: string;
         storylines: Array<{ id: string; headline: string; detail: string; tone: 'positive' | 'warning' | 'neutral'; metric?: string }>;
         tickerItems: string[];
-        summary: { fixtures: number; resolved: number; cupFixtures: number; cupResolved: number };
+        summary: { fixtures: number; resolved: number; cupFixtures: number; cupResolved: number; superCupFixtures: number; superCupResolved: number };
       };
       rivalryDesk: Array<{
         id: string;
@@ -492,6 +720,13 @@ export const api = {
               swapped: boolean;
             }>;
             cupWinner: { teamId: number; teamName: string } | null;
+            superCup: {
+              sourceSeason: string;
+              pairingReason: 'winners_vs_winners' | 'double_winner_vs_bookieball_runner_up' | 'double_winner_vs_master_cup_runner_up';
+              pairingExplanation: string;
+              winner: { teamId: number; teamName: string } | null;
+              runnerUp: { teamId: number; teamName: string } | null;
+            } | null;
             standout: Array<{ label: string; value: string }>;
             goalsOfSeason: Array<{ division: string; teamId: number; teamName: string; profit: number }>;
             bookieDor: {
@@ -572,10 +807,33 @@ export const api = {
     request<{ ok: boolean }>(`/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   undoLastEntries: () => request<{ ok: boolean; result: { batchId: string; removed: number } | null }>('/admin/undo-last-entries', { method: 'POST', body: '{}' }),
   advanceGw: () => request<{ currentSeason: string; currentGw: string }>('/admin/advance-gw', { method: 'POST', body: '{}' }),
+  rewindGw: () => request<{ currentSeason: string; currentGw: string }>('/admin/rewind-gw', { method: 'POST', body: '{}' }),
   loadLeagueFixtures: () => request<{ ok: boolean; message: string; created: number }>('/admin/load-league-fixtures', { method: 'POST', body: '{}' }),
+  generateAllFixtures: () =>
+    request<{
+      ok: boolean;
+      season: string;
+      divisionCreated: number;
+      masterCreated: number;
+      superCupCreated: number;
+      masterCupCreated: number;
+      trioCreated: number;
+      tierCreated: number;
+      totalCreated: number;
+    }>('/admin/generate-all-fixtures', { method: 'POST', body: '{}' }),
   generateMasterLeagueFixtures: (fromGw?: string, toGw?: string) =>
     request<{ ok: boolean; created: number; fromGw: string; toGw: string }>(
       '/admin/master-league/generate-upcoming',
+      { method: 'POST', body: JSON.stringify({ fromGw, toGw }) },
+    ),
+  generateTrioLeagueFixtures: (fromGw?: string, toGw?: string) =>
+    request<{ ok: boolean; created: number; fromGw: string; toGw: string }>(
+      '/admin/trio-league/generate-upcoming',
+      { method: 'POST', body: JSON.stringify({ fromGw, toGw }) },
+    ),
+  generateTierLeagueFixtures: (fromGw?: string, toGw?: string) =>
+    request<{ ok: boolean; created: number; fromGw: string; toGw: string }>(
+      '/admin/tier-league/generate-upcoming',
       { method: 'POST', body: JSON.stringify({ fromGw, toGw }) },
     ),
   setGw: (season: string, gw: string) => request<{ currentSeason: string; currentGw: string }>('/admin/set-gw', { method: 'POST', body: JSON.stringify({ season, gw }) }),
@@ -620,12 +878,91 @@ export const api = {
       homeSpins: number;
       awaySpins: number;
     }>>('/admin/cup/ties'),
+  penaltyQueue: () =>
+    request<Array<{
+      competition: 'cup' | 'super_cup' | 'master_cup' | 'gw8_playoff' | 'trio_playoff';
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/penalty-queue'),
+  gw8PlayoffTies: () =>
+    request<Array<{
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/gw8/playoff-ties'),
+  masterCupTies: () =>
+    request<Array<{
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/master-cup/ties'),
+  superCupTies: () =>
+    request<Array<{
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/super-cup/ties'),
+  trioPlayoffTies: () =>
+    request<Array<{
+      fixtureId: number;
+      gw: string;
+      roundName: string;
+      homeTeamId: number;
+      homeTeamName: string;
+      awayTeamId: number;
+      awayTeamName: string;
+      homeProfit: number;
+      awayProfit: number;
+      homeSpins: number;
+      awaySpins: number;
+    }>>('/admin/trio/playoff-ties'),
   setCupTieBreakMode: (mode: 'random' | 'lower_team_id') =>
     request<{ ok: boolean; mode: 'random' | 'lower_team_id' }>('/admin/cup/tie-break-mode', { method: 'POST', body: JSON.stringify({ mode }) }),
   setCupWinner: (fixtureId: number, winnerTeamId: number | null) =>
     request<{ ok: boolean }>('/admin/cup/set-winner', { method: 'POST', body: JSON.stringify({ fixtureId, winnerTeamId }) }),
+  setGw8PlayoffWinner: (fixtureId: number, winnerTeamId: number | null) =>
+    request<{ ok: boolean }>('/admin/gw8/set-playoff-winner', { method: 'POST', body: JSON.stringify({ fixtureId, winnerTeamId }) }),
+  setMasterCupWinner: (fixtureId: number, winnerTeamId: number | null) =>
+    request<{ ok: boolean }>('/admin/master-cup/set-winner', { method: 'POST', body: JSON.stringify({ fixtureId, winnerTeamId }) }),
+  setSuperCupWinner: (fixtureId: number, winnerTeamId: number | null) =>
+    request<{ ok: boolean }>('/admin/super-cup/set-winner', { method: 'POST', body: JSON.stringify({ fixtureId, winnerTeamId }) }),
+  setTrioPlayoffWinner: (fixtureId: number, winnerTeamId: number | null) =>
+    request<{ ok: boolean }>('/admin/trio/set-playoff-winner', { method: 'POST', body: JSON.stringify({ fixtureId, winnerTeamId }) }),
   resetCupRound: (gw: string) => request<{ ok: boolean }>('/admin/cup/reset-round', { method: 'POST', body: JSON.stringify({ gw }) }),
-  teamStats: (teamId: number) => request<{ season: { profit: number; wins: number; entries: number }; allTime: { profit: number; wins: number; entries: number }; cupWins: number; leagueTitles: number }>(`/team/${teamId}/stats`),
+  teamStats: (teamId: number) => request<{ season: { profit: number; wins: number; entries: number }; allTime: { profit: number; wins: number; entries: number }; cupWins: number; superCupWins: number; superCupAppearances: number; leagueTitles: number }>(`/team/${teamId}/stats`),
   teamRatings: () =>
     request<
       Array<{
@@ -690,5 +1027,8 @@ export const api = {
       goalsOfSeason: Record<string, Array<{ season: string; teamName: string }>>;
       bookieDor: Array<{ season: string; teamName: string }>;
       masterLeague: Array<{ season: string; teamName: string }>;
+      masterCup: Array<{ season: string; teamName: string }>;
+      superCup: Array<{ season: string; teamName: string }>;
+      tierLeagues: Record<string, Array<{ season: string; teamName: string }>>;
     }>('/trophy-room'),
 };

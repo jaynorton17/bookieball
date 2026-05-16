@@ -7,6 +7,7 @@ const DIVISION_LEVELS = [
   'Average Bookies',
   'Struggling Bookies',
   'Awful Bookies',
+  'Division 4 Bookies',
 ];
 
 export type TeamSeasonHistory = {
@@ -21,6 +22,7 @@ export type TeamSeasonHistory = {
   draws: number;
   losses: number;
   cupFinish: string;
+  superCupFinish?: string;
 };
 
 type TeamSeasonStoryProps = {
@@ -88,7 +90,9 @@ export function TeamSeasonStory({
         `Finish: ${slide.rank ? `#${slide.rank}` : '—'} • Points: ${slide.points} • Profit: ${slide.profit}`,
         `Record: ${slide.wins}-${slide.draws}-${slide.losses} • Spins: ${slide.spins}`,
         `Cup: ${slide.cupFinish}`,
+        slide.superCupFinish ? `Super Cup: ${slide.superCupFinish}` : null,
       ]
+        .filter((line): line is string => Boolean(line))
     : [];
 
   return (

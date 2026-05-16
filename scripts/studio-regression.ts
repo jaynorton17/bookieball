@@ -105,9 +105,10 @@ function run(): void {
 
   const weights = getBookieDorWeights();
   const scoreChampionOnly = (100 * weights.league) + (0 * weights.cup) + (0 * weights.master) + (0 * weights.consistency);
-  const scoreAllRound = (70 * weights.league) + (80 * weights.cup) + (80 * weights.master) + (70 * weights.consistency);
+  const scoreAllRound = (70 * weights.league) + (0 * weights.cup) + (80 * weights.master) + (80 * weights.consistency);
   assert(scoreAllRound > scoreChampionOnly, 'Bookie d\'Or model should reward all-around profile over league-only profile');
-  assert(weights.league < 0.5, 'Bookie d\'Or league weight should not dominate the model');
+  assert(weights.league <= 0.5, 'Bookie d\'Or league weight should not dominate the model');
+  assert(weights.cup === 0, 'Bookie d\'Or should exclude cup competitions');
 
   const db = openDatabase();
   try {

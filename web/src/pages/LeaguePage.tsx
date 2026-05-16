@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LeagueTabs } from '../components/CompetitionTabs';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
-import { TeamSeasonStory, type TeamSeasonHistory } from '../components/TeamSeasonStory';
-import { displayDivisionName } from '../lib/divisionLabels';
-import { classifyUpset, pickRivalryFixtures, type TeamRating } from '../lib/leagueUtils';
+import { displayDivisionName, getDivisionOrderForSeason, sortDivisionNames } from '../lib/divisionLabels';
+import { isOfficialDivisionFixture, recentForm } from '../lib/formUtils';
 
-const GWS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
-const DIVISION_ORDER = ['Champions Bookies', 'Premier Bookies', 'Average Bookies', 'Struggling Bookies', 'Awful Bookies'];
+const DIVISION_GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7'];
 
 export function LeaguePage() {
-  const [state, setState] = useState<{ currentSeason: string; currentGw: string; cupDrawStarted: boolean; gwLocked: boolean } | null>(null);
+  const [state, setState] = useState<{ currentSeason: string; currentGw: string } | null>(null);
   const [teams, setTeams] = useState<
     Array<{ id: number; teamId: string | null; name: string; url: string; division: string; ballColor: string | null; ringColor: string | null; textColor: string | null }>
   >([]);
@@ -22,25 +21,6 @@ export function LeaguePage() {
   const [leagueFixtures, setLeagueFixtures] = useState<
     Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>
   >([]);
-  const [cup, setCup] = useState<
-    Array<{ id: number; matchNumber: number; gw: string; roundName: string; homeTeam: string | null; homeDivision: string | null; awayTeam: string | null; awayDivision: string | null; winnerTeam: string | null }>
-  >([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
-  const [teamStats, setTeamStats] = useState<{ season: { profit: number; wins: number; entries: number }; allTime: { profit: number; wins: number; entries: number }; cupWins: number; leagueTitles: number } | null>(null);
-  const [teamSeasonHistory, setTeamSeasonHistory] = useState<TeamSeasonHistory[] | null>(null);
-  const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
-  const [trophyRoom, setTrophyRoom] = useState<{
-    cup: Array<{ season: string; teamName: string }>;
-    divisions: Record<string, Array<{ season: string; teamName: string }>>;
-    goalsOfSeason: Record<string, Array<{ season: string; teamName: string }>>;
-    bookieDor: Array<{ season: string; teamName: string }>;
-  }>({
-    cup: [],
-    divisions: {},
-    goalsOfSeason: {},
-    bookieDor: [],
-  });
-  const [ratings, setRatings] = useState<TeamRating[]>([]);
   const [movement, setMovement] = useState<{ baselineGw: string | null; baselineLabel: string | null; movement: Record<string, Record<number, number>> }>({
     baselineGw: null,
     baselineLabel: null,
@@ -48,20 +28,26 @@ export function LeaguePage() {
   });
   const [divisionFixtureGw, setDivisionFixtureGw] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'tables' | 'playoffs'>('tables');
+  const divisionOrder = useMemo(() => getDivisionOrderForSeason(state?.currentSeason ?? null), [state?.currentSeason]);
 
 
-  const formForTeam = (teamName: string) => {
-    const played = leagueFixtures
-      .filter((fixture) => fixture.result !== 'pending' && (fixture.homeTeam === teamName || fixture.awayTeam === teamName))
-      .sort((a, b) => Number(a.gw.replace('GW', '')) - Number(b.gw.replace('GW', '')))
-      .slice(-5);
-
-    return played.map((fixture) => {
-      if (fixture.result === 'draw') {
-        return 'D';
-      }
-      const win = (fixture.result === 'home' && fixture.homeTeam === teamName) || (fixture.result === 'away' && fixture.awayTeam === teamName);
-      return win ? 'W' : 'L';
+  const formForTeam = (teamName: string, division: string) => {
+    return recentForm({
+      fixtures: leagueFixtures,
+      include: (fixture) =>
+        fixture.result !== 'pending'
+        && isOfficialDivisionFixture(fixture.division, fixture.gw)
+        && fixture.division === division
+        && (fixture.homeTeam === teamName || fixture.awayTeam === teamName),
+      resultOf: (fixture) => {
+        if (fixture.result === 'draw') {
+          return 'D';
+        }
+        const win = (fixture.result === 'home' && fixture.homeTeam === teamName) || (fixture.result === 'away' && fixture.awayTeam === teamName);
+        return win ? 'W' : 'L';
+      },
+      getGw: (fixture) => fixture.gw,
+      getSecondarySort: (fixture) => fixture.id,
     });
   };
 
@@ -113,14 +99,10 @@ export function LeaguePage() {
 
   const teamByName = useMemo(() => new Map(teams.map((team) => [team.name, team])), [teams]);
 
-  const rivalryFixtures = useMemo(() => {
-    if (!state) {
-      return [];
-    }
-    return pickRivalryFixtures(leagueFixtures, state.currentSeason, state.currentGw);
-  }, [leagueFixtures, state]);
-
-  const rivalryIds = useMemo(() => new Set(rivalryFixtures.map((fixture) => fixture.id)), [rivalryFixtures]);
+  const orderedDivisionEntries = useMemo(
+    () => sortDivisionNames(Object.keys(table), state?.currentSeason ?? null).map((division) => [division, table[division] ?? []] as const),
+    [state?.currentSeason, table],
+  );
 
   const gw8Fixtures = useMemo(() => leagueFixtures.filter((fixture) => fixture.gw === 'GW8'), [leagueFixtures]);
   const gw8Locked = gw8Fixtures.length > 0;
@@ -129,9 +111,9 @@ export function LeaguePage() {
 
   const projectedPlayoffs = useMemo(() => {
     const pairs: Array<{ upperDivision: string; lowerDivision: string; upperTeam?: string; lowerTeam?: string }> = [];
-    for (let i = 0; i < DIVISION_ORDER.length - 1; i += 1) {
-      const upper = DIVISION_ORDER[i];
-      const lower = DIVISION_ORDER[i + 1];
+    for (let i = 0; i < divisionOrder.length - 1; i += 1) {
+      const upper = divisionOrder[i];
+      const lower = divisionOrder[i + 1];
       const upperRows = table[upper] ?? [];
       const lowerRows = table[lower] ?? [];
       pairs.push({
@@ -142,72 +124,26 @@ export function LeaguePage() {
       });
     }
     return pairs;
-  }, [table]);
-
-  const todaysWinners = useMemo(() => {
-    if (!state) {
-      return [];
-    }
-    const winners = leagueFixtures
-      .filter((fixture) => fixture.gw === state.currentGw && fixture.result !== 'pending' && fixture.result !== 'draw')
-      .map((fixture) => (fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam));
-    return Array.from(new Set(winners));
-  }, [leagueFixtures, state]);
-
-  const selectedTeamRow = useMemo(() => {
-    if (!selectedTeamId) {
-      return null;
-    }
-    return Object.values(table)
-      .flat()
-      .find((row) => row.teamId === selectedTeamId) ?? null;
-  }, [selectedTeamId, table]);
+  }, [divisionOrder, table]);
 
   const reload = async () => {
     const nextState = await api.state();
-    const [nextTeams, nextTable, nextCup, nextLeagueFixtures, nextTrophyRoom, nextMovement, nextRatings] = await Promise.all([
+    const [nextTeams, nextTable, nextLeagueFixtures, nextMovement] = await Promise.all([
       api.teams(),
       api.leagueTable(),
-      api.cup(),
       api.leagueFixtures(undefined, true),
-      api.trophyRoom(),
       api.leagueMovement().catch(() => ({ baselineGw: null, baselineLabel: null, movement: {} })),
-      api.teamRatings().catch(() => []),
     ]);
-    setState(nextState);
+    setState({ currentSeason: nextState.currentSeason, currentGw: nextState.currentGw });
     setTeams(nextTeams);
     setTable(nextTable);
-    setCup(nextCup);
     setLeagueFixtures(nextLeagueFixtures);
-    setTrophyRoom(nextTrophyRoom);
     setMovement(nextMovement);
-    setRatings(nextRatings);
   };
 
   useEffect(() => {
     void reload();
   }, []);
-
-
-  useEffect(() => {
-    if (!selectedTeamId) {
-      setTeamStats(null);
-      return;
-    }
-    api.teamStats(selectedTeamId).then(setTeamStats);
-  }, [selectedTeamId]);
-
-  useEffect(() => {
-    if (!selectedTeamId) {
-      setTeamSeasonHistory(null);
-      return;
-    }
-    setTeamSeasonLoading(true);
-    api.teamSeasonHistory(selectedTeamId)
-      .then((response) => setTeamSeasonHistory(response.seasons))
-      .catch(() => setTeamSeasonHistory([]))
-      .finally(() => setTeamSeasonLoading(false));
-  }, [selectedTeamId]);
 
   useEffect(() => {
     if (!state) {
@@ -217,7 +153,7 @@ export function LeaguePage() {
       const next = { ...prev };
       Object.keys(table).forEach((division) => {
         if (!next[division]) {
-          next[division] = state.currentGw ?? GWS[0];
+          next[division] = state.currentGw === 'GW8' ? 'GW7' : (state.currentGw ?? DIVISION_GAMEWEEKS[0]);
         }
       });
       return next;
@@ -226,9 +162,11 @@ export function LeaguePage() {
 
 
   return (
-    <section className="page">
-      <h1>League Table &amp; More</h1>
+    <section className="page page-wide">
+      <h1>Division Tables</h1>
       <p className="muted">Current: {state ? `${state.currentSeason} ${state.currentGw}` : 'Loading...'}</p>
+
+      <LeagueTabs activeId="divisions" />
 
       <div className="tab-row">
         <button
@@ -249,9 +187,9 @@ export function LeaguePage() {
 
       {activeTab === 'tables' ? (
         <>
-      {Object.entries(table).map(([division, rows]) => {
+      {orderedDivisionEntries.map(([division, rows]) => {
         const race = raceMeter(division);
-        const gwForDivision = divisionFixtureGw[division] ?? state?.currentGw ?? GWS[0];
+        const gwForDivision = divisionFixtureGw[division] ?? (state?.currentGw === 'GW8' ? 'GW7' : state?.currentGw) ?? DIVISION_GAMEWEEKS[0];
         const gwFixtures = leagueFixtures.filter((fixture) => fixture.division === division && fixture.gw === gwForDivision);
         return (
           <div key={division} className="panel">
@@ -268,29 +206,30 @@ export function LeaguePage() {
                 </div>
               </div>
             )}
-            <table>
-              <thead>
-                <tr><th>Rank</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>Pts</th><th>Profit</th><th>Spins</th><th>Form (Last 5)</th></tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const divisionIndex = DIVISION_ORDER.indexOf(division);
-                  const isPromotionSlot = divisionIndex > 0 && row.rank === 1;
-                  const isRelegationSlot = divisionIndex >= 0 && divisionIndex < DIVISION_ORDER.length - 1 && row.rank === rows.length;
-                  const isPlayoffChaser = divisionIndex > 0 && row.rank === 2;
-                  const isPlayoffDefender = divisionIndex >= 0 && divisionIndex < DIVISION_ORDER.length - 1 && row.rank === 3;
-                  const move = movementBadge(division, row.teamId);
-                  return (
-                    <tr
-                      key={row.teamId}
-                      className={`${isPromotionSlot ? 'promotion-slot' : ''} ${isRelegationSlot ? 'relegation-slot' : ''} ${isPlayoffChaser ? 'playoff-chaser' : ''} ${isPlayoffDefender ? 'playoff-defender' : ''}`.trim()}
-                    >
-                      <td>
-                        <div className="rank-cell">
-                          <span>{row.rank}</span>
-                          <span className={`rank-move ${move.className}`}>{move.label}</span>
-                        </div>
-                      </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Rank</th><th>Team</th><th>PLD</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>Spins</th><th>Profit</th><th>Form (Last 5)</th></tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const divisionIndex = divisionOrder.indexOf(division);
+                    const isPromotionSlot = divisionIndex > 0 && row.rank === 1;
+                    const isRelegationSlot = divisionIndex >= 0 && divisionIndex < divisionOrder.length - 1 && row.rank === rows.length;
+                    const isPlayoffChaser = divisionIndex > 0 && row.rank === 2;
+                    const isPlayoffDefender = divisionIndex >= 0 && divisionIndex < divisionOrder.length - 1 && row.rank === 3;
+                    const move = movementBadge(division, row.teamId);
+                    return (
+                      <tr
+                        key={row.teamId}
+                        className={`${isPromotionSlot ? 'promotion-slot' : ''} ${isRelegationSlot ? 'relegation-slot' : ''} ${isPlayoffChaser ? 'playoff-chaser' : ''} ${isPlayoffDefender ? 'playoff-defender' : ''}`.trim()}
+                      >
+                        <td>
+                          <div className="rank-cell">
+                            <span>{row.rank}</span>
+                            <span className={`rank-move ${move.className}`}>{move.label}</span>
+                          </div>
+                        </td>
                       <td>
                         <span className="team-name">
                           <TeamBadge
@@ -300,33 +239,34 @@ export function LeaguePage() {
                             textColor={teamByName.get(row.teamName)?.textColor ?? null}
                             size={24}
                           />
-                          {row.teamName}
+                          <span>{row.teamName}</span>
                         </span>
                       </td>
-                      <td>{row.played}</td>
-                      <td>{row.wins}</td>
-                      <td>{row.draws}</td>
-                      <td>{row.losses}</td>
-                      <td>{row.points}</td>
-                      <td>{row.profit}</td>
-                      <td>{row.spins}</td>
-                      <td>
-                        <div className="form-mini-row">
-                          {formForTeam(row.teamName).map((r, idx) => (
-                            <span
-                              key={`${row.teamId}-${idx}-${r}`}
-                              className={`form-badge ${r === 'W' ? 'form-win' : r === 'D' ? 'form-draw' : 'form-loss'}`}
-                            >
-                              {r}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <td>{row.played}</td>
+                        <td>{row.wins}</td>
+                        <td>{row.losses}</td>
+                        <td>{row.draws}</td>
+                        <td>{row.points}</td>
+                        <td>{row.spins}</td>
+                        <td>{row.profit}</td>
+                        <td>
+                          <div className="form-mini-row">
+                            {formForTeam(row.teamName, division).map((r, idx) => (
+                              <span
+                                key={`${row.teamId}-${idx}-${r}`}
+                                className={`form-badge ${r === 'W' ? 'form-win' : r === 'D' ? 'form-draw' : 'form-loss'}`}
+                              >
+                                {r}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             <div className="division-fixtures">
               <div className="division-fixtures-header">
                 <h5>Fixtures</h5>
@@ -336,7 +276,7 @@ export function LeaguePage() {
                     value={gwForDivision}
                     onChange={(e) => setDivisionFixtureGw((prev) => ({ ...prev, [division]: e.target.value }))}
                   >
-                    {GWS.map((gw) => <option key={`division-${division}-${gw}`} value={gw}>{gw}</option>)}
+                    {DIVISION_GAMEWEEKS.map((gw) => <option key={`division-${division}-${gw}`} value={gw}>{gw}</option>)}
                   </select>
                 </label>
               </div>
@@ -348,7 +288,6 @@ export function LeaguePage() {
                     <div key={fixture.id} className="division-fixture-row">
                       <div className="fixture-row">
                         <strong>{fixture.homeTeam}</strong> ({fixture.homeProfit}) vs <strong>{fixture.awayTeam}</strong> ({fixture.awayProfit}) - {fixture.result}
-                        {rivalryIds.has(fixture.id) && <span className="rivalry-chip">Rivalry</span>}
                         <span className={`difficulty-chip ${difficultyClass(fixture.division, fixture.awayTeam)}`}>Home Difficulty</span>
                         <span className={`difficulty-chip ${difficultyClass(fixture.division, fixture.homeTeam)}`}>Away Difficulty</span>
                       </div>
@@ -360,109 +299,6 @@ export function LeaguePage() {
           </div>
         );
       })}
-
-      <div className="panel">
-        <h3>Rivalry Week</h3>
-        {!state ? (
-          <p className="muted">Loading...</p>
-        ) : rivalryFixtures.length === 0 ? (
-          <p className="muted">No rivalry fixtures available for {state.currentGw}.</p>
-        ) : (
-          rivalryFixtures.map((fixture) => (
-            <div key={`rivalry-${fixture.id}`} className="fixture-row">
-              <strong>{displayDivisionName(fixture.division)}</strong>: {fixture.homeTeam} vs {fixture.awayTeam}
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="panel">
-        <h3>Cup Bracket (GW2-GW6)</h3>
-        {cup.map((fixture) => {
-          const upset = classifyUpset(fixture.homeTeam, fixture.awayTeam, ratings);
-          return (
-            <div key={fixture.id} className="fixture-row">
-              <strong>{fixture.gw}</strong> {fixture.roundName}: {fixture.homeTeam ?? 'BYE'} vs {fixture.awayTeam ?? 'BYE'} - Winner: {fixture.winnerTeam ?? 'TBD'}
-              {upset && (
-                <span className={`upset-chip ${upset.level === 'huge' ? 'upset-huge' : 'upset-watch'}`}>
-                  {upset.level === 'huge' ? 'Huge upset' : 'Upset watch'}: {upset.underdog} over {upset.favorite}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="panel">
-        <h3>Trophy Room</h3>
-        <div className="grid-row">
-          <div>
-            <h4>Cup Trophy</h4>
-            {trophyRoom.cup.length === 0 ? (
-              <p className="muted">No winners yet.</p>
-            ) : (
-              trophyRoom.cup.map((item, idx) => <div key={`${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-            )}
-          </div>
-          <div>
-            <h4>Bookie d&apos;Or</h4>
-            {trophyRoom.bookieDor.length === 0 ? (
-              <p className="muted">No winners yet.</p>
-            ) : (
-              trophyRoom.bookieDor.map((item, idx) => <div key={`dor-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-            )}
-          </div>
-          {Object.entries(trophyRoom.divisions).map(([division, winners]) => (
-            <div key={division}>
-              <h4>{displayDivisionName(division)} Trophy</h4>
-              {winners.length === 0 ? (
-                <p className="muted">No winners yet.</p>
-              ) : (
-                winners.map((item, idx) => <div key={`${division}-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-              )}
-            </div>
-          ))}
-          {Object.entries(trophyRoom.goalsOfSeason).map(([division, winners]) => (
-            <div key={`goal-${division}`}>
-              <h4>{displayDivisionName(division)} Goal of the Season</h4>
-              {winners.length === 0 ? (
-                <p className="muted">No winners yet.</p>
-              ) : (
-                winners.map((item, idx) => <div key={`goal-${division}-${item.season}-${item.teamName}-${idx}`}>{item.season}: {item.teamName}</div>)
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="panel">
-        <h3>Team Drill-down</h3>
-        <select value={selectedTeamId ?? ''} onChange={(e) => setSelectedTeamId(Number(e.target.value))}>
-          <option value="">Select team</option>
-          {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-        </select>
-        {teamStats && (
-          <div>
-            <p>Season Stats: Profit {teamStats.season.profit} | Wins {teamStats.season.wins} | Entries {teamStats.season.entries}</p>
-            <p>All-Time Stats: Profit {teamStats.allTime.profit} | Wins {teamStats.allTime.wins} | Entries {teamStats.allTime.entries}</p>
-            <p>Cup Wins: {teamStats.cupWins} | League Titles: {teamStats.leagueTitles}</p>
-            {selectedTeamRow && (
-              <p>Season Spins: {selectedTeamRow.spins}</p>
-            )}
-          </div>
-        )}
-        {selectedTeamId && (
-          <div className="team-story-wrap">
-            {teamSeasonLoading ? (
-              <p className="muted">Loading season history…</p>
-            ) : teamSeasonHistory && teamSeasonHistory.length > 0 ? (
-              <TeamSeasonStory history={teamSeasonHistory} />
-            ) : (
-              <p className="muted">No season history available yet.</p>
-            )}
-          </div>
-        )}
-      </div>
         </>
       ) : (
         <div className="panel">
