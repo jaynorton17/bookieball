@@ -11,6 +11,7 @@ import './laptop-fit.css';
 import './competition-enhancements.css';
 import './command-centre-v2.css';
 import './gameshow-entertainment.css';
+import './fixture-market.css';
 import './no-zoom-overrides.css';
 
 installBookieBallFetchCache();
