@@ -17,112 +17,107 @@ export function CommandCentreAutoPan() {
     if (location.pathname !== '/') return;
 
     let disposed = false;
-    let frame = 0;
-    let settleTimer = 0;
-    let activeSlideKey = '';
+    const frames = new Set<number>();
+    const timers = new Set<number>();
+    let activeSlide: HTMLElement | null = null;
 
-    const stop = () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(settleTimer);
+    const clearMotion = () => {
+      frames.forEach((frame) => window.cancelAnimationFrame(frame));
+      timers.forEach((timer) => window.clearTimeout(timer));
+      frames.clear();
+      timers.clear();
     };
 
-    const runForCurrentSlide = async (force = false) => {
-      const slide = document.querySelector<HTMLElement>('.command-slide');
-      const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
-      const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
-      const table = slide?.querySelector<HTMLElement>('.command-table');
-      if (!slide || !table) return;
+    const animateContainer = (container: HTMLElement, delay = 1500) => {
+      container.classList.add('command-auto-pan-window');
+      container.scrollTop = 0;
+      container.dataset.autoPan = 'top';
 
-      const slideKey = `${title}|${kicker}`;
-      if (!force && slideKey === activeSlideKey && table.dataset.autoPanStarted === 'true') return;
-      activeSlideKey = slideKey;
-      stop();
-
-      if (title === 'Master League' && table.dataset.fullMaster !== 'true') {
-        try {
-          const payload = await api.masterLeagueTable();
-          if (disposed || !payload.table.length || !document.body.contains(table)) return;
-          const rows = payload.table.slice().sort((a, b) => a.rank - b.rank);
-          table.innerHTML = rows.map(masterRowHtml).join('');
-          table.dataset.fullMaster = 'true';
-        } catch {
-          // Keep the rendered table if the full table cannot be loaded.
-        }
-      }
-
-      if (disposed || !document.body.contains(table)) return;
-      table.classList.add('command-auto-pan-window');
-      table.dataset.autoPanStarted = 'true';
-      table.dataset.autoPan = 'top';
-      table.dataset.autoPanRecalc = 'false';
-      table.scrollTop = 0;
-
-      const begin = () => {
-        if (disposed || !document.body.contains(table)) return;
-        const maxScroll = Math.max(0, table.scrollHeight - table.clientHeight);
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        if (disposed || !document.body.contains(container)) return;
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
         if (maxScroll <= 8) {
-          table.dataset.autoPan = 'static';
+          container.dataset.autoPan = 'static';
           return;
         }
 
-        const leadInMs = 1500;
-        const travelMs = Math.max(5200, Math.min(10500, 4200 + maxScroll * 10));
-        const bottomPauseMs = 1400;
+        const travelMs = Math.max(5200, Math.min(10500, 4200 + maxScroll * 9));
         const startedAt = performance.now();
 
         const tick = (now: number) => {
-          if (disposed || !document.body.contains(table)) return;
-          const elapsed = now - startedAt;
-          if (elapsed < leadInMs) {
-            frame = window.requestAnimationFrame(tick);
-            return;
-          }
-          const progress = Math.min(1, (elapsed - leadInMs) / travelMs);
+          if (disposed || !document.body.contains(container)) return;
+          const progress = Math.min(1, (now - startedAt) / travelMs);
           const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-          table.dataset.autoPan = progress >= 1 ? 'bottom' : 'moving';
-          table.scrollTop = maxScroll * eased;
-          if (progress < 1) frame = window.requestAnimationFrame(tick);
+          container.scrollTop = maxScroll * eased;
+          container.dataset.autoPan = progress >= 1 ? 'bottom' : 'moving';
+          if (progress < 1) {
+            const frame = window.requestAnimationFrame(tick);
+            frames.add(frame);
+          }
         };
 
-        frame = window.requestAnimationFrame(tick);
-        settleTimer = window.setTimeout(() => {
-          if (!disposed && document.body.contains(table)) table.dataset.autoPan = 'bottom';
-        }, leadInMs + travelMs + bottomPauseMs);
-      };
-
-      window.setTimeout(begin, force ? 260 : 180);
+        const frame = window.requestAnimationFrame(tick);
+        frames.add(frame);
+      }, delay);
+      timers.add(timer);
     };
 
-    const handleLayoutChanged = () => {
-      const table = document.querySelector<HTMLElement>('.command-slide .command-table');
-      if (table) {
-        table.dataset.autoPanStarted = 'false';
-        table.dataset.autoPanRecalc = 'false';
+    const prepare = async () => {
+      const slide = document.querySelector<HTMLElement>('.command-slide');
+      if (!slide) return;
+      if (slide === activeSlide && slide.dataset.autoPanPrepared === 'true') return;
+
+      clearMotion();
+      activeSlide = slide;
+      slide.dataset.autoPanPrepared = 'true';
+
+      const title = slide.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
+      let table = slide.querySelector<HTMLElement>('.command-table');
+
+      if (title === 'Master League' && table && table.dataset.fullMaster !== 'true') {
+        try {
+          const payload = await api.masterLeagueTable();
+          if (disposed || !payload.table.length || !document.body.contains(table)) return;
+          table.innerHTML = payload.table.slice().sort((a, b) => a.rank - b.rank).map(masterRowHtml).join('');
+          table.dataset.fullMaster = 'true';
+        } catch {
+          // Keep existing table if the full Master table cannot be loaded.
+        }
       }
-      void runForCurrentSlide(true);
+
+      const layoutTimer = window.setTimeout(() => {
+        timers.delete(layoutTimer);
+        if (disposed || !document.body.contains(slide)) return;
+
+        table = slide.querySelector<HTMLElement>('.command-table');
+        const fixtures = slide.querySelector<HTMLElement>('.command-fixtures');
+
+        if (table) animateContainer(table, 900);
+        if (fixtures) animateContainer(fixtures, 1200);
+      }, 250);
+      timers.add(layoutTimer);
     };
 
-    void runForCurrentSlide();
-    window.addEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
-
+    void prepare();
     const observer = new MutationObserver(() => {
       const slide = document.querySelector<HTMLElement>('.command-slide');
-      const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
-      const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
-      const table = slide?.querySelector<HTMLElement>('.command-table');
-      const key = `${title}|${kicker}`;
-      if (key !== activeSlideKey || table?.dataset.autoPanRecalc === 'true') {
-        void runForCurrentSlide(table?.dataset.autoPanRecalc === 'true');
-      }
+      if (slide !== activeSlide) void prepare();
+      else if (slide && !slide.dataset.autoPanPrepared) void prepare();
     });
-    const root = document.querySelector('.command-centre-page') ?? document.body;
-    observer.observe(root, { subtree: true, childList: true });
+    observer.observe(document.querySelector('.command-centre-page') ?? document.body, { subtree: true, childList: true });
+
+    const onLayoutChanged = () => {
+      if (activeSlide) delete activeSlide.dataset.autoPanPrepared;
+      void prepare();
+    };
+    window.addEventListener('bookieball:command-layout-changed', onLayoutChanged);
 
     return () => {
       disposed = true;
-      stop();
+      clearMotion();
       observer.disconnect();
-      window.removeEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
+      window.removeEventListener('bookieball:command-layout-changed', onLayoutChanged);
     };
   }, [location.pathname]);
 

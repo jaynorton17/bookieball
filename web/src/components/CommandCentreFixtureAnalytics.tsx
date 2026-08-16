@@ -19,13 +19,15 @@ export function CommandCentreFixtureAnalytics() {
   useEffect(() => {
     if (location.pathname !== '/') return;
     let disposed = false;
-    let busy = false;
+    let running = false;
+    const h2hCache = new Map<string, H2H>();
 
     const decorate = async () => {
-      if (busy || disposed) return;
+      if (running || disposed) return;
       const cards = Array.from(document.querySelectorAll<HTMLElement>('.command-slide .command-fixture'));
       if (!cards.length) return;
-      busy = true;
+      running = true;
+
       try {
         const state = await api.state();
         const [teams, league, master, trio, tier] = await Promise.all([
@@ -40,26 +42,35 @@ export function CommandCentreFixtureAnalytics() {
         const fixtures: FixtureView[] = [...league, ...master, ...trio, ...tier];
         const fixtureByPair = new Map(fixtures.map((fixture) => [key(fixture.homeTeam, fixture.awayTeam), fixture]));
         const teamByName = new Map(teams.map((team) => [team.name.trim().toLowerCase(), team]));
-        const h2hCache = new Map<string, H2H>();
 
-        await Promise.all(cards.map(async (card) => {
-          const strongs = Array.from(card.querySelectorAll<HTMLElement>('strong'));
-          if (strongs.length < 2) return;
+        for (const card of cards) {
+          if (disposed || !document.body.contains(card)) continue;
+
+          const matchup = card.querySelector<HTMLElement>('.command-fixture-matchup')
+            ?? Array.from(card.children).find((child) => child.querySelectorAll?.('strong').length >= 2) as HTMLElement | undefined;
+          const strongs = matchup
+            ? Array.from(matchup.querySelectorAll<HTMLElement>('strong'))
+            : Array.from(card.querySelectorAll<HTMLElement>('strong'));
+          if (strongs.length < 2) continue;
+
           const home = strongs[0].textContent?.trim() ?? '';
           const away = strongs[strongs.length - 1].textContent?.trim() ?? '';
-          if (!home || !away) return;
+          if (!home || !away) continue;
 
           const fixture = fixtureByPair.get(key(home, away));
-          const matchup = strongs[0].parentElement;
-          const middle = matchup ? Array.from(matchup.children).find((node) => node.tagName === 'SPAN') as HTMLElement | undefined : undefined;
+          const middle = matchup
+            ? Array.from(matchup.children).find((node) => node.tagName === 'SPAN') as HTMLElement | undefined
+            : undefined;
+
           if (fixture && middle) {
             middle.textContent = `${score(fixture.homeProfit)}   VS   ${score(fixture.awayProfit)}`;
             middle.classList.add('command-fixture-scoreline');
+            card.dataset.scoreDecorated = 'true';
           }
 
           const homeTeam = teamByName.get(home.toLowerCase());
           const awayTeam = teamByName.get(away.toLowerCase());
-          if (!homeTeam || !awayTeam) return;
+          if (!homeTeam || !awayTeam) continue;
 
           const pairKey = key(home, away);
           let h2h = h2hCache.get(pairKey);
@@ -67,7 +78,7 @@ export function CommandCentreFixtureAnalytics() {
             h2h = await api.headToHeadAllTime(homeTeam.id, awayTeam.id).catch(() => null as H2H | null) ?? undefined;
             if (h2h) h2hCache.set(pairKey, h2h);
           }
-          if (!h2h || disposed) return;
+          if (!h2h || disposed || !document.body.contains(card)) continue;
 
           let footer = card.querySelector<HTMLElement>('.command-fixture-h2h');
           if (!footer) {
@@ -76,16 +87,23 @@ export function CommandCentreFixtureAnalytics() {
             card.appendChild(footer);
           }
           footer.textContent = `ALL-TIME H2H · ${home} ${h2h.teamAWins}W ${h2h.teamBWins}L ${h2h.draws}D · ${away} ${h2h.teamBWins}W ${h2h.teamAWins}L ${h2h.draws}D`;
-        }));
+          card.dataset.h2hDecorated = 'true';
+        }
       } finally {
-        busy = false;
+        running = false;
       }
     };
 
     void decorate();
+    const interval = window.setInterval(() => void decorate(), 700);
     const observer = new MutationObserver(() => void decorate());
     observer.observe(document.querySelector('.command-centre-page') ?? document.body, { subtree: true, childList: true });
-    return () => { disposed = true; observer.disconnect(); };
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      observer.disconnect();
+    };
   }, [location.pathname]);
 
   return null;

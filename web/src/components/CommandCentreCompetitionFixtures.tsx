@@ -26,9 +26,14 @@ function fixtureHtml(fixture: FixtureView): string {
       : fixture.result === 'home'
         ? `${home} WIN`
         : `${away} WIN`;
+
   return `<div class="command-fixture${fixture.result === 'pending' ? ' is-pending' : ''}" data-generated-competition-fixture="true" style="padding:9px 11px 9px 14px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)">
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:5px"><span style="color:${fixture.result === 'pending' ? '#f2c14e' : '#91a8bd'};font-size:9px;font-weight:900;letter-spacing:.1em">${status}</span></div>
-    <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:7px;font-size:13px"><strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${home}</strong><span class="command-fixture-scoreline">${signed(fixture.homeProfit)} &nbsp; VS &nbsp; ${signed(fixture.awayProfit)}</span><strong style="text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${away}</strong></div>
+    <div class="command-fixture-matchup" style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:9px;font-size:13px">
+      <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${home}</strong>
+      <span class="command-fixture-scoreline">${signed(fixture.homeProfit)} &nbsp; VS &nbsp; ${signed(fixture.awayProfit)}</span>
+      <strong style="text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${away}</strong>
+    </div>
   </div>`;
 }
 
@@ -49,6 +54,7 @@ export function CommandCentreCompetitionFixtures() {
       const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
       if (!slide || !body || !table) return;
       if (body.querySelector('[data-competition-fixtures-panel="true"]')) return;
+
       const isMaster = title === 'Master League';
       const isTrio = kicker === 'TRIO LEAGUE';
       const isTier = kicker === 'TIER LEAGUE';
@@ -58,6 +64,7 @@ export function CommandCentreCompetitionFixtures() {
       try {
         const state = await api.state();
         let fixtures: FixtureView[] = [];
+
         if (isMaster) {
           fixtures = (await api.masterLeagueFixtures(state.currentGw, false).catch(() => [])).map((row) => ({ ...row }));
         } else if (isTrio) {
@@ -71,24 +78,28 @@ export function CommandCentreCompetitionFixtures() {
             || displayDivisionName(row.awayDivision ?? '') === title
           )).map((row) => ({ ...row }));
         }
+
         if (disposed || fixtures.length === 0 || !document.body.contains(table)) return;
 
         const layout = document.createElement('div');
         layout.className = 'command-division-layout command-competition-layout';
+
         const fixturePanel = document.createElement('div');
-        fixturePanel.className = 'command-fixtures';
+        fixturePanel.className = 'command-fixtures command-fixtures-scroll-window';
         fixturePanel.dataset.competitionFixturesPanel = 'true';
         fixturePanel.innerHTML = `<div class="command-section-label"><span>${state.currentGw} FIXTURES</span><span>${fixtures.length} games</span></div>${fixtures.map(fixtureHtml).join('')}`;
 
         body.insertBefore(layout, table);
         layout.appendChild(table);
         layout.appendChild(fixturePanel);
+
         table.style.maxWidth = 'none';
         table.style.width = '100%';
         table.style.justifySelf = 'stretch';
         table.style.alignContent = 'start';
         table.dataset.autoPanStarted = 'false';
-        table.dataset.autoPanRecalc = 'true';
+        fixturePanel.dataset.autoPanStarted = 'false';
+
         window.dispatchEvent(new CustomEvent('bookieball:command-layout-changed'));
       } finally {
         busy = false;
