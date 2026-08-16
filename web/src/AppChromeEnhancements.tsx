@@ -13,6 +13,10 @@ function score(value: number): string {
   return (Number.isFinite(value) ? value : 0).toFixed(2);
 }
 
+function groupedBoardHtml(groups: Array<{ division: string; rows: Array<{ rank: number; teamName: string; points: number; wins: number; draws: number; losses: number; profit: number }> }>): string {
+  return `<div class="command-group-board">${groups.map((group) => `<section class="command-group-card"><div class="command-group-title">${group.division}</div>${group.rows.slice(0, 5).map((row) => `<div class="command-group-row"><span class="command-group-rank">#${row.rank}</span><strong>${row.teamName}</strong><span>${row.points} pts</span><small>${row.wins}W ${row.draws}D ${row.losses}L · ${row.profit > 0 ? '+' : ''}${row.profit.toFixed(2)}</small></div>`).join('')}</section>`).join('')}</div>`;
+}
+
 export function AppChromeEnhancements() {
   const location = useLocation();
   const [penaltyCount, setPenaltyCount] = useState(0);
@@ -159,9 +163,11 @@ export function AppChromeEnhancements() {
           const text = element.textContent ?? '';
           const parts = text.split(/\s+vs\s+/i);
           if (parts.length !== 2) return;
-          const fixture = byPair.get(fixtureKey(parts[0], parts[1]));
+          const home = parts[0].replace(/\s+-?\d+\.\d+\s*$/,'').trim();
+          const away = parts[1].replace(/^\s*-?\d+\.\d+\s*/,'').trim();
+          const fixture = byPair.get(fixtureKey(home, away));
           if (!fixture) return;
-          element.textContent = `${parts[0].trim()}  ${score(fixture.homeProfit)}   VS   ${score(fixture.awayProfit)}  ${parts[1].trim()}`;
+          element.textContent = `${home}  ${score(fixture.homeProfit)}   VS   ${score(fixture.awayProfit)}  ${away}`;
         });
       } catch {
         // Visual enhancement only.
@@ -170,6 +176,34 @@ export function AppChromeEnhancements() {
     void decorateFixtureScores();
     const timer = window.setInterval(() => void decorateFixtureScores(), 2500);
     return () => { active = false; window.clearInterval(timer); };
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/') return;
+    let disposed = false;
+    const decorate = async () => {
+      const title = document.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim();
+      if (title !== 'Trio League' && title !== 'Tier League') return;
+      const table = document.querySelector<HTMLElement>('.command-slide .command-table');
+      if (!table || table.dataset.groupedCompetition === title) return;
+      try {
+        const payload = title === 'Trio League' ? await api.trioLeagueTable() : await api.tierLeagueTable();
+        if (disposed || !payload.table.length) return;
+        const divisions = Array.from(new Set(payload.table.map((row) => row.division)));
+        const groups = divisions.map((division) => ({
+          division,
+          rows: payload.table.filter((row) => row.division === division).slice().sort((a, b) => a.rank - b.rank),
+        }));
+        table.dataset.groupedCompetition = title;
+        table.innerHTML = groupedBoardHtml(groups);
+      } catch {
+        // Keep the normal slide if the grouped view cannot be built.
+      }
+    };
+    void decorate();
+    const observer = new MutationObserver(() => void decorate());
+    observer.observe(document.body, { subtree: true, childList: true });
+    return () => { disposed = true; observer.disconnect(); };
   }, [location.pathname]);
 
   return <TeamJourneyOverlay open={teamJourneyOpen} onClose={() => setTeamJourneyOpen(false)} />;
