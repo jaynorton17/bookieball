@@ -4,6 +4,7 @@ export type CompetitionFinish = {
   competition: CompetitionKey;
   entered: boolean;
   label: string;
+  division?: string | null;
   rank?: number | null;
   total?: number | null;
   stage?: string | null;
