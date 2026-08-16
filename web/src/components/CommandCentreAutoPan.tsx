@@ -18,23 +18,23 @@ export function CommandCentreAutoPan() {
 
     let disposed = false;
     let frame = 0;
-    let advanceCheckTimer = 0;
+    let settleTimer = 0;
     let activeSlideKey = '';
 
     const stop = () => {
       window.cancelAnimationFrame(frame);
-      window.clearTimeout(advanceCheckTimer);
+      window.clearTimeout(settleTimer);
     };
 
-    const runForCurrentSlide = async () => {
+    const runForCurrentSlide = async (force = false) => {
       const slide = document.querySelector<HTMLElement>('.command-slide');
       const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
       const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
       const table = slide?.querySelector<HTMLElement>('.command-table');
       if (!slide || !table) return;
 
-      const slideKey = `${title}|${kicker}|${slide.getAttribute('style') ?? ''}`;
-      if (slideKey === activeSlideKey && table.dataset.autoPanStarted === 'true') return;
+      const slideKey = `${title}|${kicker}`;
+      if (!force && slideKey === activeSlideKey && table.dataset.autoPanStarted === 'true') return;
       activeSlideKey = slideKey;
       stop();
 
@@ -54,6 +54,7 @@ export function CommandCentreAutoPan() {
       table.classList.add('command-auto-pan-window');
       table.dataset.autoPanStarted = 'true';
       table.dataset.autoPan = 'top';
+      table.dataset.autoPanRecalc = 'false';
       table.scrollTop = 0;
 
       const begin = () => {
@@ -84,22 +85,35 @@ export function CommandCentreAutoPan() {
         };
 
         frame = window.requestAnimationFrame(tick);
-        advanceCheckTimer = window.setTimeout(() => {
+        settleTimer = window.setTimeout(() => {
           if (!disposed && document.body.contains(table)) table.dataset.autoPan = 'bottom';
         }, leadInMs + travelMs + bottomPauseMs);
       };
 
-      // Let fixture/H2H decorators finish before measuring the available table height.
-      window.setTimeout(begin, 180);
+      window.setTimeout(begin, force ? 260 : 180);
+    };
+
+    const handleLayoutChanged = () => {
+      const table = document.querySelector<HTMLElement>('.command-slide .command-table');
+      if (table) {
+        table.dataset.autoPanStarted = 'false';
+        table.dataset.autoPanRecalc = 'false';
+      }
+      void runForCurrentSlide(true);
     };
 
     void runForCurrentSlide();
+    window.addEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
+
     const observer = new MutationObserver(() => {
       const slide = document.querySelector<HTMLElement>('.command-slide');
       const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
       const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
-      const key = `${title}|${kicker}|${slide?.getAttribute('style') ?? ''}`;
-      if (key !== activeSlideKey) void runForCurrentSlide();
+      const table = slide?.querySelector<HTMLElement>('.command-table');
+      const key = `${title}|${kicker}`;
+      if (key !== activeSlideKey || table?.dataset.autoPanRecalc === 'true') {
+        void runForCurrentSlide(table?.dataset.autoPanRecalc === 'true');
+      }
     });
     const root = document.querySelector('.command-centre-page') ?? document.body;
     observer.observe(root, { subtree: true, childList: true });
@@ -108,6 +122,7 @@ export function CommandCentreAutoPan() {
       disposed = true;
       stop();
       observer.disconnect();
+      window.removeEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
     };
   }, [location.pathname]);
 
