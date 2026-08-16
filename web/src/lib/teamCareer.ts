@@ -10,7 +10,7 @@ function label(value: string | null | undefined): string {
 }
 
 function emptyFinish(competition: CompetitionKey): CompetitionFinish {
-  return { competition, entered: false, label: '—', rank: null, total: null, stage: null, divisionLevel: null };
+  return { competition, entered: false, label: '—', division: null, rank: null, total: null, stage: null, divisionLevel: null };
 }
 
 function stageLabel(stage: string): string {
@@ -69,25 +69,25 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
 
       const competitions = {
         league: division
-          ? { competition: 'league' as const, entered: true, label: `${division.division} #${division.rank}`, rank: division.rank, total: division.total, divisionLevel: division.divisionLevel }
+          ? { competition: 'league' as const, entered: true, label: `${division.division} #${division.rank}`, division: division.division, rank: division.rank, total: division.total, divisionLevel: division.divisionLevel }
           : historyRow
-            ? { competition: 'league' as const, entered: true, label: `${historyRow.division} #${historyRow.rank}`, rank: historyRow.rank, total: null, divisionLevel: null }
+            ? { competition: 'league' as const, entered: true, label: `${historyRow.division} #${historyRow.rank}`, division: historyRow.division, rank: historyRow.rank, total: null, divisionLevel: null }
             : emptyFinish('league'),
         master: master
-          ? { competition: 'master' as const, entered: true, label: `#${master.rank}/${master.total}`, rank: master.rank, total: master.total }
+          ? { competition: 'master' as const, entered: true, label: `#${master.rank}/${master.total}`, division: null, rank: master.rank, total: master.total }
           : emptyFinish('master'),
         trio: trio
-          ? { competition: 'trio' as const, entered: true, label: `${trio.division} #${trio.rank}/${trio.total}`, rank: trio.rank, total: trio.total }
+          ? { competition: 'trio' as const, entered: true, label: `${trio.division} #${trio.rank}/${trio.total}`, division: trio.division, rank: trio.rank, total: trio.total }
           : emptyFinish('trio'),
         tier: tier
-          ? { competition: 'tier' as const, entered: true, label: `${tier.division} #${tier.rank}/${tier.total}`, rank: tier.rank, total: tier.total }
+          ? { competition: 'tier' as const, entered: true, label: `${tier.division} #${tier.rank}/${tier.total}`, division: tier.division, rank: tier.rank, total: tier.total }
           : emptyFinish('tier'),
         bookieball_cup: historyRow?.cupFinish && historyRow.cupFinish !== 'none'
-          ? { competition: 'bookieball_cup' as const, entered: true, label: label(historyRow.cupFinish) }
+          ? { competition: 'bookieball_cup' as const, entered: true, label: label(historyRow.cupFinish), division: null }
           : emptyFinish('bookieball_cup'),
         master_cup: emptyFinish('master_cup'),
         super_cup: historyRow?.superCupFinish && historyRow.superCupFinish !== 'none'
-          ? { competition: 'super_cup' as const, entered: true, label: label(historyRow.superCupFinish) }
+          ? { competition: 'super_cup' as const, entered: true, label: label(historyRow.superCupFinish), division: null }
           : emptyFinish('super_cup'),
       } satisfies Record<CompetitionKey, CompetitionFinish>;
 
@@ -102,7 +102,7 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
         if (final?.winnerTeamId === teamId) { finish = 'Winner'; winner = true; }
         else if (final?.played) { finish = 'Runner-up'; runnerUp = true; }
         else if (furthest.played && furthest.winnerTeamId && furthest.winnerTeamId !== teamId) finish = `Out ${stageLabel(furthest.stage)}`;
-        competitions.master_cup = { competition: 'master_cup', entered: true, label: finish, stage: furthest.stage, winner, runnerUp };
+        competitions.master_cup = { competition: 'master_cup', entered: true, label: finish, division: null, stage: furthest.stage, winner, runnerUp };
 
         for (const fixture of ordered) {
           const opponentId = fixture.homeTeamId === teamId ? fixture.awayTeamId : fixture.homeTeamId;
