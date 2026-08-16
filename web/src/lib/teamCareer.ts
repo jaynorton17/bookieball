@@ -6,11 +6,11 @@ let careerCache = new Map<number, Promise<TeamCareer>>();
 
 function label(value: string | null | undefined): string {
   if (!value || value === 'none') return '—';
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (char: string) => char.toUpperCase());
 }
 
 function emptyFinish(competition: CompetitionKey): CompetitionFinish {
-  return { competition, entered: false, label: '—', rank: null, total: null, stage: null };
+  return { competition, entered: false, label: '—', rank: null, total: null, stage: null, divisionLevel: null };
 }
 
 function stageLabel(stage: string): string {
@@ -69,18 +69,18 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
 
       const competitions = {
         league: division
-          ? { competition: 'league' as const, entered: true, label: `${division.division} #${division.rank}`, rank: division.rank, total: division.total }
+          ? { competition: 'league' as const, entered: true, label: `${division.division} #${division.rank}`, rank: division.rank, total: division.total, divisionLevel: division.divisionLevel }
           : historyRow
-            ? { competition: 'league' as const, entered: true, label: `${historyRow.division} #${historyRow.rank}`, rank: historyRow.rank, total: null }
+            ? { competition: 'league' as const, entered: true, label: `${historyRow.division} #${historyRow.rank}`, rank: historyRow.rank, total: null, divisionLevel: null }
             : emptyFinish('league'),
         master: master
           ? { competition: 'master' as const, entered: true, label: `#${master.rank}/${master.total}`, rank: master.rank, total: master.total }
           : emptyFinish('master'),
         trio: trio
-          ? { competition: 'trio' as const, entered: true, label: `${trio.division} #${trio.rank}`, rank: trio.rank, total: trio.total }
+          ? { competition: 'trio' as const, entered: true, label: `${trio.division} #${trio.rank}/${trio.total}`, rank: trio.rank, total: trio.total }
           : emptyFinish('trio'),
         tier: tier
-          ? { competition: 'tier' as const, entered: true, label: `${tier.division} #${tier.rank}`, rank: tier.rank, total: tier.total }
+          ? { competition: 'tier' as const, entered: true, label: `${tier.division} #${tier.rank}/${tier.total}`, rank: tier.rank, total: tier.total }
           : emptyFinish('tier'),
         bookieball_cup: historyRow?.cupFinish && historyRow.cupFinish !== 'none'
           ? { competition: 'bookieball_cup' as const, entered: true, label: label(historyRow.cupFinish) }
@@ -118,10 +118,11 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
       for (const fixture of (cupBySeason[season] ?? []).filter((row) => row.homeTeam === team.name || row.awayTeam === team.name)) {
         const opponentName = fixture.homeTeam === team.name ? fixture.awayTeam : fixture.homeTeam;
         const opponent = teams.find((row) => row.name === opponentName);
+        const isFinal = fixture.roundName.trim().toLowerCase() === 'final';
         knockoutJourney.push({
           competition: 'bookieball_cup', season, round: fixture.roundName, fixtureId: fixture.id,
           opponentTeamId: opponent?.id ?? null, opponentTeamName: opponentName,
-          outcome: fixture.winnerTeam === team.name ? (fixture.roundName.toLowerCase().includes('final') ? 'winner' : 'advanced') : fixture.played ? 'eliminated' : 'pending',
+          outcome: fixture.winnerTeam === team.name ? (isFinal ? 'winner' : 'advanced') : fixture.played ? (isFinal ? 'runner_up' : 'eliminated') : 'pending',
         });
       }
 
