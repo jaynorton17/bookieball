@@ -13,6 +13,7 @@
     "src/lib/appEvents.ts",
     "src/lib/fetchCache.ts",
     "src/lib/currentGameweekSnapshot.ts",
+    "src/lib/BookieBallDataContext.tsx",
     "src/lib/competitionRegistry.ts",
     "src/lib/historyModels.ts",
     "src/lib/teamCareer.ts",
