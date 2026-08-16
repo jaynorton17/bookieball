@@ -7,6 +7,7 @@ export type CompetitionFinish = {
   rank?: number | null;
   total?: number | null;
   stage?: string | null;
+  divisionLevel?: number | null;
   winner?: boolean;
   runnerUp?: boolean;
 };
