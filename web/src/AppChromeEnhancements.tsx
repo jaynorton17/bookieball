@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { CommandCentreAutoPan } from './components/CommandCentreAutoPan';
 import { TeamJourneyOverlay } from './components/TeamJourneyOverlay';
 import { api } from './lib/api';
 
@@ -206,5 +207,5 @@ export function AppChromeEnhancements() {
     return () => { disposed = true; observer.disconnect(); };
   }, [location.pathname]);
 
-  return <TeamJourneyOverlay open={teamJourneyOpen} onClose={() => setTeamJourneyOpen(false)} />;
+  return <><CommandCentreAutoPan /><TeamJourneyOverlay open={teamJourneyOpen} onClose={() => setTeamJourneyOpen(false)} /></>;
 }
