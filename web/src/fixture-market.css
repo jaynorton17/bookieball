@@ -1,0 +1,25 @@
+.command-fixture-market{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:5px;
+  margin-top:5px;
+  padding:5px 7px;
+  border-top:1px solid rgba(145,168,189,.12);
+  border-bottom:1px solid rgba(145,168,189,.09);
+  font-size:8px;
+  font-weight:850;
+  letter-spacing:.08em;
+  color:#91a8bd;
+  text-align:center;
+}
+.command-fixture-market span{white-space:nowrap}
+.command-fixture-market b{color:#f7fbff;font-size:10px;margin-right:3px}
+.command-fixture.is-next{background:linear-gradient(145deg,rgba(12,29,48,.82),rgba(9,21,35,.78));opacity:.96}
+.command-fixture.is-next .command-fixture-scoreline{color:#91a8bd}
+.command-fixture-band-label{position:sticky;top:0;z-index:4;background:#0a1b2d;padding:4px 2px 5px}
+.command-next-band{margin-top:10px;border-top:1px solid rgba(94,183,255,.2);padding-top:8px}
+@media(max-height:820px){
+  .command-fixture-market{padding:3px 5px;font-size:7px;gap:3px;margin-top:3px}
+  .command-fixture-market b{font-size:9px}
+  .command-next-band{margin-top:7px;padding-top:6px}
+}
