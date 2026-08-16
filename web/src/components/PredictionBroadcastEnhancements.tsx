@@ -207,7 +207,7 @@ function PredictionMiniShow({ data }: { data: BroadcastData }) {
 
   useEffect(() => {
     if (slides.length < 2) return;
-    const timer = window.setInterval(() => setIndex((value) => (value + 1) % slides.length), 6500);
+    const timer = window.setInterval(() => setIndex((value) => (value + 1) % slides.length), 10000);
     return () => window.clearInterval(timer);
   }, [slides.length]);
   useEffect(() => { if (index >= slides.length) setIndex(0); }, [index, slides.length]);
