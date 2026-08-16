@@ -26,6 +26,7 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [career, setCareer] = useState<TeamCareer | null>(null);
   const [loading, setLoading] = useState(false);
+  const [journeyIndex, setJourneyIndex] = useState(0);
 
   useEffect(() => {
     if (!open || teams.length) return;
@@ -41,6 +42,7 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
     let active = true;
     setLoading(true);
     setCareer(null);
+    setJourneyIndex(0);
     void loadTeamCareer(selectedId).then((next) => {
       if (active) setCareer(next);
     }).catch(() => {
@@ -51,6 +53,15 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
     return () => { active = false; };
   }, [open, selectedId]);
 
+  useEffect(() => {
+    if (!open || !career?.seasons.length) return;
+    setJourneyIndex(0);
+    const timer = window.setInterval(() => {
+      setJourneyIndex((current) => (current + 1) % career.seasons.length);
+    }, 1250);
+    return () => window.clearInterval(timer);
+  }, [open, career]);
+
   const selectedTeam = teams.find((team) => team.id === selectedId) ?? null;
   const points = useMemo(() => {
     if (!career?.seasons.length) return [];
@@ -58,15 +69,29 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
     const maxLevel = Math.max(1, ...levels);
     return career.seasons.map((season, index) => {
       const league = season.competitions.league;
-      const x = career.seasons.length <= 1 ? 50 : 5 + (index / (career.seasons.length - 1)) * 90;
+      const x = career.seasons.length <= 1 ? 50 : 7 + (index / (career.seasons.length - 1)) * 86;
       const level = league.divisionLevel ?? maxLevel;
-      const rank = league.rank ?? 1;
-      const total = league.total ?? Math.max(rank, 8);
-      const withinDivision = total > 1 ? (rank - 1) / (total - 1) : 0;
-      const normalized = ((level - 1) + withinDivision) / Math.max(1, maxLevel);
-      return { season, x, y: 12 + normalized * 68 };
+      const normalized = maxLevel <= 1 ? 0.5 : (level - 1) / (maxLevel - 1);
+      return { season, x, y: 16 + normalized * 54, level, division: league.division ?? league.label };
     });
   }, [career]);
+
+  const divisionBands = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const point of points) {
+      if (!seen.has(point.level)) seen.set(point.level, point.division);
+    }
+    const maxLevel = Math.max(1, ...Array.from(seen.keys()));
+    return Array.from(seen.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([level, division]) => ({
+        level,
+        division,
+        y: 16 + (maxLevel <= 1 ? 0.5 : (level - 1) / (maxLevel - 1)) * 54,
+      }));
+  }, [points]);
+
+  const activePoint = points[Math.min(journeyIndex, Math.max(0, points.length - 1))] ?? null;
 
   if (!open) return null;
 
@@ -96,28 +121,47 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
         {loading ? <div style={{ padding: 40, color: '#91a8bd' }}>Building complete career…</div> : !career?.seasons.length ? <div style={{ padding: 40, color: '#91a8bd' }}>No historical journey available.</div> : (
           <>
             <section style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 18, padding: 12, overflowX: 'auto' }}>
-              <svg viewBox="0 0 100 88" preserveAspectRatio="none" style={{ width: '100%', minWidth: 900, height: 340, overflow: 'visible' }}>
-                {[0, 1, 2, 3, 4].map((line) => <line key={line} x1="3" x2="97" y1={12 + line * 17} y2={12 + line * 17} stroke="rgba(255,255,255,.08)" strokeWidth=".25" />)}
-                <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#5eb7ff" strokeWidth=".7" vectorEffect="non-scaling-stroke" />
-                {points.map((point) => (
-                  <g key={point.season.season}>
-                    <circle cx={point.x} cy={point.y} r="1.9" fill={selectedTeam?.ballColor ?? '#5eb7ff'} stroke={selectedTeam?.ringColor ?? '#fff'} strokeWidth=".45" vectorEffect="non-scaling-stroke" />
-                    <text x={point.x} y={84} textAnchor="middle" fill="#91a8bd" fontSize="2.4">{point.season.season}</text>
-                    <text x={point.x} y={Math.max(5, point.y - 4)} textAnchor="middle" fill="#f7fbff" fontSize="2.2">#{point.season.competitions.league.rank ?? '—'}</text>
-                  </g>
-                ))}
-              </svg>
-              <div style={{ color: '#91a8bd', fontSize: 11, marginTop: -10 }}>The team ball rises and falls with its standard-league level and finishing position from season to season.</div>
+              <div style={{ position: 'relative', minWidth: 900, height: 350 }}>
+                <svg viewBox="0 0 100 88" preserveAspectRatio="none" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                  {divisionBands.map((band) => (
+                    <g key={`division-${band.level}`}>
+                      <line x1="8" x2="96" y1={band.y} y2={band.y} stroke="rgba(255,255,255,.09)" strokeWidth=".25" />
+                      <text x="2" y={band.y + 0.8} fill="#6ec5ff" fontSize="2.2" fontWeight="700">{band.division}</text>
+                    </g>
+                  ))}
+                  <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#5eb7ff" strokeWidth=".65" opacity=".62" vectorEffect="non-scaling-stroke" />
+                  {points.map((point, index) => (
+                    <g key={point.season.season}>
+                      <circle cx={point.x} cy={point.y} r=".75" fill={index <= journeyIndex ? '#5eb7ff' : '#29465f'} opacity={index <= journeyIndex ? .9 : .55} />
+                      <text x={point.x} y="83" textAnchor="middle" fill={index === journeyIndex ? '#f7fbff' : '#91a8bd'} fontSize="2.4" fontWeight={index === journeyIndex ? '800' : '500'}>{point.season.season}</text>
+                    </g>
+                  ))}
+                  {activePoint && (
+                    <g style={{ transition: 'transform 900ms cubic-bezier(.22,.8,.25,1)' }} transform={`translate(${activePoint.x} ${activePoint.y})`}>
+                      <circle r="2.75" fill={selectedTeam?.ballColor ?? '#5eb7ff'} stroke={selectedTeam?.ringColor ?? '#fff'} strokeWidth=".6" vectorEffect="non-scaling-stroke" />
+                      <circle r="3.5" fill="none" stroke="rgba(255,255,255,.22)" strokeWidth=".35" vectorEffect="non-scaling-stroke" />
+                    </g>
+                  )}
+                </svg>
+                {activePoint && (
+                  <div style={{ position: 'absolute', right: 18, top: 14, padding: '7px 10px', borderRadius: 10, background: 'rgba(5,15,27,.82)', border: '1px solid rgba(94,183,255,.22)', textAlign: 'right' }}>
+                    <strong style={{ display: 'block', color: '#fff', fontSize: 13 }}>{activePoint.season.season}</strong>
+                    <span style={{ color: '#6ec5ff', fontSize: 11, fontWeight: 800 }}>{activePoint.division}</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ color: '#91a8bd', fontSize: 11, marginTop: -4 }}>The ball travels through each season and moves vertically only when the team changes division.</div>
             </section>
 
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 9, marginTop: 12 }}>
               {career.seasons.map((season) => (
                 <article key={season.season} style={{ background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 13, padding: 11 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}><strong style={{ fontSize: 16 }}>{season.season}</strong><span style={{ color: '#5eb7ff', fontWeight: 900 }}>{season.competitions.league.label}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}><strong style={{ fontSize: 16 }}>{season.season}</strong><span style={{ color: '#5eb7ff', fontWeight: 900 }}>{season.competitions.league.division ?? season.competitions.league.label}</span></div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '4px 8px', color: '#91a8bd', fontSize: 10 }}>
                     {competitionRows.map(([key, name]) => {
                       const finish = season.competitions[key];
-                      return <span key={`${season.season}-${key}`} style={{ display: 'contents' }}><span>{name}</span><strong style={{ color: finish.winner ? '#f2c14e' : finish.entered ? '#fff' : '#61788d' }}>{finish.label}</strong></span>;
+                      const value = key === 'league' ? (finish.division ?? finish.label) : finish.label;
+                      return <span key={`${season.season}-${key}`} style={{ display: 'contents' }}><span>{name}</span><strong style={{ color: finish.winner ? '#f2c14e' : finish.entered ? '#fff' : '#61788d' }}>{value}</strong></span>;
                     })}
                   </div>
                 </article>
