@@ -12,6 +12,7 @@ import './competition-enhancements.css';
 import './command-centre-v2.css';
 import './gameshow-entertainment.css';
 import './no-zoom-overrides.css';
+import './gameshow-clean.css';
 
 installBookieBallFetchCache();
 
