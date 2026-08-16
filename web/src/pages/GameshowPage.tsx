@@ -7748,9 +7748,6 @@ export function GameshowPage() {
                   })
                 )}
               </div>
-              {predictionSlate.length > 0 && predictionSlateMissingCount === 0 ? (
-                <p className="muted">The slate mixes random fixtures from leagues and cups across the full app for one quicker weekly round.</p>
-              ) : null}
             </div>
           </div>
 
