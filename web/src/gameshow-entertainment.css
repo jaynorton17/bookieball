@@ -1,0 +1,265 @@
+body.gameshow-laptop-mode .kickoff-wheel-card,
+body.gameshow-laptop-mode .kickoff-simple-fixture,
+body.gameshow-laptop-mode .sky-studio-panel,
+body.gameshow-laptop-mode .studio-live-widget{
+  position:relative;
+  overflow:hidden;
+}
+
+body.gameshow-laptop-mode .kickoff-wheel-card::after,
+body.gameshow-laptop-mode .sky-studio-panel::after{
+  content:"";
+  position:absolute;
+  inset:-45% -20%;
+  pointer-events:none;
+  background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,.035) 47%,rgba(255,255,255,.085) 50%,rgba(255,255,255,.035) 53%,transparent 64%);
+  transform:translateX(-48%);
+  animation:gameshowStudioSweep 7s linear infinite;
+}
+
+body.gameshow-laptop-mode .kickoff-simple-fixture{
+  transition:transform .28s ease,border-color .28s ease,background .28s ease;
+}
+
+body.gameshow-laptop-mode .kickoff-simple-fixture:nth-child(odd){animation:gameshowFixtureBreathe 4.8s ease-in-out infinite}
+body.gameshow-laptop-mode .kickoff-simple-fixture:nth-child(even){animation:gameshowFixtureBreathe 4.8s ease-in-out -2.4s infinite}
+
+.gameshow-cylinder-enhanced .kickoff-carousel-spotlight,
+.gameshow-cylinder-enhanced .kickoff-carousel-track{
+  display:none!important;
+}
+
+.gameshow-cylinder-enhanced .kickoff-carousel-shell{
+  min-height:clamp(310px,48vh,500px);
+  display:grid;
+  place-items:center;
+  overflow:visible!important;
+}
+
+.gameshow-ball-cylinder{
+  width:min(980px,96%);
+  height:100%;
+  min-height:310px;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:8px;
+  color:#f7fbff;
+  animation:gameshowCylinderArrival .55s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.gameshow-cylinder-title{
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:18px;
+  padding:0 12px;
+}
+
+.gameshow-cylinder-title span{
+  color:#f6bf4f;
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.18em;
+}
+
+.gameshow-cylinder-title strong{
+  font-size:12px;
+  color:#9eb4c8;
+  font-weight:800;
+}
+
+.gameshow-cylinder-machine{
+  position:relative;
+  min-height:280px;
+  display:grid;
+  place-items:center;
+  isolation:isolate;
+}
+
+.gameshow-cylinder-glass{
+  position:absolute;
+  left:50%;
+  top:2%;
+  width:min(610px,76%);
+  height:78%;
+  transform:translateX(-50%);
+  border:2px solid rgba(168,215,255,.38);
+  border-top:5px solid rgba(168,215,255,.55);
+  border-radius:42% 42% 24px 24px / 14% 14% 24px 24px;
+  background:
+    linear-gradient(90deg,rgba(255,255,255,.02),rgba(120,205,255,.07) 28%,rgba(255,255,255,.015) 55%,rgba(120,205,255,.07) 78%,rgba(255,255,255,.025)),
+    linear-gradient(180deg,rgba(9,29,48,.52),rgba(4,12,21,.78));
+  box-shadow:inset 0 0 45px rgba(100,190,255,.07),0 18px 50px rgba(0,0,0,.34);
+  overflow:hidden;
+}
+
+.gameshow-cylinder-glass::before,
+.gameshow-cylinder-glass::after{
+  content:"";
+  position:absolute;
+  top:5%;
+  bottom:8%;
+  width:10%;
+  border-radius:999px;
+  filter:blur(1px);
+  pointer-events:none;
+}
+
+.gameshow-cylinder-glass::before{left:5%;background:linear-gradient(90deg,rgba(255,255,255,.16),transparent)}
+.gameshow-cylinder-glass::after{right:5%;background:linear-gradient(270deg,rgba(255,255,255,.08),transparent)}
+
+.gameshow-cylinder-neck{
+  position:absolute;
+  left:50%;
+  top:-3px;
+  width:25%;
+  height:28px;
+  transform:translate(-50%,-52%);
+  border:2px solid rgba(168,215,255,.45);
+  border-bottom:0;
+  border-radius:22px 22px 0 0;
+  background:linear-gradient(180deg,rgba(10,33,53,.95),rgba(8,23,39,.82));
+  z-index:5;
+}
+
+.gameshow-cylinder-balls{
+  position:absolute;
+  inset:5% 5% 7%;
+}
+
+.gameshow-cylinder-ball{
+  --ball-left:50%;
+  --ball-bottom:10%;
+  --ball-delay:0s;
+  --ball-color:#5eb7ff;
+  --ball-ring:#fff;
+  --ball-text:#07111d;
+  position:absolute;
+  left:var(--ball-left);
+  bottom:var(--ball-bottom);
+  width:clamp(31px,3.7vw,50px);
+  aspect-ratio:1;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  border:3px solid var(--ball-ring);
+  background:var(--ball-color);
+  color:var(--ball-text);
+  font-size:clamp(9px,1vw,13px);
+  font-weight:1000;
+  box-shadow:inset -7px -9px 12px rgba(0,0,0,.22),inset 5px 5px 10px rgba(255,255,255,.18),0 8px 14px rgba(0,0,0,.28);
+  transform:translate(-50%,0);
+  animation:gameshowBallTumble 1.7s ease-in-out var(--ball-delay) infinite alternate;
+  transition:left .45s ease,bottom .45s ease,transform .45s ease,filter .3s ease,opacity .3s ease;
+  z-index:2;
+}
+
+.gameshow-cylinder-ball.is-active{
+  filter:brightness(1.18) saturate(1.2);
+  z-index:6;
+  animation:gameshowBallPulse .38s ease-in-out infinite alternate;
+}
+
+.gameshow-cylinder.is-locked .gameshow-cylinder-ball:not(.is-picked){
+  opacity:.28;
+  filter:saturate(.45) brightness(.7);
+  animation-play-state:paused;
+}
+
+.gameshow-cylinder-ball.is-picked{
+  left:50%!important;
+  bottom:83%!important;
+  z-index:20;
+  transform:translate(-50%,-50%) scale(1.42);
+  animation:gameshowPickedBallSpin .9s cubic-bezier(.2,.85,.25,1) both!important;
+  filter:brightness(1.2) saturate(1.22);
+}
+
+.gameshow-cylinder-plunger{
+  position:absolute;
+  left:50%;
+  bottom:9%;
+  width:52px;
+  height:46%;
+  transform:translate(-50%,72%);
+  z-index:4;
+  transition:transform 1.05s cubic-bezier(.12,.78,.18,1);
+}
+
+.gameshow-cylinder-plunger span{
+  display:block;
+  width:100%;
+  height:100%;
+  border-radius:26px 26px 8px 8px;
+  background:linear-gradient(90deg,#273a4d,#e8f4ff 35%,#6f879a 54%,#263849 80%);
+  border:1px solid rgba(255,255,255,.32);
+  box-shadow:0 0 22px rgba(112,196,255,.13);
+}
+
+.gameshow-cylinder.is-picking .gameshow-cylinder-plunger{animation:gameshowPlungerReady 1.1s ease-in-out infinite alternate}
+.gameshow-cylinder.is-locked .gameshow-cylinder-plunger{transform:translate(-50%,-16%)}
+
+.gameshow-cylinder-picked{
+  position:absolute;
+  right:1%;
+  top:14%;
+  width:min(190px,22%);
+  min-width:130px;
+  padding:10px 12px;
+  border:1px solid rgba(246,191,79,.25);
+  border-radius:12px;
+  background:rgba(5,15,26,.84);
+  box-shadow:0 14px 32px rgba(0,0,0,.25);
+}
+
+.gameshow-cylinder-picked small{
+  display:block;
+  color:#f6bf4f;
+  font-size:8px;
+  font-weight:950;
+  letter-spacing:.17em;
+  margin-bottom:4px;
+}
+
+.gameshow-cylinder-picked strong{
+  display:block;
+  font-size:clamp(12px,1.5vw,18px);
+  line-height:1.05;
+}
+
+.gameshow-cylinder.is-locked .gameshow-cylinder-picked{
+  animation:gameshowWinnerFlash .75s ease-out both;
+  border-color:rgba(246,191,79,.62);
+}
+
+@keyframes gameshowStudioSweep{0%{transform:translateX(-56%)}100%{transform:translateX(56%)}}
+@keyframes gameshowFixtureBreathe{0%,100%{background:rgba(255,255,255,.025)}50%{background:rgba(93,183,255,.045)}}
+@keyframes gameshowCylinderArrival{from{opacity:0;transform:scale(.97) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes gameshowBallTumble{0%{transform:translate(-50%,0) rotate(-16deg)}45%{transform:translate(calc(-50% + 7px),-9px) rotate(17deg)}100%{transform:translate(calc(-50% - 5px),7px) rotate(34deg)}}
+@keyframes gameshowBallPulse{from{transform:translate(-50%,-3px) scale(1)}to{transform:translate(-50%,-11px) scale(1.11)}}
+@keyframes gameshowPickedBallSpin{0%{transform:translate(-50%,120%) scale(.9) rotate(0deg)}65%{transform:translate(-50%,-58%) scale(1.55) rotate(540deg)}100%{transform:translate(-50%,-50%) scale(1.42) rotate(720deg)}}
+@keyframes gameshowPlungerReady{from{filter:brightness(.82)}to{filter:brightness(1.2)}}
+@keyframes gameshowWinnerFlash{0%{transform:scale(.94);box-shadow:0 0 0 rgba(246,191,79,0)}45%{transform:scale(1.05);box-shadow:0 0 28px rgba(246,191,79,.25)}100%{transform:scale(1);box-shadow:0 14px 32px rgba(0,0,0,.25)}}
+
+@media(max-height:820px){
+  .gameshow-cylinder-enhanced .kickoff-carousel-shell{min-height:260px}
+  .gameshow-ball-cylinder{min-height:260px}
+  .gameshow-cylinder-machine{min-height:230px}
+  .gameshow-cylinder-glass{height:76%}
+  .gameshow-cylinder-ball{width:clamp(27px,3.2vw,42px)}
+  .gameshow-cylinder-picked{top:8%;padding:7px 9px}
+}
+
+@media(max-width:900px){
+  .gameshow-cylinder-glass{width:82%}
+  .gameshow-cylinder-picked{right:2%;top:auto;bottom:2%;width:170px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  body.gameshow-laptop-mode .kickoff-wheel-card::after,
+  body.gameshow-laptop-mode .sky-studio-panel::after,
+  body.gameshow-laptop-mode .kickoff-simple-fixture,
+  .gameshow-cylinder-ball,
+  .gameshow-cylinder-plunger,
+  .gameshow-cylinder-picked{animation:none!important;transition:none!important}
+}
