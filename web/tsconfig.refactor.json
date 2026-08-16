@@ -5,6 +5,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": [
+    "src/AppChromeEnhancements.tsx",
     "src/pages/HomePage.tsx",
     "src/components/broadcast/**/*.tsx",
     "src/components/TeamJourneyBridge.tsx",
