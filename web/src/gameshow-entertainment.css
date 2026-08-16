@@ -6,6 +6,31 @@ body.gameshow-laptop-mode .studio-live-widget{
   overflow:hidden;
 }
 
+body.gameshow-laptop-mode{
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+}
+
+body.gameshow-laptop-mode .gameshow-hidden-intro{
+  display:none!important;
+}
+
+body.gameshow-laptop-mode .gameshow-stage-control{
+  min-height:72px!important;
+  margin-top:0!important;
+}
+
+body.gameshow-laptop-mode .gameshow-active-stage-scroll{
+  max-height:calc(100dvh - 260px)!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  scrollbar-width:thin;
+  overscroll-behavior:contain;
+}
+
+body.gameshow-laptop-mode .gameshow-active-stage-scroll::-webkit-scrollbar{width:8px}
+body.gameshow-laptop-mode .gameshow-active-stage-scroll::-webkit-scrollbar-thumb{background:rgba(126,176,216,.38);border-radius:999px}
+
 body.gameshow-laptop-mode .kickoff-wheel-card::after,
 body.gameshow-laptop-mode .sky-studio-panel::after{
   content:"";
@@ -242,6 +267,7 @@ body.gameshow-laptop-mode .kickoff-simple-fixture:nth-child(even){animation:game
 @keyframes gameshowWinnerFlash{0%{transform:scale(.94);box-shadow:0 0 0 rgba(246,191,79,0)}45%{transform:scale(1.05);box-shadow:0 0 28px rgba(246,191,79,.25)}100%{transform:scale(1);box-shadow:0 14px 32px rgba(0,0,0,.25)}}
 
 @media(max-height:820px){
+  body.gameshow-laptop-mode .gameshow-active-stage-scroll{max-height:calc(100dvh - 225px)!important}
   .gameshow-cylinder-enhanced .kickoff-carousel-shell{min-height:260px}
   .gameshow-ball-cylinder{min-height:260px}
   .gameshow-cylinder-machine{min-height:230px}
