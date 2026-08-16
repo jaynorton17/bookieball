@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
 import { displayDivisionName, sortDivisionNames } from '../lib/divisionLabels';
@@ -69,19 +69,22 @@ const BORDER = '1px solid rgba(168,198,225,.14)';
 const TEXT = '#f7fbff';
 const MUTED = '#91a8bd';
 const AUTO_ADVANCE_MS = 11_000;
+const LONG_SLIDE_MS = 14_000;
+const LONG_ROW_THRESHOLD = 6;
 
 function signed(value: number, digits = 2): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
 }
 
-function topRows<T extends { teamId: number; teamName: string }>(
+function rowsFor<T extends { teamId: number; teamName: string }>(
   rows: T[],
   value: (row: T) => string,
   detail?: (row: T) => string,
-  limit = 6,
+  limit?: number,
 ): Row[] {
-  return rows.slice(0, limit).map((row, index) => ({
-    rank: index + 1,
+  const source = typeof limit === 'number' ? rows.slice(0, limit) : rows;
+  return source.map((row, index) => ({
+    rank: Number('rank' in row ? (row as T & { rank?: number }).rank : index + 1) || index + 1,
     name: row.teamName,
     value: value(row),
     detail: detail?.(row),
@@ -110,6 +113,7 @@ export function HomePage() {
   const [lastUpdated, setLastUpdated] = useState('');
   const [paused, setPaused] = useState(false);
   const [cycleKey, setCycleKey] = useState(0);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -204,46 +208,81 @@ export function HomePage() {
         kicker: 'DIVISION FOCUS',
         title: displayDivisionName(division),
         subtitle: `${season} ${gw} · standings and this gameweek's fixtures`,
-        metric: leader ? `${leader.points}` : '—',
-        metricLabel: leader ? `${leader.teamName} points` : 'points',
-        rows: topRows(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
+        metric: `${leader.points}`,
+        metricLabel: `${leader.teamName} points`,
+        rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
         fixtures: divisionFixtures,
         fixturesLabel: `${gw} FIXTURES`,
-        story: leader && second ? `${leader.teamName} lead ${second.teamName} by ${leader.points - second.points} point${Math.abs(leader.points - second.points) === 1 ? '' : 's'}.` : undefined,
+        story: second ? `${leader.teamName} lead ${second.teamName} by ${leader.points - second.points} point${Math.abs(leader.points - second.points) === 1 ? '' : 's'}.` : undefined,
         tone: 'blue',
       });
     });
 
     if (data.master?.table?.length) {
       const rows = [...data.master.table].sort((a, b) => a.rank - b.rank);
-      next.push({ id: 'master-league', kicker: 'COMPETITION ANALYTICS', title: 'Master League', subtitle: `${season} ${data.master.gw} · overall standings`, metric: `${rows[0]?.points ?? 0}`, metricLabel: `${rows[0]?.teamName ?? 'Leader'} points`, rows: topRows(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W · ${signed(row.profit)} profit`), tone: 'gold' });
+      next.push({
+        id: 'master-league',
+        kicker: 'COMPETITION ANALYTICS',
+        title: 'Master League',
+        subtitle: `${season} ${data.master.gw} · full standings`,
+        metric: `${rows[0]?.points ?? 0}`,
+        metricLabel: `${rows[0]?.teamName ?? 'Leader'} points`,
+        rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W · ${signed(row.profit)} profit`),
+        tone: 'gold',
+      });
     }
 
     if (data.trio?.enabled && data.trio.table.length) {
-      const rows = [...data.trio.table].sort((a, b) => a.rank - b.rank || a.division.localeCompare(b.division));
-      next.push({ id: 'trio-league', kicker: 'COMPETITION ANALYTICS', title: 'Trio League', subtitle: `${season} ${data.trio.gw} · group-by-group picture`, metric: String(new Set(rows.map((row) => row.division)).size), metricLabel: 'active groups', rows: rows.slice(0, 8).map((row) => ({ rank: row.rank, name: `${row.teamName} · ${displayDivisionName(row.division)}`, value: `${row.points} pts`, detail: `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`, teamId: row.teamId })), tone: 'green' });
+      const groups = Array.from(new Set(data.trio.table.map((row) => row.division)));
+      groups.forEach((division) => {
+        const rows = data.trio!.table.filter((row) => row.division === division).sort((a, b) => a.rank - b.rank);
+        if (!rows.length) return;
+        next.push({
+          id: `trio-${division}`,
+          kicker: 'TRIO LEAGUE',
+          title: displayDivisionName(division),
+          subtitle: `${season} ${data.trio!.gw} · Trio League group standings`,
+          metric: `${rows[0].points}`,
+          metricLabel: `${rows[0].teamName} points`,
+          rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
+          tone: 'green',
+        });
+      });
     }
 
     if (data.tier?.enabled && data.tier.table.length) {
-      const rows = [...data.tier.table].sort((a, b) => a.rank - b.rank || a.division.localeCompare(b.division));
-      next.push({ id: 'tier-league', kicker: 'COMPETITION ANALYTICS', title: 'Tier League', subtitle: `${season} ${data.tier.gw} · ${data.tier.started ? 'competition live' : 'competition pending'}`, metric: String(new Set(rows.map((row) => row.division)).size), metricLabel: 'tiers represented', rows: rows.slice(0, 8).map((row) => ({ rank: row.rank, name: `${row.teamName} · ${displayDivisionName(row.division)}`, value: `${row.points} pts`, detail: `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`, teamId: row.teamId })), tone: 'green' });
+      const groups = Array.from(new Set(data.tier.table.map((row) => row.division)));
+      groups.forEach((division) => {
+        const rows = data.tier!.table.filter((row) => row.division === division).sort((a, b) => a.rank - b.rank);
+        if (!rows.length) return;
+        next.push({
+          id: `tier-${division}`,
+          kicker: 'TIER LEAGUE',
+          title: displayDivisionName(division),
+          subtitle: `${season} ${data.tier!.gw} · ${data.tier!.started ? 'competition live' : 'competition pending'}`,
+          metric: `${rows[0].points}`,
+          metricLabel: `${rows[0].teamName} points`,
+          rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
+          tone: 'green',
+        });
+      });
     }
 
     if (data.allTime) {
-      next.push({ id: 'all-time-points', kicker: '16-SEASON ARCHIVE', title: 'All-Time League Table', subtitle: `${data.allTime.fromSeason} ${data.allTime.fromGw} → ${data.allTime.toSeason} ${data.allTime.toGw}`, metric: `${data.allTime.pointsTable[0]?.points ?? 0}`, metricLabel: 'record points total', rows: topRows(data.allTime.pointsTable, (row) => `${row.points} pts`, (row) => `${row.wins} wins · ${signed(row.profit)} profit`), tone: 'gold' });
-      next.push({ id: 'all-time-profit', kicker: '16-SEASON ARCHIVE', title: 'Greatest Profit Makers', subtitle: 'Career profit across the full BookieBall archive', metric: signed(data.allTime.profitTable[0]?.profit ?? 0), metricLabel: data.allTime.profitTable[0]?.teamName ?? 'career leader', rows: topRows(data.allTime.profitTable, (row) => signed(row.profit), (row) => `${row.played} games · ${row.wins} wins`), tone: 'green' });
-      next.push({ id: 'all-time-spins', kicker: '16-SEASON ARCHIVE', title: 'Spin Kings', subtitle: 'Who has lived on the edge most often across BookieBall history?', metric: `${data.allTime.spinsTable[0]?.spins ?? 0}`, metricLabel: data.allTime.spinsTable[0]?.teamName ?? 'career leader', rows: topRows(data.allTime.spinsTable, (row) => `${row.spins} spins`, (row) => `${row.played} games · ${signed(row.profit)} profit`), tone: 'blue' });
+      next.push({ id: 'all-time-points', kicker: '16-SEASON ARCHIVE', title: 'All-Time League Table', subtitle: `${data.allTime.fromSeason} ${data.allTime.fromGw} → ${data.allTime.toSeason} ${data.allTime.toGw}`, metric: `${data.allTime.pointsTable[0]?.points ?? 0}`, metricLabel: 'record points total', rows: rowsFor(data.allTime.pointsTable, (row) => `${row.points} pts`, (row) => `${row.wins} wins · ${signed(row.profit)} profit`), tone: 'gold' });
+      next.push({ id: 'all-time-profit', kicker: '16-SEASON ARCHIVE', title: 'Greatest Profit Makers', subtitle: 'Career profit across the full BookieBall archive', metric: signed(data.allTime.profitTable[0]?.profit ?? 0), metricLabel: data.allTime.profitTable[0]?.teamName ?? 'career leader', rows: rowsFor(data.allTime.profitTable, (row) => signed(row.profit), (row) => `${row.played} games · ${row.wins} wins`), tone: 'green' });
+      next.push({ id: 'all-time-spins', kicker: '16-SEASON ARCHIVE', title: 'Spin Kings', subtitle: 'Who has lived on the edge most often across BookieBall history?', metric: `${data.allTime.spinsTable[0]?.spins ?? 0}`, metricLabel: data.allTime.spinsTable[0]?.teamName ?? 'career leader', rows: rowsFor(data.allTime.spinsTable, (row) => `${row.spins} spins`, (row) => `${row.played} games · ${signed(row.profit)} profit`), tone: 'blue' });
     }
 
     if (data.ratings.length) {
       const byRating = [...data.ratings].sort((a, b) => b.rating - a.rating);
       const byProfit = [...data.ratings].sort((a, b) => b.profit - a.profit);
-      next.push({ id: 'power-ratings', kicker: 'CURRENT FORM', title: 'Power Ratings', subtitle: 'Current-season strength combining results and performance', metric: byRating[0] ? byRating[0].rating.toFixed(3) : '—', metricLabel: byRating[0]?.teamName ?? 'top rated', rows: topRows(byRating, (row) => row.rating.toFixed(3), (row) => `${(row.winRate * 100).toFixed(0)}% win rate · ${signed(row.profit)}`), tone: 'blue' });
-      next.push({ id: 'season-profit', kicker: 'CURRENT FORM', title: 'Season Profit Race', subtitle: `${season} to date`, metric: signed(byProfit[0]?.profit ?? 0), metricLabel: byProfit[0]?.teamName ?? 'profit leader', rows: topRows(byProfit, (row) => signed(row.profit), (row) => `${row.entries} entries · ${(row.winRate * 100).toFixed(0)}% win rate`), tone: 'green' });
+      next.push({ id: 'power-ratings', kicker: 'CURRENT FORM', title: 'Power Ratings', subtitle: 'Current-season strength combining results and performance', metric: byRating[0] ? byRating[0].rating.toFixed(3) : '—', metricLabel: byRating[0]?.teamName ?? 'top rated', rows: rowsFor(byRating, (row) => row.rating.toFixed(3), (row) => `${(row.winRate * 100).toFixed(0)}% win rate · ${signed(row.profit)}`), tone: 'blue' });
+      next.push({ id: 'season-profit', kicker: 'CURRENT FORM', title: 'Season Profit Race', subtitle: `${season} to date`, metric: signed(byProfit[0]?.profit ?? 0), metricLabel: byProfit[0]?.teamName ?? 'profit leader', rows: rowsFor(byProfit, (row) => signed(row.profit), (row) => `${row.entries} entries · ${(row.winRate * 100).toFixed(0)}% win rate`), tone: 'green' });
     }
 
     if (data.bookieDor?.leaderboard?.length) {
-      next.push({ id: 'bookie-dor', kicker: 'MVP RACE', title: 'BookieDor', subtitle: `${data.bookieDor.season} ${data.bookieDor.gw} · league, cup, master and consistency combined`, metric: data.bookieDor.holder?.score.toFixed(1) ?? '—', metricLabel: data.bookieDor.holder?.teamName ?? 'current leader', rows: topRows(data.bookieDor.leaderboard, (row) => row.score.toFixed(1), (row) => `${displayDivisionName(row.division)} · league rank ${row.leagueRank}`), tone: 'gold' });
+      next.push({ id: 'bookie-dor', kicker: 'MVP RACE', title: 'BookieDor', subtitle: `${data.bookieDor.season} ${data.bookieDor.gw} · league, cup, master and consistency combined`, metric: data.bookieDor.holder?.score.toFixed(1) ?? '—', metricLabel: data.bookieDor.holder?.teamName ?? 'current leader', rows: rowsFor(data.bookieDor.leaderboard, (row) => row.score.toFixed(1), (row) => `${displayDivisionName(row.division)} · league rank ${row.leagueRank}`), tone: 'gold' });
     }
 
     data.h2h.slice(0, 5).forEach((record, index) => {
@@ -272,14 +311,63 @@ export function HomePage() {
     return next;
   }, [data]);
 
+  const active = slides[slideIndex] ?? null;
+  const hasFixtures = Boolean(active?.fixtures?.length);
+  const longSlide = Boolean(active?.rows && active.rows.length > LONG_ROW_THRESHOLD && !hasFixtures);
+  const slideDuration = longSlide ? LONG_SLIDE_MS : AUTO_ADVANCE_MS;
+
   useEffect(() => {
-    if (slides.length <= 1 || paused) return;
-    const timer = window.setInterval(() => {
+    if (!active || paused || slides.length <= 1) return;
+    if (longSlide) return;
+    const timer = window.setTimeout(() => {
       setSlideIndex((current) => (current + 1) % slides.length);
       setCycleKey((key) => key + 1);
     }, AUTO_ADVANCE_MS);
-    return () => window.clearInterval(timer);
-  }, [slides.length, paused, cycleKey]);
+    return () => window.clearTimeout(timer);
+  }, [active?.id, paused, slides.length, longSlide, cycleKey]);
+
+  useEffect(() => {
+    if (!active || !longSlide || paused) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (maxScroll <= 4) {
+      const fallback = window.setTimeout(() => {
+        setSlideIndex((current) => (current + 1) % slides.length);
+        setCycleKey((key) => key + 1);
+      }, AUTO_ADVANCE_MS);
+      return () => window.clearTimeout(fallback);
+    }
+
+    let frame = 0;
+    let start: number | null = null;
+    const leadIn = 1700;
+    const scrollTime = LONG_SLIDE_MS - 3600;
+    const step = (now: number) => {
+      if (start === null) start = now;
+      const elapsed = now - start;
+      if (elapsed < leadIn) {
+        frame = window.requestAnimationFrame(step);
+        return;
+      }
+      const progress = Math.min(1, (elapsed - leadIn) / scrollTime);
+      const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      container.scrollTop = maxScroll * eased;
+      if (progress < 1) frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+
+    const advance = window.setTimeout(() => {
+      setSlideIndex((current) => (current + 1) % slides.length);
+      setCycleKey((key) => key + 1);
+    }, LONG_SLIDE_MS);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(advance);
+    };
+  }, [active?.id, longSlide, paused, slides.length, cycleKey]);
 
   useEffect(() => {
     if (slideIndex >= slides.length && slides.length > 0) setSlideIndex(0);
@@ -291,7 +379,6 @@ export function HomePage() {
     setCycleKey((key) => key + 1);
   };
 
-  const active = slides[slideIndex] ?? null;
   const accent = accentForTone(active?.tone);
   const ticker = data?.report?.story.tickerItems ?? [];
 
@@ -303,45 +390,47 @@ export function HomePage() {
     return <section className="page page-wide command-centre-page" style={{ display: 'grid', placeItems: 'center', background: PAGE_BG }}><div style={{ color: MUTED }}>{error || 'No analytics available yet.'}</div></section>;
   }
 
-  const hasFixtures = Boolean(active.fixtures?.length);
+  const renderRows = (compact = false) => active.rows?.map((row, index) => {
+    const team = row.teamId ? teamById.get(row.teamId) : undefined;
+    return (
+      <div key={`${active.id}-${row.rank}-${row.name}`} className="command-row" style={{ animationDelay: `${Math.min(index, 8) * 45}ms`, display: 'grid', gridTemplateColumns: compact ? '32px minmax(0,1fr) auto' : '38px minmax(0,1fr) auto', alignItems: 'center', gap: compact ? 10 : 12, padding: compact ? '7px 11px' : '8px 12px', borderRadius: 11, background: row.rank === 1 ? 'rgba(255,255,255,.075)' : 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.055)' }}>
+        <div style={{ color: row.rank === 1 ? accent : MUTED, fontWeight: 900, fontSize: 13 }}>#{row.rank}</div>
+        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>{team && <TeamBadge name={team.name} ballColor={team.ballColor} ringColor={team.ringColor} textColor={team.textColor} size={compact ? 24 : 26} />}<div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: compact ? 13 : 14 }}>{row.name}</div>{row.detail && <div className="command-row-detail" style={{ color: MUTED, fontSize: 10, marginTop: 1 }}>{row.detail}</div>}</div></div>
+        <div style={{ color: row.rank === 1 ? accent : TEXT, fontWeight: 900, fontSize: compact ? 14 : 16, textAlign: 'right' }}>{row.value}</div>
+      </div>
+    );
+  });
 
   return (
-    <section
-      className="page page-wide command-centre-page"
-      style={{ color: TEXT, background: PAGE_BG, borderRadius: 22, padding: 'clamp(12px, 1.7vw, 22px)' }}
-    >
+    <section className="page page-wide command-centre-page" style={{ color: TEXT, background: PAGE_BG, borderRadius: 22, padding: 'clamp(10px, 1.4vw, 18px)' }}>
       <div className="command-centre-header">
         <div>
           <div style={{ color: '#6ec5ff', letterSpacing: '.18em', fontSize: 11, fontWeight: 800 }}>BOOKIEBALL COMMAND CENTRE</div>
-          <div style={{ color: MUTED, marginTop: 3, fontSize: 12 }}>{data?.state.currentSeason} · {data?.state.currentGw} · auto analytics</div>
+          <div style={{ color: MUTED, marginTop: 2, fontSize: 11 }}>{data?.state.currentSeason} · {data?.state.currentGw} · auto analytics</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="command-controls">
             <button type="button" className="command-nav-btn" onClick={() => goToSlide(slideIndex - 1)}>← Prev</button>
             <button type="button" className="command-nav-btn" onClick={() => setPaused((value) => !value)}>{paused ? '▶ Play' : 'Ⅱ Pause'}</button>
             <button type="button" className="command-nav-btn" onClick={() => goToSlide(slideIndex + 1)}>Next →</button>
           </div>
-          <div style={{ textAlign: 'right', color: MUTED, fontSize: 11 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><span style={{ width: 7, height: 7, borderRadius: 99, background: '#5cd68a', boxShadow: '0 0 14px rgba(92,214,138,.8)' }} />LIVE</div>
-            <div style={{ marginTop: 3 }}>{lastUpdated ? `Updated ${lastUpdated}` : ''}</div>
+          <div style={{ textAlign: 'right', color: MUTED, fontSize: 10 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: 99, background: '#5cd68a', boxShadow: '0 0 14px rgba(92,214,138,.8)' }} />LIVE</div>
+            <div style={{ marginTop: 2 }}>{lastUpdated ? `Updated ${lastUpdated}` : ''}</div>
           </div>
         </div>
       </div>
 
       <div className="command-centre-stage">
-        <div
-          key={`${active.id}-${cycleKey}`}
-          className="command-slide"
-          style={{ background: PANEL_BG, border: BORDER, borderTop: `3px solid ${accent}`, borderRadius: 20, padding: 'clamp(14px, 2vw, 26px)', boxShadow: '0 28px 70px rgba(0,0,0,.24)', gap: 'clamp(10px, 1.4vh, 18px)', ['--command-accent' as string]: accent }}
-        >
+        <div key={`${active.id}-${cycleKey}`} className="command-slide" style={{ background: PANEL_BG, border: BORDER, borderTop: `3px solid ${accent}`, borderRadius: 20, padding: 'clamp(12px, 1.5vw, 20px)', boxShadow: '0 28px 70px rgba(0,0,0,.24)', gap: 'clamp(7px, 1vh, 12px)', ['--command-accent' as string]: accent }}>
           <div>
-            <div className="command-slide-kicker" style={{ color: accent, letterSpacing: '.16em', fontSize: 11, fontWeight: 900 }}>{active.kicker}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: active.metric ? 'minmax(0,1fr) minmax(150px,240px)' : '1fr', gap: 20, alignItems: 'end', marginTop: 7 }}>
+            <div className="command-slide-kicker" style={{ color: accent, letterSpacing: '.16em', fontSize: 10, fontWeight: 900 }}>{active.kicker}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: active.metric ? 'minmax(0,1fr) minmax(130px,210px)' : '1fr', gap: 16, alignItems: 'end', marginTop: 5 }}>
               <div>
-                <h1 className="command-slide-title" style={{ margin: 0, fontSize: 'clamp(30px, 4.6vw, 60px)', lineHeight: .98, letterSpacing: '-.035em' }}>{active.title}</h1>
-                <p style={{ color: MUTED, margin: '7px 0 0', fontSize: 'clamp(12px, 1.25vw, 16px)', maxWidth: 900 }}>{active.subtitle}</p>
+                <h1 className="command-slide-title" style={{ margin: 0, fontSize: 'clamp(28px, 4vw, 52px)', lineHeight: .96, letterSpacing: '-.035em' }}>{active.title}</h1>
+                <p style={{ color: MUTED, margin: '5px 0 0', fontSize: 'clamp(11px, 1.1vw, 14px)', maxWidth: 900 }}>{active.subtitle}</p>
               </div>
-              {active.metric && <div className="command-slide-metric" style={{ textAlign: 'right' }}><div style={{ color: accent, fontSize: 'clamp(30px, 4vw, 52px)', fontWeight: 900, lineHeight: 1 }}>{active.metric}</div>{active.metricLabel && <div style={{ color: MUTED, marginTop: 5, fontSize: 11 }}>{active.metricLabel}</div>}</div>}
+              {active.metric && <div className="command-slide-metric" style={{ textAlign: 'right' }}><div style={{ color: accent, fontSize: 'clamp(28px, 3.5vw, 46px)', fontWeight: 900, lineHeight: 1 }}>{active.metric}</div>{active.metricLabel && <div style={{ color: MUTED, marginTop: 4, fontSize: 10 }}>{active.metricLabel}</div>}</div>}
             </div>
           </div>
 
@@ -350,50 +439,32 @@ export function HomePage() {
               <div className="command-division-layout">
                 <div className="command-table">
                   <div className="command-section-label"><span>LIVE TABLE</span><span>{active.rows?.length ?? 0} teams</span></div>
-                  {active.rows?.map((row, index) => {
-                    const team = row.teamId ? teamById.get(row.teamId) : undefined;
-                    return (
-                      <div key={`${active.id}-${row.rank}-${row.name}`} className="command-row" style={{ animationDelay: `${index * 55}ms`, display: 'grid', gridTemplateColumns: '32px minmax(0,1fr) auto', alignItems: 'center', gap: 10, padding: '8px 11px', borderRadius: 11, background: row.rank === 1 ? 'rgba(255,255,255,.075)' : 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.055)' }}>
-                        <div style={{ color: row.rank === 1 ? accent : MUTED, fontWeight: 900, fontSize: 13 }}>#{row.rank}</div>
-                        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>{team && <TeamBadge name={team.name} ballColor={team.ballColor} ringColor={team.ringColor} textColor={team.textColor} size={24} />}<div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13 }}>{row.name}</div>{row.detail && <div className="command-row-detail" style={{ color: MUTED, fontSize: 10, marginTop: 2 }}>{row.detail}</div>}</div></div>
-                        <div style={{ color: row.rank === 1 ? accent : TEXT, fontWeight: 900, fontSize: 14, textAlign: 'right' }}>{row.value}</div>
-                      </div>
-                    );
-                  })}
+                  {renderRows(true)}
                 </div>
                 <div className="command-fixtures">
                   <div className="command-section-label"><span>{active.fixturesLabel ?? 'FIXTURES'}</span><span>{active.fixtures?.length ?? 0} games</span></div>
                   {active.fixtures?.map((fixture, index) => (
-                    <div key={`${active.id}-fixture-${fixture.id}`} className={`command-fixture${fixture.result === 'pending' ? ' is-pending' : ''}`} style={{ animationDelay: `${(index + 1) * 70}ms`, padding: '10px 12px 10px 15px', borderRadius: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 6 }}><span style={{ color: fixture.result === 'pending' ? '#f2c14e' : MUTED, fontSize: 9, fontWeight: 900, letterSpacing: '.1em' }}>{fixtureResultLabel(fixture)}</span>{fixture.result !== 'pending' && <span style={{ color: accent, fontSize: 11, fontWeight: 900 }}>{signed(fixture.homeProfit)} : {signed(fixture.awayProfit)}</span>}</div>
+                    <div key={`${active.id}-fixture-${fixture.id}`} className={`command-fixture${fixture.result === 'pending' ? ' is-pending' : ''}`} style={{ animationDelay: `${(index + 1) * 70}ms`, padding: '9px 11px 9px 14px', borderRadius: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 5 }}><span style={{ color: fixture.result === 'pending' ? '#f2c14e' : MUTED, fontSize: 9, fontWeight: 900, letterSpacing: '.1em' }}>{fixtureResultLabel(fixture)}</span>{fixture.result !== 'pending' && <span style={{ color: accent, fontSize: 11, fontWeight: 900 }}>{signed(fixture.homeProfit)} : {signed(fixture.awayProfit)}</span>}</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 7, fontSize: 13 }}><strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fixture.homeTeam}</strong><span style={{ color: MUTED, fontSize: 10 }}>vs</span><strong style={{ textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fixture.awayTeam}</strong></div>
                     </div>
                   ))}
-                  {active.fixtures?.length === 0 && <div style={{ color: MUTED, fontSize: 13 }}>No fixtures in this division for {data?.state.currentGw}.</div>}
                 </div>
               </div>
             ) : active.rows?.length ? (
-              <div className="command-table" style={{ maxWidth: 980, width: '100%', justifySelf: 'center' }}>
-                {active.rows.map((row, index) => {
-                  const team = row.teamId ? teamById.get(row.teamId) : undefined;
-                  return (
-                    <div key={`${active.id}-${row.rank}-${row.name}`} className="command-row" style={{ animationDelay: `${index * 55}ms`, display: 'grid', gridTemplateColumns: '38px minmax(0,1fr) auto', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 12, background: row.rank === 1 ? 'rgba(255,255,255,.075)' : 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.055)' }}>
-                      <div style={{ color: row.rank === 1 ? accent : MUTED, fontWeight: 900, fontSize: 14 }}>#{row.rank}</div>
-                      <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 9 }}>{team && <TeamBadge name={team.name} ballColor={team.ballColor} ringColor={team.ringColor} textColor={team.textColor} size={27} />}<div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name}</div>{row.detail && <div className="command-row-detail" style={{ color: MUTED, fontSize: 11, marginTop: 2 }}>{row.detail}</div>}</div></div>
-                      <div style={{ color: row.rank === 1 ? accent : TEXT, fontWeight: 900, fontSize: 'clamp(14px, 1.5vw, 19px)', textAlign: 'right' }}>{row.value}</div>
-                    </div>
-                  );
-                })}
+              <div ref={scrollRef} className={`command-table${longSlide ? ' command-table-auto-scroll' : ''}`} style={{ maxWidth: 980, width: '100%', justifySelf: 'center', overflow: 'hidden', alignContent: longSlide ? 'start' : 'center' }}>
+                {longSlide && <div className="command-section-label"><span>FULL TABLE</span><span>Auto-scrolling · {active.rows.length} rows</span></div>}
+                {renderRows(false)}
               </div>
             ) : active.story ? (
-              <div style={{ fontSize: 'clamp(22px, 3vw, 40px)', lineHeight: 1.16, maxWidth: 1050, fontWeight: 750 }}>{active.story}</div>
+              <div style={{ fontSize: 'clamp(20px, 2.7vw, 36px)', lineHeight: 1.16, maxWidth: 1050, fontWeight: 750 }}>{active.story}</div>
             ) : null}
           </div>
 
           <div>
-            {active.story && active.rows?.length ? <div style={{ color: '#c8d7e5', fontSize: 12, paddingTop: 8, borderTop: BORDER }}>{active.story}</div> : null}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-              <div className="command-progress-track"><div key={`progress-${cycleKey}-${slideIndex}-${paused}`} className="command-progress-fill" style={{ background: accent, animationPlayState: paused ? 'paused' : 'running' }} /></div>
+            {active.story && active.rows?.length ? <div style={{ color: '#c8d7e5', fontSize: 11, paddingTop: 6, borderTop: BORDER }}>{active.story}</div> : null}
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+              <div className="command-progress-track"><div key={`progress-${cycleKey}-${slideIndex}-${paused}`} className="command-progress-fill" style={{ background: accent, animationDuration: `${slideDuration}ms`, animationPlayState: paused ? 'paused' : 'running' }} /></div>
               <span style={{ color: MUTED, fontSize: 10 }}>{slideIndex + 1} / {slides.length}</span>
               <div style={{ display: 'flex', gap: 3, flex: 1 }}>{slides.slice(Math.max(0, slideIndex - 3), Math.min(slides.length, slideIndex + 4)).map((slide) => <span key={slide.id} style={{ height: 3, width: slide.id === active.id ? 24 : 8, borderRadius: 99, background: slide.id === active.id ? accent : 'rgba(255,255,255,.11)', transition: 'all .25s ease' }} />)}</div>
             </div>
@@ -401,7 +472,7 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="command-ticker" style={{ border: BORDER, borderRadius: 11, background: 'rgba(3,10,18,.78)', padding: '6px 11px', color: '#c5d4e2', fontSize: 10, whiteSpace: 'nowrap' }}>
+      <div className="command-ticker" style={{ border: BORDER, borderRadius: 11, background: 'rgba(3,10,18,.78)', padding: '5px 10px', color: '#c5d4e2', fontSize: 10, whiteSpace: 'nowrap' }}>
         {ticker.length > 0 ? <div className="command-ticker-track"><strong style={{ color: '#6ec5ff', marginRight: 12 }}>LIVE DESK</strong>{[...ticker, ...ticker].join('   ·   ')}</div> : <span><strong style={{ color: '#6ec5ff', marginRight: 10 }}>LIVE DESK</strong>BookieBall command centre running</span>}
       </div>
     </section>
