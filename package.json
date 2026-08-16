@@ -7,7 +7,7 @@
     "bookieball": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run build:web",
+    "build": "npm run lint:refactor && npm run build:web",
     "build:web": "vite build --config web/vite.config.ts",
     "dev": "tsx src/cli.ts start",
     "start:prod": "npm run build:web && tsx src/cli.ts start --prod",
@@ -15,11 +15,17 @@
     "reset": "tsx src/cli.ts reset --yes",
     "dev:api": "tsx src/server.ts",
     "dev:web": "vite --config web/vite.config.ts",
-    "lint": "tsc --noEmit",
+    "lint": "npm run lint:refactor",
+    "lint:refactor": "tsc --noEmit -p web/tsconfig.refactor.json",
+    "lint:legacy-web": "tsc --noEmit -p web/tsconfig.json",
+    "lint:legacy-server": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run lint:refactor && npm run test:cup && npm run test:trio && npm run test:studio",
     "test:cup": "tsx scripts/cup-regression.ts",
     "test:trio": "tsx scripts/trio-regression.ts",
     "test:studio": "tsx scripts/studio-regression.ts",
-    "test:smoke": "node scripts/browser-smoke.mjs"
+    "test:smoke": "node scripts/browser-smoke.mjs",
+    "test:layout": "node scripts/layout-regression.mjs",
+    "test:ci": "npm run test && npm run build && npm run test:layout"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
