@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AutoScrollViewport } from '../components/broadcast/AutoScrollViewport';
+import { CommandFixtureCard, type CommandFixture } from '../components/broadcast/CommandFixtureCard';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
+import { loadAllTimeAnalytics, type RivalryAnalytics, type TeamAllTimeAnalytics } from '../lib/allTimeAnalytics';
 import { displayDivisionName, sortDivisionNames } from '../lib/divisionLabels';
 import '../command-centre.css';
 
@@ -24,19 +27,6 @@ type Row = {
   teamId?: number;
 };
 
-type NormalizedFixture = {
-  key: string;
-  id: number;
-  competition: 'league' | 'master' | 'trio' | 'tier';
-  division?: string;
-  homeTeam: string;
-  awayTeam: string;
-  homeProfit: number;
-  awayProfit: number;
-  result: 'home' | 'away' | 'draw' | 'pending';
-  h2h: H2H | null;
-};
-
 type Slide = {
   id: string;
   kicker: string;
@@ -46,7 +36,7 @@ type Slide = {
   metric?: string;
   metricLabel?: string;
   rows?: Row[];
-  fixtures?: NormalizedFixture[];
+  fixtures?: CommandFixture[];
   story?: string;
 };
 
@@ -61,14 +51,18 @@ type Dashboard = {
   ratings: Rating[];
   bookieDor: BookieDor | null;
   report: ReportPack | null;
-  fixtures: NormalizedFixture[];
+  fixtures: CommandFixture[];
+};
+
+type ArchiveAnalytics = {
+  teams: TeamAllTimeAnalytics[];
+  rivalries: RivalryAnalytics[];
 };
 
 const PAGE_BG = 'radial-gradient(circle at 15% 15%, rgba(22,96,170,.22), transparent 34%), radial-gradient(circle at 85% 5%, rgba(226,176,54,.15), transparent 28%), linear-gradient(145deg, #06111f 0%, #081a2d 54%, #050c16 100%)';
 const PANEL_BG = 'linear-gradient(145deg, rgba(13,31,51,.96), rgba(7,19,33,.96))';
 const TEXT = '#f7fbff';
 const MUTED = '#91a8bd';
-const BORDER = '1px solid rgba(168,198,225,.14)';
 const NORMAL_MS = 11_000;
 const LONG_MS = 17_000;
 
@@ -88,12 +82,6 @@ function accent(tone: Slide['tone']): string {
   return '#5eb7ff';
 }
 
-function statusLabel(fixture: NormalizedFixture): string {
-  if (fixture.result === 'pending') return 'TO PLAY';
-  if (fixture.result === 'draw') return 'DRAW';
-  return fixture.result === 'home' ? `${fixture.homeTeam} WIN` : `${fixture.awayTeam} WIN`;
-}
-
 function rowsFor<T extends { teamId: number; teamName: string }>(rows: T[], value: (row: T) => string, detail?: (row: T) => string): Row[] {
   return rows.map((row, index) => ({
     rank: Number('rank' in row ? (row as T & { rank?: number }).rank : index + 1) || index + 1,
@@ -104,67 +92,13 @@ function rowsFor<T extends { teamId: number; teamName: string }>(rows: T[], valu
   }));
 }
 
-function AutoPan({ children, className }: { children: React.ReactNode; className: string }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    node.scrollTop = 0;
-    let frame = 0;
-    let timer = 0;
-    const start = () => {
-      const max = Math.max(0, node.scrollHeight - node.clientHeight);
-      if (max <= 8) return;
-      const leadIn = 1400;
-      const travel = Math.max(7000, Math.min(12_500, 6000 + max * 8));
-      const started = performance.now();
-      const tick = (now: number) => {
-        const elapsed = now - started;
-        if (elapsed < leadIn) {
-          frame = requestAnimationFrame(tick);
-          return;
-        }
-        const progress = Math.min(1, (elapsed - leadIn) / travel);
-        const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        node.scrollTop = max * eased;
-        if (progress < 1) frame = requestAnimationFrame(tick);
-      };
-      frame = requestAnimationFrame(tick);
-    };
-    timer = window.setTimeout(start, 160);
-    return () => {
-      window.clearTimeout(timer);
-      cancelAnimationFrame(frame);
-    };
-  }, [children]);
-
-  return <div ref={ref} className={className}>{children}</div>;
-}
-
-function FixtureCard({ fixture, color }: { fixture: NormalizedFixture; color: string }) {
-  const h2h = fixture.h2h;
-  return (
-    <article className={`command-fixture${fixture.result === 'pending' ? ' is-pending' : ''}`} style={{ borderLeftColor: color }}>
-      <div className="command-fixture-topline">
-        <span>{statusLabel(fixture)}</span>
-      </div>
-      <div className="command-fixture-matchup">
-        <strong>{fixture.homeTeam}</strong>
-        <span className="command-fixture-scoreline">{signed(fixture.homeProfit)} <b>VS</b> {signed(fixture.awayProfit)}</span>
-        <strong>{fixture.awayTeam}</strong>
-      </div>
-      <div className="command-fixture-h2h">
-        {h2h
-          ? `ALL-TIME H2H · ${fixture.homeTeam} ${h2h.teamAWins}W ${h2h.teamBWins}L ${h2h.draws}D · ${fixture.awayTeam} ${h2h.teamBWins}W ${h2h.teamAWins}L ${h2h.draws}D`
-          : 'ALL-TIME H2H · No previous league meetings recorded'}
-      </div>
-    </article>
-  );
+function analyticsRows(rows: TeamAllTimeAnalytics[], value: (row: TeamAllTimeAnalytics) => string, detail: (row: TeamAllTimeAnalytics) => string): Row[] {
+  return rows.map((row, index) => ({ rank: index + 1, name: row.teamName, value: value(row), detail: detail(row), teamId: row.teamId }));
 }
 
 export function HomePage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [archive, setArchive] = useState<ArchiveAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [slideIndex, setSlideIndex] = useState(0);
@@ -178,20 +112,20 @@ export function HomePage() {
       const [teams, leagueTable, master, trio, tier, allTime, ratings, bookieDor, report, leagueFixtures, masterFixtures, trioFixtures, tierFixtures] = await Promise.all([
         api.teams(),
         api.leagueTable(),
-        api.masterLeagueTable().catch(() => null),
-        api.trioLeagueTable().catch(() => null),
-        api.tierLeagueTable().catch(() => null),
+        api.masterLeagueTable(state.currentGw).catch(() => null),
+        api.trioLeagueTable(state.currentGw).catch(() => null),
+        api.tierLeagueTable(state.currentGw).catch(() => null),
         api.allTimeLeagues().catch(() => null),
         api.teamRatings().catch(() => []),
-        api.bookieDor().catch(() => null),
-        api.reportPack().catch(() => null),
+        api.bookieDor(state.currentSeason, state.currentGw).catch(() => null),
+        api.reportPack(state.currentGw).catch(() => null),
         api.leagueFixtures(state.currentGw, false).catch(() => []),
         api.masterLeagueFixtures(state.currentGw, false).catch(() => []),
         api.trioLeagueFixtures(state.currentGw, false).catch(() => []),
         api.tierLeagueFixtures(state.currentGw, false).catch(() => []),
       ]);
 
-      const normalized: Omit<NormalizedFixture, 'h2h'>[] = [
+      const normalized: Array<Omit<CommandFixture, 'h2h'>> = [
         ...leagueFixtures.map((fixture) => ({ key: `league-${fixture.id}`, id: fixture.id, competition: 'league' as const, division: fixture.division, homeTeam: fixture.homeTeam, awayTeam: fixture.awayTeam, homeProfit: fixture.homeProfit, awayProfit: fixture.awayProfit, result: fixture.result })),
         ...masterFixtures.map((fixture) => ({ key: `master-${fixture.id}`, id: fixture.id, competition: 'master' as const, homeTeam: fixture.homeTeam, awayTeam: fixture.awayTeam, homeProfit: fixture.homeProfit, awayProfit: fixture.awayProfit, result: fixture.result })),
         ...trioFixtures.map((fixture) => ({ key: `trio-${fixture.id}`, id: fixture.id, competition: 'trio' as const, division: fixture.division, homeTeam: fixture.homeTeam, awayTeam: fixture.awayTeam, homeProfit: fixture.homeProfit, awayProfit: fixture.awayProfit, result: fixture.result })),
@@ -208,11 +142,14 @@ export function HomePage() {
           h2hByPair.set(key, null);
           return;
         }
-        const record = await api.headToHeadAllTime(home.id, away.id).catch(() => null);
-        h2hByPair.set(key, record);
+        h2hByPair.set(key, await api.headToHeadAllTime(home.id, away.id).catch(() => null));
       }));
 
-      const fixtures: NormalizedFixture[] = normalized.map((fixture) => ({ ...fixture, h2h: h2hByPair.get(pairKey(fixture.homeTeam, fixture.awayTeam)) ?? null }));
+      const fixtures: CommandFixture[] = normalized.map((fixture) => ({
+        ...fixture,
+        h2h: h2hByPair.get(pairKey(fixture.homeTeam, fixture.awayTeam)) ?? null,
+      }));
+
       setData({ state, teams, leagueTable, master, trio, tier, allTime, ratings, bookieDor, report, fixtures });
       setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       setError('');
@@ -229,6 +166,16 @@ export function HomePage() {
     return () => window.clearInterval(timer);
   }, [reload]);
 
+  useEffect(() => {
+    let active = true;
+    void loadAllTimeAnalytics().then((result) => {
+      if (active) setArchive(result);
+    }).catch(() => {
+      if (active) setArchive(null);
+    });
+    return () => { active = false; };
+  }, []);
+
   const teamById = useMemo(() => new Map((data?.teams ?? []).map((team) => [team.id, team])), [data?.teams]);
 
   const slides = useMemo<Slide[]>(() => {
@@ -237,23 +184,22 @@ export function HomePage() {
     const season = data.state.currentSeason;
     const gw = data.state.currentGw;
     const divisionNames = sortDivisionNames(Object.keys(data.leagueTable), season);
-    const leaders = divisionNames.map((division) => data.leagueTable[division]?.[0]).filter(Boolean);
+    const leaders = divisionNames.map((division) => data.leagueTable[division]?.[0]).filter((row): row is NonNullable<typeof row> => Boolean(row));
 
     out.push({
       id: 'overview', kicker: 'BOOKIEBALL LIVE', title: `${season} · ${gw}`, subtitle: 'Live command centre', tone: 'blue',
       metric: String(data.teams.length), metricLabel: 'teams tracked',
-      rows: leaders.map((row, index) => ({ rank: index + 1, name: displayDivisionName(row!.division), value: row!.teamName, detail: `${row!.points} pts · ${signed(row!.profit)} profit`, teamId: row!.teamId })),
+      rows: leaders.map((row, index) => ({ rank: index + 1, name: displayDivisionName(row.division), value: row.teamName, detail: `${row.points} pts · ${signed(row.profit)} profit`, teamId: row.teamId })),
     });
 
     divisionNames.forEach((division) => {
       const rows = [...(data.leagueTable[division] ?? [])].sort((a, b) => a.rank - b.rank);
       if (!rows.length) return;
-      const fixtures = data.fixtures.filter((fixture) => fixture.competition === 'league' && fixture.division === division);
       out.push({
         id: `league-${division}`, kicker: 'DIVISION FOCUS', title: displayDivisionName(division), subtitle: `${season} ${gw} · standings and this gameweek's fixtures`, tone: 'blue',
         metric: String(rows[0].points), metricLabel: `${rows[0].teamName} points`,
         rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
-        fixtures,
+        fixtures: data.fixtures.filter((fixture) => fixture.competition === 'league' && fixture.division === division),
         story: rows[1] ? `${rows[0].teamName} lead ${rows[1].teamName} by ${rows[0].points - rows[1].points} points.` : undefined,
       });
     });
@@ -274,7 +220,8 @@ export function HomePage() {
         if (!rows.length) return;
         out.push({
           id: `trio-${division}`, kicker: 'TRIO LEAGUE', title: displayDivisionName(division), subtitle: `${season} ${data.trio!.gw} · standings and this gameweek's fixtures`, tone: 'green',
-          metric: String(rows[0].points), metricLabel: `${rows[0].teamName} points`, rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
+          metric: String(rows[0].points), metricLabel: `${rows[0].teamName} points`,
+          rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
           fixtures: data.fixtures.filter((fixture) => fixture.competition === 'trio' && fixture.division === division),
         });
       });
@@ -286,7 +233,8 @@ export function HomePage() {
         if (!rows.length) return;
         out.push({
           id: `tier-${division}`, kicker: 'TIER LEAGUE', title: displayDivisionName(division), subtitle: `${season} ${data.tier!.gw} · standings and this gameweek's fixtures`, tone: 'green',
-          metric: String(rows[0].points), metricLabel: `${rows[0].teamName} points`, rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
+          metric: String(rows[0].points), metricLabel: `${rows[0].teamName} points`,
+          rows: rowsFor(rows, (row) => `${row.points} pts`, (row) => `${row.wins}W ${row.draws}D ${row.losses}L · ${signed(row.profit)}`),
           fixtures: data.fixtures.filter((fixture) => fixture.competition === 'tier' && fixture.division === division),
         });
       });
@@ -296,6 +244,35 @@ export function HomePage() {
       out.push({ id: 'all-time-points', kicker: '16-SEASON ARCHIVE', title: 'All-Time League Table', subtitle: `${data.allTime.fromSeason} ${data.allTime.fromGw} → ${data.allTime.toSeason} ${data.allTime.toGw}`, tone: 'gold', metric: `${data.allTime.pointsTable[0]?.points ?? 0}`, metricLabel: 'record points', rows: rowsFor(data.allTime.pointsTable, (row) => `${row.points} pts`, (row) => `${row.wins} wins · ${signed(row.profit)} profit`) });
       out.push({ id: 'all-time-profit', kicker: '16-SEASON ARCHIVE', title: 'Greatest Profit Makers', subtitle: 'Career profit across every recorded season', tone: 'green', metric: signed(data.allTime.profitTable[0]?.profit ?? 0), metricLabel: data.allTime.profitTable[0]?.teamName ?? '', rows: rowsFor(data.allTime.profitTable, (row) => signed(row.profit), (row) => `${row.played} games · ${row.wins} wins`) });
       out.push({ id: 'all-time-spins', kicker: '16-SEASON ARCHIVE', title: 'Spin Kings', subtitle: 'Most spins across BookieBall history', tone: 'blue', metric: String(data.allTime.spinsTable[0]?.spins ?? 0), metricLabel: data.allTime.spinsTable[0]?.teamName ?? '', rows: rowsFor(data.allTime.spinsTable, (row) => `${row.spins} spins`, (row) => `${row.played} games · ${signed(row.profit)} profit`) });
+    }
+
+    if (archive?.teams.length) {
+      const byElo = archive.teams.slice().sort((a, b) => b.elo - a.elo);
+      const byPeak = archive.teams.slice().sort((a, b) => b.peakElo - a.peakElo);
+      out.push({ id: 'dominance', kicker: 'HISTORICAL POWER', title: 'Dominance Index', subtitle: 'Elo, all-time points, win rate and profit combined', tone: 'gold', metric: archive.teams[0].dominanceIndex.toFixed(1), metricLabel: archive.teams[0].teamName, rows: analyticsRows(archive.teams, (row) => row.dominanceIndex.toFixed(1), (row) => `${row.wins} wins · ${(row.winRate * 100).toFixed(0)}% · ${signed(row.profit)} profit`) });
+      out.push({ id: 'elo', kicker: 'HISTORICAL POWER', title: 'All-Time Elo Ratings', subtitle: 'Result strength carried across every season in order', tone: 'blue', metric: byElo[0].elo.toFixed(0), metricLabel: byElo[0].teamName, rows: analyticsRows(byElo, (row) => row.elo.toFixed(0), (row) => `Peak ${row.peakElo.toFixed(0)} · ${row.played} matches`) });
+      out.push({ id: 'peak-elo', kicker: 'HISTORICAL RECORD', title: 'Highest Peak Ratings', subtitle: 'The strongest level each team has ever reached', tone: 'red', metric: byPeak[0].peakElo.toFixed(0), metricLabel: byPeak[0].teamName, rows: analyticsRows(byPeak, (row) => row.peakElo.toFixed(0), (row) => `Current ${row.elo.toFixed(0)} · ${row.wins} career wins`) });
+
+      const spotlight = archive.teams[0];
+      if (spotlight.favouriteOpponent || spotlight.bogeyOpponent) {
+        out.push({
+          id: 'opponent-profile', kicker: 'TEAM DNA', title: spotlight.teamName, subtitle: 'Favourite opponent and bogey-team profile across the archive', tone: 'red',
+          metric: spotlight.dominanceIndex.toFixed(1), metricLabel: 'dominance index',
+          rows: [
+            ...(spotlight.favouriteOpponent ? [{ rank: 1, name: `Favourite: ${spotlight.favouriteOpponent.teamName}`, value: `${spotlight.favouriteOpponent.wins}W`, detail: `${spotlight.favouriteOpponent.losses}L ${spotlight.favouriteOpponent.draws}D` }] : []),
+            ...(spotlight.bogeyOpponent ? [{ rank: 2, name: `Bogey: ${spotlight.bogeyOpponent.teamName}`, value: `${spotlight.bogeyOpponent.losses}L`, detail: `${spotlight.bogeyOpponent.wins}W ${spotlight.bogeyOpponent.draws}D` }] : []),
+          ],
+        });
+      }
+    }
+
+    if (archive?.rivalries.length) {
+      const top = archive.rivalries.slice(0, 12);
+      out.push({
+        id: 'rivalries', kicker: 'RIVALRY INDEX', title: 'BookieBall’s Biggest Rivalries', subtitle: 'Most-played and most competitive all-time pairings', tone: 'red',
+        metric: String(top[0].meetings), metricLabel: `${top[0].teamAName} vs ${top[0].teamBName} meetings`,
+        rows: top.map((row, index) => ({ rank: index + 1, name: `${row.teamAName} vs ${row.teamBName}`, value: `${row.teamAWins}-${row.draws}-${row.teamBWins}`, detail: `${row.meetings} meetings · ${(row.closeness * 100).toFixed(0)}% closeness` })),
+      });
     }
 
     if (data.ratings.length) {
@@ -327,7 +304,7 @@ export function HomePage() {
     });
 
     return out;
-  }, [data]);
+  }, [data, archive]);
 
   const active = slides[slideIndex] ?? null;
   const isLong = Boolean(active && ((active.rows?.length ?? 0) > 7 || (active.fixtures?.length ?? 0) > 4));
@@ -389,11 +366,7 @@ export function HomePage() {
       <div className="command-centre-stage">
         <article key={`${active.id}-${cycle}`} className="command-slide" style={{ ['--command-accent' as string]: color, background: PANEL_BG, borderTopColor: color }}>
           <div className="command-slide-head">
-            <div>
-              <div className="command-slide-kicker" style={{ color }}>{active.kicker}</div>
-              <h1 className="command-slide-title">{active.title}</h1>
-              <p>{active.subtitle}</p>
-            </div>
+            <div><div className="command-slide-kicker" style={{ color }}>{active.kicker}</div><h1 className="command-slide-title">{active.title}</h1><p>{active.subtitle}</p></div>
             {active.metric && <div className="command-slide-metric"><strong style={{ color }}>{active.metric}</strong><span>{active.metricLabel}</span></div>}
           </div>
 
@@ -402,17 +375,17 @@ export function HomePage() {
               <div className="command-division-layout command-native-layout">
                 <section className="command-column">
                   <div className="command-section-label"><span>LIVE TABLE</span><span>{active.rows?.length ?? 0} TEAMS</span></div>
-                  <AutoPan className="command-scroll-window command-table-native">{renderRows}</AutoPan>
+                  <AutoScrollViewport className="command-scroll-window command-table-native">{renderRows}</AutoScrollViewport>
                 </section>
                 <section className="command-column">
                   <div className="command-section-label"><span>{data?.state.currentGw} FIXTURES</span><span>{active.fixtures.length} GAMES</span></div>
-                  <AutoPan className="command-scroll-window command-fixtures-native">{active.fixtures.map((fixture) => <FixtureCard key={fixture.key} fixture={fixture} color={color} />)}</AutoPan>
+                  <AutoScrollViewport className="command-scroll-window command-fixtures-native">{active.fixtures.map((fixture) => <CommandFixtureCard key={fixture.key} fixture={fixture} color={color} />)}</AutoScrollViewport>
                 </section>
               </div>
             ) : active.rows?.length ? (
               <section className="command-column command-single-column">
                 {isLong && <div className="command-section-label"><span>FULL TABLE</span><span>AUTO-SCROLLING · {active.rows.length} ROWS</span></div>}
-                <AutoPan className="command-scroll-window command-table-native">{renderRows}</AutoPan>
+                <AutoScrollViewport className="command-scroll-window command-table-native">{renderRows}</AutoScrollViewport>
               </section>
             ) : active.story ? <div className="command-story">{active.story}</div> : null}
           </div>
