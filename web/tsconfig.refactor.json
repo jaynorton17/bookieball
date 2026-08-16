@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "src/pages/HomePage.tsx",
+    "src/components/broadcast/**/*.tsx",
+    "src/components/TeamJourneyBridge.tsx",
+    "src/components/TeamJourneyOverlay.tsx",
+    "src/lib/api.ts",
+    "src/lib/appEvents.ts",
+    "src/lib/fetchCache.ts",
+    "src/lib/currentGameweekSnapshot.ts",
+    "src/lib/competitionRegistry.ts",
+    "src/lib/historyModels.ts",
+    "src/lib/teamCareer.ts",
+    "src/lib/allTimeAnalytics.ts",
+    "src/lib/divisionLabels.ts"
+  ]
+}
