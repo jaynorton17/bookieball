@@ -5,13 +5,14 @@ import { TeamJourneyOverlay } from './components/TeamJourneyOverlay';
 import { api } from './lib/api';
 
 type LiveFixture = { homeTeam: string | null; awayTeam: string | null; homeProfit: number; awayProfit: number };
+type H2H = Awaited<ReturnType<typeof api.headToHeadAllTime>>;
 
 function fixtureKey(home: string | null | undefined, away: string | null | undefined): string {
   return `${(home ?? '').trim().toLowerCase()}|${(away ?? '').trim().toLowerCase()}`;
 }
 
 function score(value: number): string {
-  return (Number.isFinite(value) ? value : 0).toFixed(2);
+  return `${value > 0 ? '+' : ''}${(Number.isFinite(value) ? value : 0).toFixed(2)}`;
 }
 
 function groupedBoardHtml(groups: Array<{ division: string; rows: Array<{ rank: number; teamName: string; points: number; wins: number; draws: number; losses: number; profit: number }> }>): string {
@@ -105,6 +106,9 @@ export function AppChromeEnhancements() {
     const nav = document.querySelector('.topbar-nav');
     if (!nav) return;
 
+    const oldJourneyButton = nav.querySelector('button[data-team-journey="true"]');
+    oldJourneyButton?.remove();
+
     let penaltyLink = nav.querySelector<HTMLAnchorElement>('a[data-penalties-nav="true"]');
     if (!penaltyLink) {
       penaltyLink = document.createElement('a');
@@ -121,18 +125,26 @@ export function AppChromeEnhancements() {
     penaltyLink.textContent = penaltyCount > 0 ? `Penalties (${penaltyCount})` : 'Penalties';
     penaltyLink.classList.toggle('active', location.pathname === '/penalty-shootout');
     penaltyLink.classList.toggle('penalties-live', penaltyCount > 0);
-
-    let journeyButton = nav.querySelector<HTMLButtonElement>('button[data-team-journey="true"]');
-    if (!journeyButton) {
-      journeyButton = document.createElement('button');
-      journeyButton.type = 'button';
-      journeyButton.dataset.teamJourney = 'true';
-      journeyButton.className = 'topbar-nav-link team-journey-nav-link';
-      journeyButton.textContent = 'Team Journey';
-      journeyButton.addEventListener('click', () => setTeamJourneyOpen(true));
-      nav.appendChild(journeyButton);
-    }
   }, [location.pathname, penaltyCount]);
+
+  useEffect(() => {
+    if (location.pathname !== '/') return;
+    const attachJourneyButton = () => {
+      const controls = document.querySelector<HTMLElement>('.command-centre-header .command-controls');
+      if (!controls || controls.querySelector('[data-home-team-journey="true"]')) return;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.homeTeamJourney = 'true';
+      button.className = 'command-nav-btn command-team-journey-btn';
+      button.textContent = 'Team Journey';
+      button.addEventListener('click', () => setTeamJourneyOpen(true));
+      controls.prepend(button);
+    };
+    attachJourneyButton();
+    const observer = new MutationObserver(attachJourneyButton);
+    observer.observe(document.body, { subtree: true, childList: true });
+    return () => observer.disconnect();
+  }, [location.pathname]);
 
   useEffect(() => {
     if (location.pathname !== '/gameshow') return;
@@ -164,8 +176,8 @@ export function AppChromeEnhancements() {
           const text = element.textContent ?? '';
           const parts = text.split(/\s+vs\s+/i);
           if (parts.length !== 2) return;
-          const home = parts[0].replace(/\s+-?\d+\.\d+\s*$/,'').trim();
-          const away = parts[1].replace(/^\s*-?\d+\.\d+\s*/,'').trim();
+          const home = parts[0].replace(/\s+[+-]?\d+\.\d+\s*$/,'').trim();
+          const away = parts[1].replace(/^\s*[+-]?\d+\.\d+\s*/,'').trim();
           const fixture = byPair.get(fixtureKey(home, away));
           if (!fixture) return;
           element.textContent = `${home}  ${score(fixture.homeProfit)}   VS   ${score(fixture.awayProfit)}  ${away}`;
@@ -177,6 +189,77 @@ export function AppChromeEnhancements() {
     void decorateFixtureScores();
     const timer = window.setInterval(() => void decorateFixtureScores(), 2500);
     return () => { active = false; window.clearInterval(timer); };
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/') return;
+    let disposed = false;
+    let decorating = false;
+
+    const decorateHomeFixtures = async () => {
+      if (decorating) return;
+      const cards = Array.from(document.querySelectorAll<HTMLElement>('.command-slide .command-fixture'));
+      if (!cards.length) return;
+      decorating = true;
+      try {
+        const [state, teams, fixtures] = await Promise.all([
+          api.state(),
+          api.teams(),
+          api.leagueFixtures(undefined, true),
+        ]);
+        if (disposed) return;
+        const current = fixtures.filter((fixture) => fixture.gw === state.currentGw);
+        const fixtureMap = new Map(current.map((fixture) => [fixtureKey(fixture.homeTeam, fixture.awayTeam), fixture]));
+        const teamMap = new Map(teams.map((team) => [team.name.trim().toLowerCase(), team]));
+        const h2hMap = new Map<string, H2H>();
+
+        await Promise.all(cards.map(async (card) => {
+          const names = Array.from(card.querySelectorAll<HTMLElement>('strong'));
+          if (names.length < 2) return;
+          const home = names[0].textContent?.trim() ?? '';
+          const away = names[names.length - 1].textContent?.trim() ?? '';
+          const fixture = fixtureMap.get(fixtureKey(home, away));
+          if (!fixture) return;
+
+          const matchup = names[0].parentElement;
+          if (matchup) {
+            const middle = Array.from(matchup.children).find((child) => child.tagName === 'SPAN') as HTMLElement | undefined;
+            if (middle) {
+              middle.textContent = `${score(fixture.homeProfit)}   VS   ${score(fixture.awayProfit)}`;
+              middle.classList.add('command-fixture-scoreline');
+            }
+          }
+
+          const homeTeam = teamMap.get(home.toLowerCase());
+          const awayTeam = teamMap.get(away.toLowerCase());
+          if (!homeTeam || !awayTeam) return;
+          const key = fixtureKey(home, away);
+          let record = h2hMap.get(key);
+          if (!record) {
+            record = await api.headToHeadAllTime(homeTeam.id, awayTeam.id).catch(() => null as H2H | null) ?? undefined;
+            if (record) h2hMap.set(key, record);
+          }
+          if (!record || disposed) return;
+
+          let footer = card.querySelector<HTMLElement>('.command-fixture-h2h');
+          if (!footer) {
+            footer = document.createElement('div');
+            footer.className = 'command-fixture-h2h';
+            card.appendChild(footer);
+          }
+          footer.textContent = `ALL-TIME H2H  ·  ${home} ${record.teamAWins}W ${record.teamBWins}L ${record.draws}D  ·  ${away} ${record.teamBWins}W ${record.teamAWins}L ${record.draws}D`;
+        }));
+      } catch {
+        // Leave fixture cards untouched if analytics are temporarily unavailable.
+      } finally {
+        decorating = false;
+      }
+    };
+
+    void decorateHomeFixtures();
+    const observer = new MutationObserver(() => void decorateHomeFixtures());
+    observer.observe(document.body, { subtree: true, childList: true });
+    return () => { disposed = true; observer.disconnect(); };
   }, [location.pathname]);
 
   useEffect(() => {

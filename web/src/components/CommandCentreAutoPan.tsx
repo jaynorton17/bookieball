@@ -15,68 +15,114 @@ export function CommandCentreAutoPan() {
 
   useEffect(() => {
     if (location.pathname !== '/') return;
-    let disposed = false;
-    let startTimer = 0;
-    let settleTimer = 0;
 
-    const clearTimers = () => {
-      window.clearTimeout(startTimer);
+    let disposed = false;
+    let frame = 0;
+    let settleTimer = 0;
+    let activeSlideKey = '';
+
+    const stop = () => {
+      window.cancelAnimationFrame(frame);
       window.clearTimeout(settleTimer);
     };
 
-    const prepare = async () => {
-      clearTimers();
+    const runForCurrentSlide = async (force = false) => {
       const slide = document.querySelector<HTMLElement>('.command-slide');
-      const title = document.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
+      const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
+      const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
       const table = slide?.querySelector<HTMLElement>('.command-table');
       if (!slide || !table) return;
+
+      const slideKey = `${title}|${kicker}`;
+      if (!force && slideKey === activeSlideKey && table.dataset.autoPanStarted === 'true') return;
+      activeSlideKey = slideKey;
+      stop();
 
       if (title === 'Master League' && table.dataset.fullMaster !== 'true') {
         try {
           const payload = await api.masterLeagueTable();
-          if (disposed || !payload.table.length) return;
+          if (disposed || !payload.table.length || !document.body.contains(table)) return;
           const rows = payload.table.slice().sort((a, b) => a.rank - b.rank);
           table.innerHTML = rows.map(masterRowHtml).join('');
           table.dataset.fullMaster = 'true';
         } catch {
-          // Leave the existing rows in place if the full table cannot be loaded.
+          // Keep the rendered table if the full table cannot be loaded.
         }
       }
 
-      if (disposed) return;
+      if (disposed || !document.body.contains(table)) return;
       table.classList.add('command-auto-pan-window');
-      table.scrollTop = 0;
+      table.dataset.autoPanStarted = 'true';
       table.dataset.autoPan = 'top';
+      table.dataset.autoPanRecalc = 'false';
+      table.scrollTop = 0;
 
-      requestAnimationFrame(() => {
-        if (disposed) return;
-        const overflow = table.scrollHeight - table.clientHeight;
-        if (overflow <= 10) {
+      const begin = () => {
+        if (disposed || !document.body.contains(table)) return;
+        const maxScroll = Math.max(0, table.scrollHeight - table.clientHeight);
+        if (maxScroll <= 8) {
           table.dataset.autoPan = 'static';
           return;
         }
 
-        startTimer = window.setTimeout(() => {
+        const leadInMs = 1500;
+        const travelMs = Math.max(5200, Math.min(10500, 4200 + maxScroll * 10));
+        const bottomPauseMs = 1400;
+        const startedAt = performance.now();
+
+        const tick = (now: number) => {
           if (disposed || !document.body.contains(table)) return;
-          table.dataset.autoPan = 'moving';
-          table.scrollTo({ top: table.scrollHeight - table.clientHeight, behavior: 'smooth' });
-          settleTimer = window.setTimeout(() => {
-            if (disposed || !document.body.contains(table)) return;
-            table.dataset.autoPan = 'bottom';
-          }, 5200);
-        }, 1800);
-      });
+          const elapsed = now - startedAt;
+          if (elapsed < leadInMs) {
+            frame = window.requestAnimationFrame(tick);
+            return;
+          }
+          const progress = Math.min(1, (elapsed - leadInMs) / travelMs);
+          const eased = progress < .5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+          table.dataset.autoPan = progress >= 1 ? 'bottom' : 'moving';
+          table.scrollTop = maxScroll * eased;
+          if (progress < 1) frame = window.requestAnimationFrame(tick);
+        };
+
+        frame = window.requestAnimationFrame(tick);
+        settleTimer = window.setTimeout(() => {
+          if (!disposed && document.body.contains(table)) table.dataset.autoPan = 'bottom';
+        }, leadInMs + travelMs + bottomPauseMs);
+      };
+
+      window.setTimeout(begin, force ? 260 : 180);
     };
 
-    void prepare();
-    const observer = new MutationObserver(() => void prepare());
+    const handleLayoutChanged = () => {
+      const table = document.querySelector<HTMLElement>('.command-slide .command-table');
+      if (table) {
+        table.dataset.autoPanStarted = 'false';
+        table.dataset.autoPanRecalc = 'false';
+      }
+      void runForCurrentSlide(true);
+    };
+
+    void runForCurrentSlide();
+    window.addEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
+
+    const observer = new MutationObserver(() => {
+      const slide = document.querySelector<HTMLElement>('.command-slide');
+      const title = slide?.querySelector<HTMLElement>('.command-slide-title')?.textContent?.trim() ?? '';
+      const kicker = slide?.querySelector<HTMLElement>('.command-slide-kicker')?.textContent?.trim() ?? '';
+      const table = slide?.querySelector<HTMLElement>('.command-table');
+      const key = `${title}|${kicker}`;
+      if (key !== activeSlideKey || table?.dataset.autoPanRecalc === 'true') {
+        void runForCurrentSlide(table?.dataset.autoPanRecalc === 'true');
+      }
+    });
     const root = document.querySelector('.command-centre-page') ?? document.body;
     observer.observe(root, { subtree: true, childList: true });
 
     return () => {
       disposed = true;
-      clearTimers();
+      stop();
       observer.disconnect();
+      window.removeEventListener('bookieball:command-layout-changed', handleLayoutChanged as EventListener);
     };
   }, [location.pathname]);
 
