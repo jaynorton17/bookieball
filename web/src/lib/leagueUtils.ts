@@ -171,7 +171,7 @@ export function computeStreakLeaders(fixtures: LeagueFixture[]): {
   let winless: { teamName: string; streak: number } | null = null;
   let comebackLeader: { teamName: string; streak: number } | null = null;
 
-  results.forEach((list, teamName) => {
+  for (const [teamName, list] of results.entries()) {
     const winStreak = longestStreak(list, (r) => r === 'W');
     const winlessStreak = longestStreak(list, (r) => r !== 'W');
     const comebackLen = comebackStreak(list);
@@ -185,7 +185,7 @@ export function computeStreakLeaders(fixtures: LeagueFixture[]): {
     if (!comebackLeader || comebackLen > comebackLeader.streak) {
       comebackLeader = { teamName, streak: comebackLen };
     }
-  });
+  }
 
   return {
     hot: hot?.streak ? hot : null,
@@ -235,16 +235,16 @@ export function computeShockOfWeek(
   const currentFixtures = fixtures.filter((fixture) => fixture.gw === gw && fixture.result !== 'pending');
   let best: { division: string; winner: string; loser: string; rankGap: number; profitMargin: number; score: number } | null = null;
 
-  currentFixtures.forEach((fixture) => {
+  for (const fixture of currentFixtures) {
     if (fixture.result === 'draw') {
-      return;
+      continue;
     }
     const winner = fixture.result === 'home' ? fixture.homeTeam : fixture.awayTeam;
     const loser = fixture.result === 'home' ? fixture.awayTeam : fixture.homeTeam;
     const winnerRank = rankMap.get(winner) ?? 0;
     const loserRank = rankMap.get(loser) ?? 0;
     if (!winnerRank || !loserRank || winnerRank <= loserRank) {
-      return;
+      continue;
     }
     const rankGap = winnerRank - loserRank;
     const profitMargin = Number(Math.abs(fixture.homeProfit - fixture.awayProfit).toFixed(2));
@@ -252,7 +252,7 @@ export function computeShockOfWeek(
     if (!best || score > best.score) {
       best = { division: fixture.division, winner, loser, rankGap, profitMargin, score };
     }
-  });
+  }
 
   if (!best) {
     return null;

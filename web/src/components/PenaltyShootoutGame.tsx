@@ -27,6 +27,8 @@ export interface ShotResult {
   saved: boolean;
   /** High‑level target direction chosen by the player */
   targetDir: DiveDirection;
+  /** Keeper dive direction selected by the AI */
+  keeperDir: DiveDirection;
 }
 
 export interface PenaltyShootoutGameProps {
@@ -36,6 +38,10 @@ export interface PenaltyShootoutGameProps {
   keeperPrimary?: string;
   /** Trim colour for the keeper kit */
   keeperTrim?: string;
+  /** Current taker label shown in the broadcast canvas */
+  shooterName?: string;
+  /** Current keeper label shown in the broadcast canvas */
+  keeperName?: string;
   /** Callback invoked when a shot completes */
   onShotComplete?: (result: ShotResult) => void;
   /** AI difficulty between 0 and 1 (keeper accuracy) */
@@ -59,6 +65,7 @@ interface ActiveShot {
   handednessBias: number;
   completed: boolean;
   contact?: { x: number; y: number };
+  trail: Array<{ x: number; y: number }>;
   /** Player's chosen direction (left/center/right) */
   targetDir: DiveDirection;
 }
@@ -67,6 +74,8 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
   ballColour = '#ffffff',
   keeperPrimary = '#009688',
   keeperTrim = '#004d40',
+  shooterName = 'Taker',
+  keeperName = 'Keeper',
   onShotComplete,
   difficulty = 0.85,
   graphicsQuality = 'medium',
@@ -80,15 +89,15 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
   // Debug overlay toggle
   const [debug, setDebug] = useState<boolean>(false);
   // Size constants – adjust for different screen sizes as needed
-  const canvasWidth = 600;
-  const canvasHeight = 400;
+  const canvasWidth = 720;
+  const canvasHeight = 430;
   // Define goal mouth dimensions relative to canvas
-  const goalWidth = canvasWidth * 0.6;
-  const goalHeight = 120;
-  const goalLineY = 80;
+  const goalWidth = canvasWidth * 0.58;
+  const goalHeight = 108;
+  const goalLineY = 136;
   const goalXStart = (canvasWidth - goalWidth) / 2;
   const penaltySpotX = canvasWidth / 2;
-  const penaltySpotY = canvasHeight - 60;
+  const penaltySpotY = canvasHeight - 58;
 
   // Derived goal dimensions object for collision module
   const goalDims: GoalDimensions = {
@@ -119,9 +128,9 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
         radius: 8,
       };
       // Flight duration to goal line (in seconds)
-      const flightDuration = 1.0;
+      const flightDuration = 0.95;
       // Compute velocities so that the ball reaches the chosen (x,y) point on the goal plane
-      const destY = goalLineY + 30; // aim slightly inside the net
+      const destY = goalLineY + 8; // aim just inside the net
       const destX = targetX;
       const vx = (destX - penaltySpotX) / flightDuration;
       const vy = (destY - penaltySpotY) / flightDuration;
@@ -136,6 +145,7 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
         handednessBias: aiOutcome.handednessBias ?? 0,
         keeperStartTime: now,
         completed: false,
+        trail: [{ x: penaltySpotX, y: penaltySpotY }],
         targetDir,
       };
       setActiveShot(newShot);
@@ -214,21 +224,18 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
       lastTimestamp = timestamp;
       // Clear canvas
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      // Draw pitch background
+      drawStadium(ctx, timestamp, graphicsQuality);
       drawPitch(ctx);
-      // Draw goal frame
       drawGoal(ctx);
-      // Draw fans (quality dependent)
-      drawCrowd(ctx, graphicsQuality);
-      // Draw penalty spot
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(penaltySpotX, penaltySpotY, 3, 0, Math.PI * 2);
-      ctx.fill();
       // Update and render active shot
       if (activeShot) {
         updateShot(activeShot, dt, ctx, timestamp);
+      } else {
+        const idleColliders = offsetColliders(computeKeeperPose('center', 0, goalDims));
+        drawKeeper(ctx, idleColliders, 'center', 0, timestamp);
+        drawRestingBall(ctx);
       }
+      drawCanvasHud(ctx);
       // Request next frame
       animationFrame = requestAnimationFrame(draw);
     };
@@ -252,11 +259,10 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
       // Advance ball
       shot.ball.position.x += shot.vx * dt;
       shot.ball.position.y += shot.vy * dt;
-      // Draw ball
-      ctx.fillStyle = ballColour;
-      ctx.beginPath();
-      ctx.arc(shot.ball.position.x, shot.ball.position.y, shot.ball.radius, 0, Math.PI * 2);
-      ctx.fill();
+      shot.trail.push({ x: shot.ball.position.x, y: shot.ball.position.y });
+      if (shot.trail.length > 12) {
+        shot.trail.shift();
+      }
       // Determine dive progress
       const tSinceStart = timestamp - shot.keeperStartTime;
       let diveProgress = 0;
@@ -267,17 +273,11 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
       // Compute keeper colliders
       const collidersBase = computeKeeperPose(shot.keeperDir, diveProgress, goalDims);
       // Shift colliders into canvas coordinates (goalXStart offset)
-      const colliders: CircleCollider[] = collidersBase.map((c) => ({
-        center: { x: c.center.x + goalXStart, y: c.center.y },
-        radius: c.radius,
-      }));
+      const colliders = offsetColliders(collidersBase);
       // Draw keeper
-      colliders.forEach((c, index) => {
-        ctx.fillStyle = index < 2 ? keeperPrimary : keeperTrim;
-        ctx.beginPath();
-        ctx.arc(c.center.x, c.center.y, c.radius, 0, Math.PI * 2);
-        ctx.fill();
-      });
+      drawKeeper(ctx, colliders, shot.keeperDir, diveProgress, timestamp);
+      drawBallTrail(ctx, shot.trail);
+      drawBall(ctx, shot.ball.position.x, shot.ball.position.y, shot.ball.radius);
       // Draw debug overlay if enabled
       if (debug) {
         ctx.strokeStyle = 'rgba(255,0,0,0.6)';
@@ -310,9 +310,9 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
         if (result.saved) {
           shot.contact = result.contact;
           // Draw impact effect (a simple flash)
-          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillStyle = 'rgba(255,255,255,0.72)';
           ctx.beginPath();
-          ctx.arc(result.contact!.x, result.contact!.y, 12, 0, Math.PI * 2);
+          ctx.arc(result.contact!.x, result.contact!.y, 18, 0, Math.PI * 2);
           ctx.fill();
         }
         // Inform parent component
@@ -320,6 +320,7 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
           scored: !result.saved,
           saved: result.saved,
           targetDir: shot.targetDir,
+          keeperDir: shot.keeperDir,
         });
         // Remove active shot after short delay
         setTimeout(() => {
@@ -330,102 +331,236 @@ export const PenaltyShootoutGame: React.FC<PenaltyShootoutGameProps> = ({
     [debug, goalLineY, goalXStart, keeperPrimary, keeperTrim, onShotComplete, penaltySpotX, penaltySpotY]
   );
 
-  // Draw the pitch (grass + markings)
-  const drawPitch = (ctx: CanvasRenderingContext2D) => {
-    // Grass background
-    ctx.fillStyle = '#107e3e';
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    // Mowing stripes
-    const stripeCount = 8;
-    const stripeHeight = canvasHeight / stripeCount;
-    for (let i = 0; i < stripeCount; i++) {
-      if (i % 2 === 0) {
-        ctx.fillStyle = '#0f7038';
-        ctx.fillRect(0, i * stripeHeight, canvasWidth, stripeHeight);
+  function offsetColliders(colliders: CircleCollider[]): CircleCollider[] {
+    return colliders.map((collider) => ({
+      center: { x: collider.center.x + goalXStart, y: collider.center.y },
+      radius: collider.radius,
+    }));
+  }
+
+  function drawStadium(
+    ctx: CanvasRenderingContext2D,
+    timestamp: number,
+    quality: 'low' | 'medium' | 'high',
+  ) {
+    const sky = ctx.createLinearGradient(0, 0, 0, goalLineY + 30);
+    sky.addColorStop(0, '#071225');
+    sky.addColorStop(0.48, '#102a48');
+    sky.addColorStop(1, '#163d56');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvasWidth, goalLineY + 48);
+
+    ctx.fillStyle = 'rgba(255, 238, 186, 0.18)';
+    ctx.fillRect(0, 0, canvasWidth, 8);
+    ctx.fillStyle = 'rgba(2, 8, 17, 0.6)';
+    ctx.fillRect(0, 72, canvasWidth, 56);
+
+    const rows = quality === 'high' ? 4 : 2;
+    const columns = quality === 'high' ? 46 : 24;
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < columns; col += 1) {
+        const x = (col + 0.5) * (canvasWidth / columns);
+        const y = 82 + row * 10 + Math.sin((timestamp / 260) + col * 0.55) * 1.8;
+        const hue = (col * 18 + row * 38 + timestamp / 80) % 360;
+        ctx.fillStyle = `hsla(${hue}, 72%, 62%, 0.48)`;
+        ctx.beginPath();
+        ctx.arc(x, y, row % 2 === 0 ? 2.7 : 2.2, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
-    // Penalty box & arc
-    ctx.strokeStyle = '#ffffff';
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fillRect(0, 126, canvasWidth, 4);
+  }
+
+  function drawPitch(ctx: CanvasRenderingContext2D) {
+    const pitch = ctx.createLinearGradient(0, goalLineY, 0, canvasHeight);
+    pitch.addColorStop(0, '#14914e');
+    pitch.addColorStop(0.45, '#0f7e43');
+    pitch.addColorStop(1, '#085f32');
+    ctx.fillStyle = pitch;
+    ctx.fillRect(0, goalLineY, canvasWidth, canvasHeight - goalLineY);
+
+    for (let i = 0; i < 9; i += 1) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+      const y = goalLineY + i * 36;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasWidth, y - 12);
+      ctx.lineTo(canvasWidth, y + 26);
+      ctx.lineTo(0, y + 38);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = 'rgba(244, 255, 250, 0.78)';
     ctx.lineWidth = 2;
-    // Goal line
+    ctx.beginPath();
+    ctx.moveTo(goalXStart - 52, goalLineY);
+    ctx.lineTo(goalXStart - 120, canvasHeight - 18);
+    ctx.moveTo(goalXStart + goalWidth + 52, goalLineY);
+    ctx.lineTo(goalXStart + goalWidth + 120, canvasHeight - 18);
+    ctx.moveTo(goalXStart - 46, goalLineY + 92);
+    ctx.lineTo(goalXStart + goalWidth + 46, goalLineY + 92);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(penaltySpotX, penaltySpotY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(penaltySpotX, goalLineY + 120, 76, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.strokeStyle = 'rgba(244,255,250,0.48)';
+    ctx.stroke();
+  }
+
+  function drawGoal(ctx: CanvasRenderingContext2D) {
+    const goalTop = goalLineY - goalHeight;
+    ctx.save();
+    ctx.shadowColor = 'rgba(190, 225, 255, 0.56)';
+    ctx.shadowBlur = 12;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#f5fbff';
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(goalXStart, goalLineY);
+    ctx.lineTo(goalXStart, goalTop);
+    ctx.lineTo(goalXStart + goalWidth, goalTop);
     ctx.lineTo(goalXStart + goalWidth, goalLineY);
     ctx.stroke();
-    // Box
-    const boxHeight = 100;
-    ctx.strokeRect(goalXStart - 40, goalLineY, goalWidth + 80, boxHeight);
-    // Penalty arc
-    ctx.beginPath();
-    ctx.arc(penaltySpotX, goalLineY + 20, 60, Math.PI * 0.85, Math.PI * 0.15, true);
-    ctx.stroke();
-  };
+    ctx.restore();
 
-  // Draw the goal frame and net
-  const drawGoal = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#e8e8e8';
-    ctx.lineWidth = 4;
-    // Left post
-    ctx.beginPath();
-    ctx.moveTo(goalXStart, goalLineY);
-    ctx.lineTo(goalXStart, goalLineY - goalHeight);
-    ctx.stroke();
-    // Right post
-    ctx.beginPath();
-    ctx.moveTo(goalXStart + goalWidth, goalLineY);
-    ctx.lineTo(goalXStart + goalWidth, goalLineY - goalHeight);
-    ctx.stroke();
-    // Crossbar
-    ctx.beginPath();
-    ctx.moveTo(goalXStart, goalLineY - goalHeight);
-    ctx.lineTo(goalXStart + goalWidth, goalLineY - goalHeight);
-    ctx.stroke();
-    // Simple net pattern (vertical lines)
-    if (graphicsQuality !== 'low') {
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 1;
-      const netSpacing = 15;
-      for (let x = goalXStart; x <= goalXStart + goalWidth; x += netSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(x, goalLineY);
-        ctx.lineTo(x, goalLineY - goalHeight);
-        ctx.stroke();
-      }
-      // Horizontal lines
-      for (let y = goalLineY; y >= goalLineY - goalHeight; y -= netSpacing) {
-        ctx.beginPath();
-        ctx.moveTo(goalXStart, y);
-        ctx.lineTo(goalXStart + goalWidth, y);
-        ctx.stroke();
-      }
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+    ctx.lineWidth = 1;
+    const netSpacing = 18;
+    for (let x = goalXStart; x <= goalXStart + goalWidth; x += netSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, goalTop + 4);
+      ctx.lineTo(x + (x - penaltySpotX) * 0.08, goalLineY);
+      ctx.stroke();
     }
-  };
+    for (let y = goalTop + netSpacing; y < goalLineY; y += netSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(goalXStart, y);
+      ctx.lineTo(goalXStart + goalWidth, y);
+      ctx.stroke();
+    }
+    ctx.restore();
 
-  // Draw fans behind the goal as animated bands of colour
-  const drawCrowd = (
+    ctx.fillStyle = 'rgba(0,0,0,0.24)';
+    ctx.fillRect(goalXStart - 6, goalLineY + 2, goalWidth + 12, 8);
+  }
+
+  function drawKeeper(
     ctx: CanvasRenderingContext2D,
-    quality: 'low' | 'medium' | 'high'
-  ) => {
-    const crowdTop = goalLineY - goalHeight - 10;
-    const crowdHeight = 60;
-    const bandCount = quality === 'high' ? 10 : 5;
-    const bandWidth = canvasWidth / bandCount;
-    for (let i = 0; i < bandCount; i++) {
-      const hue = (i * 40 + (Date.now() / 50) % 360) % 360;
-      ctx.fillStyle = `hsl(${hue}, 60%, 40%)`;
-      ctx.fillRect(i * bandWidth, crowdTop, bandWidth, crowdHeight);
-    }
-  };
+    colliders: CircleCollider[],
+    diveDir: DiveDirection,
+    progress: number,
+    timestamp: number,
+  ) {
+    const [head, torso, leftHand, rightHand] = colliders;
+    const lean = diveDir === 'left' ? -progress : diveDir === 'right' ? progress : 0;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 10;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.strokeStyle = keeperTrim;
+    ctx.lineWidth = 13;
+    ctx.beginPath();
+    ctx.moveTo(leftHand.center.x, leftHand.center.y);
+    ctx.quadraticCurveTo(torso.center.x - 18 + lean * 18, torso.center.y + 4, torso.center.x, torso.center.y + 8);
+    ctx.quadraticCurveTo(torso.center.x + 18 + lean * 18, torso.center.y + 4, rightHand.center.x, rightHand.center.y);
+    ctx.stroke();
+
+    ctx.fillStyle = keeperPrimary;
+    ctx.beginPath();
+    ctx.ellipse(torso.center.x + lean * 8, torso.center.y + 6, 23, 31, lean * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f4d1aa';
+    ctx.beginPath();
+    ctx.arc(head.center.x + lean * 4, head.center.y, head.radius * 0.82, 0, Math.PI * 2);
+    ctx.fill();
+
+    [leftHand, rightHand].forEach((hand, index) => {
+      ctx.fillStyle = index === 0 ? '#f8fbff' : '#d9f2ff';
+      ctx.beginPath();
+      ctx.arc(hand.center.x, hand.center.y, hand.radius * 0.82, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    ctx.ellipse(torso.center.x, torso.center.y + 54, 46 + Math.sin(timestamp / 220) * 2, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBallTrail(ctx: CanvasRenderingContext2D, trail: Array<{ x: number; y: number }>) {
+    trail.forEach((point, index) => {
+      const alpha = (index + 1) / trail.length;
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.08 + alpha * 0.22})`;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 3 + alpha * 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,255,255,0.72)';
+    ctx.shadowBlur = 12;
+    const ball = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.35, 1, x, y, radius * 1.6);
+    ball.addColorStop(0, '#ffffff');
+    ball.addColorStop(0.38, ballColour);
+    ball.addColorStop(1, '#102033');
+    ctx.fillStyle = ball;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(4, 12, 24, 0.42)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRestingBall(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = 'rgba(0,0,0,0.24)';
+    ctx.beginPath();
+    ctx.ellipse(penaltySpotX, penaltySpotY + 12, 17, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawBall(ctx, penaltySpotX, penaltySpotY, 10);
+  }
+
+  function drawCanvasHud(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(3, 10, 22, 0.62)';
+    ctx.fillRect(18, canvasHeight - 48, canvasWidth - 36, 30);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeRect(18, canvasHeight - 48, canvasWidth - 36, 30);
+    ctx.fillStyle = 'rgba(230, 241, 255, 0.86)';
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillText(`${shooterName} vs ${keeperName}`, 32, canvasHeight - 28);
+    ctx.fillStyle = 'rgba(255, 224, 138, 0.9)';
+    ctx.textAlign = 'right';
+    ctx.fillText('BOOKIEBALL PENALTIES', canvasWidth - 32, canvasHeight - 28);
+    ctx.restore();
+  }
 
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
-    >
+    <div className="penalty-canvas-game">
       <canvas
         ref={canvasRef}
         width={canvasWidth}
         height={canvasHeight}
-        style={{ border: '1px solid #888', maxWidth: '100%', height: 'auto' }}
+        style={{ maxWidth: '100%', height: 'auto' }}
       />
       {debug && (
         <div style={{ color: '#f44336', marginTop: '8px' }}>

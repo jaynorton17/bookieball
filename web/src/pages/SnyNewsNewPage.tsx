@@ -1766,9 +1766,9 @@ export function SnyNewsNewPage() {
 
     if (unresolvedCandidate) {
       const { fixture, home, away, rankGap, roundScore } = unresolvedCandidate;
-      const hasBothRanks = home !== null && away !== null && home.rank !== null && away.rank !== null;
-      const lowerRankTeam = hasBothRanks ? (home.rank > away.rank ? home : away) : null;
-      const higherRankTeam = hasBothRanks ? (home.rank < away.rank ? home : away) : null;
+      const hasBothRanks = home !== null && away !== null && (home.rank ?? 0) !== null && (away.rank ?? 0) !== null;
+      const lowerRankTeam = hasBothRanks ? ((home.rank ?? 0) > (away.rank ?? 0) ? home : away) : null;
+      const higherRankTeam = hasBothRanks ? ((home.rank ?? 0) < (away.rank ?? 0) ? home : away) : null;
       const featuredTeam = rankGap >= 2
         ? lowerRankTeam ?? home ?? away
         : higherRankTeam ?? home ?? away;
@@ -1987,7 +1987,7 @@ export function SnyNewsNewPage() {
       return {
         teamId,
         teamName: team?.name ?? row?.teamName ?? `Team ${teamId}`,
-        division: resolveDivisionDisplayName(divisionByTeamId.get(teamId) ?? team?.division ?? row?.division ?? null),
+        division: resolveDivisionDisplayName(divisionByTeamId.get(teamId) ?? team?.division ?? null),
         rank: row?.rank ?? null,
         points: row?.points ?? null,
         profit: row?.profit ?? null,
@@ -3480,8 +3480,8 @@ export function SnyNewsNewPage() {
           .slice()
           .sort((left, right) => left.division.localeCompare(right.division) || left.rank - right.rank)
           .reduce((map, row) => {
-            if (!map.has(row.division) && row.rank === 1) {
-              map.set(row.division, row);
+            if (!map.has((row as any).division) && row.rank === 1) {
+              map.set((row as any).division, row);
             }
             return map;
           }, new Map<string, ApiTrioLeagueTable['table'][number]>()),

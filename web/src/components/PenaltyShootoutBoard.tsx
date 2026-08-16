@@ -5,7 +5,7 @@
 // from the original project but drives the new canvas‑based game instead of
 // relying on random guesses.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PenaltyShootoutGame, ShotResult } from './PenaltyShootoutGame';
 import { getKeeperKit } from './kitTheme';
 
@@ -31,7 +31,13 @@ export type PenaltyShootoutBoardProps = {
   confirmLabel?: string;
   confirmDisabled?: boolean;
   showReset?: boolean;
+  showAutoTake?: boolean;
+  showAutoComplete?: boolean;
+  speed?: number;
+  initialAutoPlay?: boolean;
+  autoConfirm?: boolean;
   onConfirmWinner?: (winner: PenaltyTeam, kicks: PenaltyKick[]) => void;
+  onAutoComplete?: () => void;
 };
 
 // Compute shootout status: goals, taken kicks, phase and winner.
@@ -82,7 +88,7 @@ function buildShootoutStatus(kicks: PenaltyKick[]) {
   };
 }
 
-export function PenaltyShootoutBoard({
+function PenaltyShootoutBoardInner({
   homeTeam,
   awayTeam,
   resetKey,
@@ -91,7 +97,13 @@ export function PenaltyShootoutBoard({
   confirmLabel = 'Confirm winner',
   confirmDisabled = false,
   showReset = false,
+  showAutoTake = false,
+  showAutoComplete = false,
+  speed = 500,
+  initialAutoPlay = false,
+  autoConfirm = false,
   onConfirmWinner,
+  onAutoComplete,
 }: PenaltyShootoutBoardProps) {
   const [started, setStarted] = useState(autoStart);
   const [kicks, setKicks] = useState<PenaltyKick[]>([]);
@@ -99,7 +111,9 @@ export function PenaltyShootoutBoard({
   const [animKey, setAnimKey] = useState(0);
   const [shotRequest, setShotRequest] = useState<{ dir: 'left' | 'center' | 'right'; id: number } | null>(null);
   const [shotInFlight, setShotInFlight] = useState(false);
+  const [autoPlaying, setAutoPlaying] = useState(initialAutoPlay);
   const shotIdRef = useRef(0);
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameRef = useRef(null);
   const status = useMemo(() => buildShootoutStatus(kicks), [kicks]);
   const shooter = kicks.length % 2 === 0 ? 'home' : 'away';
@@ -113,16 +127,69 @@ export function PenaltyShootoutBoard({
     setAnimKey(0);
     setShotInFlight(false);
     setShotRequest(null);
+    setAutoPlaying(false);
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
   }, [autoStart, homeTeam.id, awayTeam.id, resetKey]);
 
-  // Handler for game shot completion
+  // If initialAutoPlay is set, start auto-play when the board starts
+  useEffect(() => {
+    if (started && initialAutoPlay && !shotInFlight && !autoPlaying && !winnerTeam) {
+      setAutoPlaying(true);
+      const dirs: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+      const dir = dirs[Math.floor(Math.random() * dirs.length)];
+      const nextId = shotIdRef.current + 1;
+      shotIdRef.current = nextId;
+      setShotInFlight(true);
+      setShotRequest({ dir, id: nextId });
+    }
+  }, [started, initialAutoPlay]);
+
+  // Cleanup auto-play timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-play logic: schedule next shot after current one completes
+  const scheduleNextAutoShot = useCallback(() => {
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+    }
+    autoPlayTimerRef.current = setTimeout(() => {
+      const dirs: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+      const dir = dirs[Math.floor(Math.random() * dirs.length)];
+      const nextId = shotIdRef.current + 1;
+      shotIdRef.current = nextId;
+      setShotInFlight(true);
+      setShotRequest({ dir, id: nextId });
+    }, speed);
+  }, [speed]);
+
+  // When a shot completes during auto-play, schedule the next one
   const handleShotComplete = (result: ShotResult) => {
-    // Determine shooter team based on kick index
     const team: 'home' | 'away' = shooter;
     setKicks((prev) => [...prev, { team, target: result.targetDir, scored: result.scored }]);
     setLastOutcome(result.scored ? 'GOAL' : 'SAVED');
     setShotInFlight(false);
   };
+
+  // Monitor for auto-play continuation after shot completes
+  useEffect(() => {
+    if (!autoPlaying || shotInFlight || !started) {
+      return;
+    }
+    if (winnerTeam) {
+      setAutoPlaying(false);
+      return;
+    }
+    scheduleNextAutoShot();
+  }, [autoPlaying, shotInFlight, started, winnerTeam, scheduleNextAutoShot]);
 
   // Confirm winner callback wrapper
   const handleConfirmWinner = () => {
@@ -131,6 +198,27 @@ export function PenaltyShootoutBoard({
     }
   };
 
+  // Auto-confirm: when autoConfirm is set, submit the winner shortly after
+  // the shootout concludes so the queue can advance by itself.
+  const autoConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (autoConfirmTimerRef.current) {
+      clearTimeout(autoConfirmTimerRef.current);
+      autoConfirmTimerRef.current = null;
+    }
+    if (autoConfirm && winnerTeam && onConfirmWinner) {
+      autoConfirmTimerRef.current = setTimeout(() => {
+        handleConfirmWinner();
+      }, 1200);
+    }
+    return () => {
+      if (autoConfirmTimerRef.current) {
+        clearTimeout(autoConfirmTimerRef.current);
+        autoConfirmTimerRef.current = null;
+      }
+    };
+  }, [autoConfirm, winnerTeam, onConfirmWinner]);
+
   // Kit colours for the keeper are derived from the opposing team's ball colour.
   const keeperTeam = shooter === 'home' ? awayTeam : homeTeam;
   const keeperKit = getKeeperKit(keeperTeam.ballColor ?? keeperTeam.ringColor ?? undefined);
@@ -138,6 +226,34 @@ export function PenaltyShootoutBoard({
   // Colour for the ball is derived from the shooter's team colours
   const shooterTeam = shooter === 'home' ? homeTeam : awayTeam;
   const ballColour = shooterTeam.ballColor ?? shooterTeam.ringColor ?? '#ffffff';
+
+  // Auto-complete: simulate all kicks instantly without animation
+  const handleAutoComplete = useCallback(() => {
+    if (!started) {
+      setStarted(true);
+    }
+    // Generate simulated kicks until we have a winner
+    const simulatedKicks: PenaltyKick[] = [];
+    let winner: 'home' | 'away' | null = null;
+    while (!winner) {
+      const team: 'home' | 'away' = simulatedKicks.length % 2 === 0 ? 'home' : 'away';
+      const dirs: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+      const dir = dirs[Math.floor(Math.random() * dirs.length)];
+      const scored = Math.random() < 0.65;
+      simulatedKicks.push({ team, target: dir, scored });
+      const simStatus = buildShootoutStatus(simulatedKicks);
+      if (simStatus.winner) {
+        winner = simStatus.winner;
+      }
+    }
+    setKicks(simulatedKicks);
+    setLastOutcome(simulatedKicks[simulatedKicks.length - 1]?.scored ? 'GOAL' : 'SAVED');
+    setAutoPlaying(false);
+    if (onAutoComplete && !onConfirmWinner) {
+      // If no confirm callback, use auto-complete callback
+      Promise.resolve().then(() => onAutoComplete());
+    }
+  }, [started, onAutoComplete, onConfirmWinner]);
 
   return (
     <div className="penalty-shootout-board" key={animKey}
@@ -255,6 +371,36 @@ export function PenaltyShootoutBoard({
           ))}
         </div>
       )}
+      {started && !winnerTeam && showAutoTake && !autoPlaying && (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+          <button
+            onClick={() => {
+              if (shotInFlight) return;
+              setAutoPlaying(true);
+              const dirs: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+              const dir = dirs[Math.floor(Math.random() * dirs.length)];
+              const nextId = shotIdRef.current + 1;
+              shotIdRef.current = nextId;
+              setShotInFlight(true);
+              setShotRequest({ dir, id: nextId });
+            }}
+            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+            disabled={shotInFlight || autoPlaying}
+          >
+            {autoPlaying ? 'Auto-playing...' : 'Auto Take (Watch)'}
+          </button>
+        </div>
+      )}
+      {started && showAutoComplete && !winnerTeam && (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+          <button
+            onClick={handleAutoComplete}
+            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+          >
+            Auto Complete
+          </button>
+        </div>
+      )}
       {winnerTeam && onConfirmWinner && (
         <button
           onClick={handleConfirmWinner}
@@ -280,3 +426,5 @@ export function PenaltyShootoutBoard({
     </div>
   );
 }
+
+export const PenaltyShootoutBoard = memo(PenaltyShootoutBoardInner);

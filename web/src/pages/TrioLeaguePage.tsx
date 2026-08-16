@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
+import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
 import { recentForm } from '../lib/formUtils';
@@ -199,13 +200,37 @@ export function TrioLeaguePage() {
   });
 
   return (
-    <section className="page trio-page">
-      <h1>Trio League</h1>
-      <p className="muted">
-        {state
-          ? `${state.currentSeason} ${state.currentGw} • Three-tier ladder with GW7 semi-finals and GW8 promotion finals.`
-          : 'Loading Trio League...'}
-      </p>
+    <section className="page trio-page competition-page competition-page-trio">
+      <div className="competition-page-shell">
+        <header className="competition-page-hero competition-page-hero-trio">
+          <div className="competition-page-hero-head">
+            <div className="competition-page-hero-copy">
+              <span className="competition-page-kicker">Expansion Format</span>
+              <h1>Trio League</h1>
+              <p>Three-tier ladder with GW7 semi-finals and GW8 promotion finals.</p>
+            </div>
+            <div className="competition-hero-art" aria-hidden="true">
+              <CompetitionTrophyMark variant="cup" className="competition-hero-trophy trophy-cup" />
+            </div>
+          </div>
+          <div className="competition-metric-row">
+            <article className="competition-metric-card">
+              <span>Format</span>
+              <strong>3 tiers</strong>
+              <p>Premier League, Ligue 1, Bundesliga</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Teams per tier</span>
+              <strong>8</strong>
+              <p>24 clubs total</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Season</span>
+              <strong>{state ? state.currentSeason : '—'}</strong>
+              <p>{state ? state.currentGw : 'Loading...'}</p>
+            </article>
+          </div>
+        </header>
 
       <LeagueTabs activeId="trio" />
 
@@ -390,6 +415,7 @@ export function TrioLeaguePage() {
             ))}
           </div>
         )}
+      </div>
       </div>
     </section>
   );

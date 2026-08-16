@@ -20,6 +20,7 @@ import type {
   ChampionsSpotlightEntry,
   ChampionsSpotlightModel,
   CupSegmentModel,
+  CupSegmentRow,
   DivisionKey,
   DivisionRoundupData,
   PreviousChampionRow,
@@ -85,8 +86,8 @@ type DivisionRoundupRunnerProps = {
   selection: RoundupShowSelection;
 };
 
-function normalizeTeamName(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+function normalizeTeamName(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function minDuration(valueMs: number): number {
@@ -119,12 +120,12 @@ function formatForm(form: Array<'W' | 'D' | 'L'>): string {
 
 function rankShiftLabel(delta: number): string {
   if (delta > 0) {
-    return `↑ ${Math.abs(delta)}`;
+    return `â†‘ ${Math.abs(delta)}`;
   }
   if (delta < 0) {
-    return `↓ ${Math.abs(delta)}`;
+    return `â†“ ${Math.abs(delta)}`;
   }
-  return '→ 0';
+  return 'â†’ 0';
 }
 
 function formatOrdinalPosition(value: number): string {
@@ -601,7 +602,7 @@ function buildForecastPulseLine(forecastRows: RoundupForecastRow[], rows: Compet
     return null;
   }
 
-  return mover.forecast.projectedDelta > 0
+  return (mover.forecast.projectedDelta ?? 0) > 0
     ? `Model mover: ${mover.row.teamName} are projected up from ${formatOrdinalPosition(mover.row.rank)} to ${formatOrdinalPosition(mover.forecast.predictedRank ?? mover.row.rank)}.`
     : `Model warning: ${mover.row.teamName} are projected down from ${formatOrdinalPosition(mover.row.rank)} to ${formatOrdinalPosition(mover.forecast.predictedRank ?? mover.row.rank)}.`;
 }
@@ -3021,7 +3022,7 @@ export function DivisionRoundupRunner({
     generated.push(...[...forecastWatchStories, ...breakingNewsStories].map((story, index) => ({
       id: `breaking-news-${index}-${story.id}`,
       durationMs: minDuration(6500),
-      group: 'breaking',
+      group: 'breaking' as const,
       content: (
         <section className="roundup-transition-slide roundup-breaking-slide roundup-breaking-news-slide">
           <p className="roundup-kicker">BREAKING NEWS • {story.kicker}</p>
@@ -3255,3 +3256,8 @@ export function DivisionRoundupRunner({
     </section>
   );
 }
+
+
+
+
+

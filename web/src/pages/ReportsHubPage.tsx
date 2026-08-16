@@ -1877,7 +1877,7 @@ function buildOverallFormResults(overview: TeamOverviewRecord, context: Competit
   return recentForm({
     fixtures: combinedFixtures,
     include: () => true,
-    resultOf: (fixture) => fixture.result,
+    resultOf: (fixture) => fixture.result as FormBadgeResult,
     getGw: (fixture) => fixture.gw,
     getSecondarySort: (fixture) => fixture.sortOrder,
   });

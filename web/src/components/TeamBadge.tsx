@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 type TeamBadgeProps = {
   name: string;
   ballColor?: string | null;
@@ -17,7 +19,7 @@ function initials(name: string): string {
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
-export function TeamBadge({ name, ballColor, ringColor, textColor, size = 26 }: TeamBadgeProps) {
+function TeamBadgeInner({ name, ballColor, ringColor, textColor, size = 26 }: TeamBadgeProps) {
   return (
     <span
       className="team-badge"
@@ -34,3 +36,5 @@ export function TeamBadge({ name, ballColor, ringColor, textColor, size = 26 }: 
     </span>
   );
 }
+
+export const TeamBadge = memo(TeamBadgeInner);

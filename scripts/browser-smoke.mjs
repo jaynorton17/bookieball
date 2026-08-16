@@ -125,7 +125,7 @@ async function verifySsnShow(page) {
 
 async function verifyHomeNavigation(page) {
   await page.goto(`${WEB_URL}/`, { waitUntil: 'domcontentloaded' });
-  await verifyHeading(page, 'bookieball Dashboard');
+  await verifyHeading(page, 'Command Centre');
 
   const flows = [
     { label: 'Sky Sports News', marker: 'Studio Control Panel' },
@@ -137,7 +137,7 @@ async function verifyHomeNavigation(page) {
     await page.getByRole('link', { name: flow.label }).click();
     await verifyHeading(page, flow.marker);
     await page.goBack({ waitUntil: 'domcontentloaded' });
-    await verifyHeading(page, 'bookieball Dashboard');
+    await verifyHeading(page, 'Command Centre');
   }
 }
 
@@ -174,7 +174,7 @@ function collectRouteErrors(page) {
 }
 
 const ROUTES = [
-  { name: 'Dashboard', path: '/', verify: (page) => verifyHeading(page, 'bookieball Dashboard') },
+  { name: 'Dashboard', path: '/', verify: (page) => verifyHeading(page, 'Command Centre') },
   { name: 'Leagues Hub', path: '/leagues', verify: (page) => verifyHeading(page, 'Leagues') },
   { name: 'Cups Hub', path: '/cups', verify: (page) => verifyHeading(page, 'Cups') },
   { name: 'Division Tables', path: '/league', verify: (page) => verifyHeading(page, 'Division Tables') },
@@ -232,13 +232,13 @@ async function main() {
       if (homeErrors.length > 0) {
         throw new Error(homeErrors.join('\n'));
       }
-      console.log('✓ Home navigation');
+      console.log('âœ“ Home navigation');
     } catch (error) {
       failures.push({
         name: 'Home navigation',
         error: error instanceof Error ? error.message : String(error),
       });
-      console.error(`✗ Home navigation\n${error instanceof Error ? error.message : String(error)}`);
+      console.error(`âœ— Home navigation\n${error instanceof Error ? error.message : String(error)}`);
     } finally {
       await homePage.close();
     }
@@ -246,11 +246,11 @@ async function main() {
     for (const route of ROUTES) {
       try {
         await runRoute(context, route);
-        console.log(`✓ ${route.name}`);
+        console.log(`âœ“ ${route.name}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push({ name: route.name, error: message });
-        console.error(`✗ ${route.name}\n${message}`);
+        console.error(`âœ— ${route.name}\n${message}`);
       }
     }
   } finally {

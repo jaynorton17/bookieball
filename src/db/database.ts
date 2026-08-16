@@ -2025,6 +2025,12 @@ function resolveMasterCupSingleFixtureWinner(
 
   const homeMetrics = getMasterCupTeamGwMetrics(db, season, fixture.gw, fixture.home_team_id);
   const awayMetrics = getMasterCupTeamGwMetrics(db, season, fixture.gw, fixture.away_team_id);
+  if (homeMetrics.entryCount > 0 && awayMetrics.entryCount === 0) {
+    return fixture.home_team_id;
+  }
+  if (awayMetrics.entryCount > 0 && homeMetrics.entryCount === 0) {
+    return fixture.away_team_id;
+  }
   if (homeMetrics.profit > awayMetrics.profit) {
     return fixture.home_team_id;
   }
@@ -2129,15 +2135,35 @@ function resolveMasterCupSemiFinalWinner(db: Database.Database, season: SeasonId
   if (!aggregateState) {
     return null;
   }
-  const { firstLeg, secondLeg, teamAId, teamBId, aggregateAProfit, aggregateBProfit } = aggregateState;
+  const {
+    firstLeg,
+    secondLeg,
+    teamAId,
+    teamBId,
+    aggregateAProfit,
+    aggregateBProfit,
+    firstLegHomeEntries,
+    firstLegAwayEntries,
+    secondLegHomeEntries,
+    secondLegAwayEntries,
+  } = aggregateState;
   if (!isMasterCupGameweekClosed(db, season, firstLeg.gw) || !isMasterCupGameweekClosed(db, season, secondLeg.gw)) {
     return null;
   }
+
+  const teamAEntries = firstLegHomeEntries + secondLegAwayEntries;
+  const teamBEntries = firstLegAwayEntries + secondLegHomeEntries;
 
   if (aggregateAProfit > aggregateBProfit) {
     return teamAId;
   }
   if (aggregateBProfit > aggregateAProfit) {
+    return teamBId;
+  }
+  if (teamAEntries > 0 && teamBEntries === 0) {
+    return teamAId;
+  }
+  if (teamBEntries > 0 && teamAEntries === 0) {
     return teamBId;
   }
   return getMasterCupPenaltyWinner(db, season, secondLeg.id);
@@ -3752,7 +3778,7 @@ export function getMasterCupFixtures(
   aggregateAwaySpins: number | null;
   played: boolean;
   result: 'home' | 'away' | 'draw' | 'pending';
-  decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending';
+  decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'walkover' | 'pending';
 }> {
   if (!isSeasonFiveOrLater(season)) {
     return [];
@@ -3827,10 +3853,16 @@ export function getMasterCupFixtures(
     const gwClosed = isMasterCupGameweekClosed(db, season, fixture.gw);
 
     if (fixture.stage !== 'semi_final') {
-      let result: 'home' | 'away' | 'draw' | 'pending' = 'pending';
-      let decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending' = 'pending';
+    let result: 'home' | 'away' | 'draw' | 'pending' = 'pending';
+    let decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'walkover' | 'pending' = 'pending';
       if (gwClosed && fixture.home_team_id && fixture.away_team_id && fixture.winner_team_id !== null) {
-        if (homeMetrics.profit > awayMetrics.profit) {
+        if (homeMetrics.entryCount === 0 && awayMetrics.entryCount > 0) {
+          result = 'away';
+          decidedBy = 'walkover';
+        } else if (awayMetrics.entryCount === 0 && homeMetrics.entryCount > 0) {
+          result = 'home';
+          decidedBy = 'walkover';
+        } else if (homeMetrics.profit > awayMetrics.profit) {
           result = 'home';
           decidedBy = 'profit';
         } else if (awayMetrics.profit > homeMetrics.profit) {
@@ -3877,7 +3909,7 @@ export function getMasterCupFixtures(
     let aggregateAwayProfit: number | null = null;
     let aggregateHomeSpins: number | null = null;
     let aggregateAwaySpins: number | null = null;
-    let decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending' = 'pending';
+    let decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'walkover' | 'pending' = 'pending';
     let result: 'home' | 'away' | 'draw' | 'pending' = 'pending';
 
     if (fixture.leg_number === 2 && fixture.home_team_id && fixture.away_team_id) {
@@ -3917,7 +3949,19 @@ export function getMasterCupFixtures(
         );
 
         if (gwClosed && isMasterCupGameweekClosed(db, season, firstLeg.gw) && fixture.winner_team_id !== null) {
-          if (aggregateHomeProfit > aggregateAwayProfit) {
+          const teamAEntries =
+            (firstLeg.home_team_id === teamAId ? firstLegHome.entryCount : firstLegAway.entryCount)
+            + (fixture.home_team_id === teamAId ? secondLegHome.entryCount : secondLegAway.entryCount);
+          const teamBEntries =
+            (firstLeg.home_team_id === teamBId ? firstLegHome.entryCount : firstLegAway.entryCount)
+            + (fixture.home_team_id === teamBId ? secondLegHome.entryCount : secondLegAway.entryCount);
+          if (aggregateHomeProfit === aggregateAwayProfit && teamAEntries > 0 && teamBEntries === 0) {
+            result = fixture.winner_team_id === fixture.home_team_id ? 'home' : 'away';
+            decidedBy = 'walkover';
+          } else if (aggregateHomeProfit === aggregateAwayProfit && teamBEntries > 0 && teamAEntries === 0) {
+            result = fixture.winner_team_id === fixture.home_team_id ? 'home' : 'away';
+            decidedBy = 'walkover';
+          } else if (aggregateHomeProfit > aggregateAwayProfit) {
             result = fixture.winner_team_id === fixture.home_team_id ? 'home' : 'away';
             decidedBy = 'aggregate_profit';
           } else if (aggregateAwayProfit > aggregateHomeProfit) {
@@ -10994,7 +11038,7 @@ export function getTeamStats(db: Database.Database, teamId: number, season: Seas
   };
 }
 
-export function getTeamSeasonHistory(db: Database.Database, teamId: number): Array<{
+export type TeamSeasonHistory = Array<{
   season: string;
   division: string;
   rank: number;
@@ -11007,7 +11051,44 @@ export function getTeamSeasonHistory(db: Database.Database, teamId: number): Arr
   losses: number;
   cupFinish: string;
   superCupFinish: string;
-}> {
+}>;
+
+type TeamSeasonHistoryCache = {
+  leagueTable: Map<SeasonId, ReturnType<typeof getLeagueTable>>;
+  cupPerformance: Map<SeasonId, ReturnType<typeof getCupPerformanceByTeam>>;
+  superCupFixtures: Map<SeasonId, ReturnType<typeof getSuperCupFixtures>>;
+};
+
+function createTeamSeasonHistoryCache(): TeamSeasonHistoryCache {
+  return { leagueTable: new Map(), cupPerformance: new Map(), superCupFixtures: new Map() };
+}
+
+function buildTeamSeasonHistory(db: Database.Database, teamId: number, cache: TeamSeasonHistoryCache): TeamSeasonHistory {
+  const leagueTableFor = (season: SeasonId): ReturnType<typeof getLeagueTable> => {
+    let table = cache.leagueTable.get(season);
+    if (!table) {
+      table = getLeagueTable(db, season, 'GW7');
+      cache.leagueTable.set(season, table);
+    }
+    return table;
+  };
+  const cupPerfFor = (season: SeasonId): ReturnType<typeof getCupPerformanceByTeam> => {
+    let perf = cache.cupPerformance.get(season);
+    if (!perf) {
+      perf = getCupPerformanceByTeam(db, season);
+      cache.cupPerformance.set(season, perf);
+    }
+    return perf;
+  };
+  const superCupFor = (season: SeasonId): ReturnType<typeof getSuperCupFixtures> => {
+    let fixtures = cache.superCupFixtures.get(season);
+    if (!fixtures) {
+      fixtures = getSuperCupFixtures(db, season);
+      cache.superCupFixtures.set(season, fixtures);
+    }
+    return fixtures;
+  };
+
   const seasonRows = db
     .prepare(
       `
@@ -11020,14 +11101,14 @@ export function getTeamSeasonHistory(db: Database.Database, teamId: number): Arr
     .all(teamId) as Array<{ season: SeasonId; division: DivisionName }>;
 
   return seasonRows.map((row) => {
-    const table = getLeagueTable(db, row.season, 'GW7');
+    const table = leagueTableFor(row.season);
     const tableRow =
       (table[row.division] ?? []).find((entry) => entry.teamId === teamId)
       ?? Object.values(table).flat().find((entry) => entry.teamId === teamId)
       ?? null;
 
-    const cupPerf = getCupPerformanceByTeam(db, row.season).get(teamId);
-    const superCupFixture = getSuperCupFixtures(db, row.season).find(
+    const cupPerf = cupPerfFor(row.season).get(teamId);
+    const superCupFixture = superCupFor(row.season).find(
       (fixture) => fixture.homeTeamId === teamId || fixture.awayTeamId === teamId,
     ) ?? null;
     let cupFinish = 'No cup run';
@@ -11064,6 +11145,19 @@ export function getTeamSeasonHistory(db: Database.Database, teamId: number): Arr
       superCupFinish,
     };
   });
+}
+
+export function getTeamSeasonHistory(db: Database.Database, teamId: number): TeamSeasonHistory {
+  return buildTeamSeasonHistory(db, teamId, createTeamSeasonHistoryCache());
+}
+
+export function getTeamSeasonHistoriesBulk(db: Database.Database, teamIds: number[]): Record<number, TeamSeasonHistory> {
+  const cache = createTeamSeasonHistoryCache();
+  const histories: Record<number, TeamSeasonHistory> = {};
+  teamIds.forEach((teamId) => {
+    histories[teamId] = buildTeamSeasonHistory(db, teamId, cache);
+  });
+  return histories;
 }
 
 function divisionHistoryCutoffGw(season: SeasonId, currentSeason: SeasonId, currentGw: string): string {
@@ -11846,6 +11940,300 @@ export function getHeadToHead(
     teamAWins,
     teamBWins,
     draws,
+    meetings,
+  };
+}
+
+export type HeadToHeadAllTimeMeeting = {
+  season: SeasonId;
+  gw: string;
+  division: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+};
+
+export function getHeadToHeadAllTime(
+  db: Database.Database,
+  teamAId: number,
+  teamBId: number,
+): {
+  teamA: { id: number; name: string };
+  teamB: { id: number; name: string };
+  played: number;
+  teamAWins: number;
+  teamBWins: number;
+  draws: number;
+  teamAProfit: number;
+  teamBProfit: number;
+  biggestMargin: {
+    side: 'A' | 'B';
+    margin: number;
+    season: SeasonId;
+    gw: string;
+    division: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeProfit: number;
+    awayProfit: number;
+  } | null;
+  highestScoring: {
+    total: number;
+    season: SeasonId;
+    gw: string;
+    division: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeProfit: number;
+    awayProfit: number;
+  } | null;
+  firstMeeting: HeadToHeadAllTimeMeeting | null;
+  lastMeeting: HeadToHeadAllTimeMeeting | null;
+  currentStreak: { side: 'A' | 'B' | null; count: number };
+  longestStreak: { side: 'A' | 'B' | null; count: number };
+  formA: Array<'W' | 'D' | 'L'>;
+  meetings: HeadToHeadAllTimeMeeting[];
+} {
+  const a = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(teamAId) as { id: number; name: string } | undefined;
+  const b = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(teamBId) as { id: number; name: string } | undefined;
+  if (!a || !b) {
+    throw new Error('Invalid team id');
+  }
+
+  const fixtures = db
+    .prepare(
+      `
+      SELECT lf.id, lf.season, lf.gw, lf.division, lf.home_team_id, lf.away_team_id, ht.name AS home_name, at.name AS away_name
+      FROM league_fixtures lf
+      INNER JOIN teams ht ON ht.id = lf.home_team_id
+      INNER JOIN teams at ON at.id = lf.away_team_id
+      WHERE ((lf.home_team_id = ? AND lf.away_team_id = ?) OR (lf.home_team_id = ? AND lf.away_team_id = ?))
+      `,
+    )
+    .all(teamAId, teamBId, teamBId, teamAId) as Array<{
+    id: number;
+    season: SeasonId;
+    gw: string;
+    division: string;
+    home_team_id: number;
+    away_team_id: number;
+    home_name: string;
+    away_name: string;
+  }>;
+
+  const entryRows = db
+    .prepare(
+      `
+      SELECT season, gw, team_id, SUM(profit) AS profit, COUNT(*) AS c
+      FROM entries
+      WHERE team_id IN (?, ?)
+      GROUP BY season, gw, team_id
+      `,
+    )
+    .all(teamAId, teamBId) as Array<{ season: SeasonId; gw: string; team_id: number; profit: number; c: number }>;
+
+  const perfByKey = new Map<string, { profit: number; entries: number }>();
+  for (const row of entryRows) {
+    perfByKey.set(`${row.season}|${row.gw}|${row.team_id}`, { profit: row.profit, entries: row.c });
+  }
+
+  const isDivisionGame = (gw: string, division: string): boolean =>
+    !isGw8DivisionPlayoffFixture(gw, division) && division.trim().toLowerCase() !== 'friendly';
+
+  const meetings: HeadToHeadAllTimeMeeting[] = fixtures
+    .filter((fixture) => isDivisionGame(fixture.gw, fixture.division))
+    .map((fixture) => {
+      const homePerf = perfByKey.get(`${fixture.season}|${fixture.gw}|${fixture.home_team_id}`) ?? { profit: 0, entries: 0 };
+      const awayPerf = perfByKey.get(`${fixture.season}|${fixture.gw}|${fixture.away_team_id}`) ?? { profit: 0, entries: 0 };
+      const result = resolveLeagueFixtureResult({
+        db,
+        season: fixture.season,
+        fixtureId: fixture.id,
+        gw: fixture.gw,
+        division: fixture.division,
+        homeTeamId: fixture.home_team_id,
+        awayTeamId: fixture.away_team_id,
+        homeProfit: homePerf.profit,
+        awayProfit: awayPerf.profit,
+        homeEntries: homePerf.entries,
+        awayEntries: awayPerf.entries,
+      });
+      return {
+        season: fixture.season,
+        gw: fixture.gw,
+        division: fixture.division,
+        homeTeam: fixture.home_name,
+        awayTeam: fixture.away_name,
+        homeProfit: Number(homePerf.profit.toFixed(2)),
+        awayProfit: Number(awayPerf.profit.toFixed(2)),
+        result,
+      };
+    })
+    .sort(
+      (x, y) =>
+        parseSeasonNumber(x.season) - parseSeasonNumber(y.season)
+        || gwIndex(x.gw) - gwIndex(y.gw)
+        || x.homeTeam.localeCompare(y.homeTeam),
+    );
+
+  const winnerSide = (meeting: HeadToHeadAllTimeMeeting): 'A' | 'B' | null => {
+    if (meeting.result === 'home') {
+      return meeting.homeTeam === a.name ? 'A' : 'B';
+    }
+    if (meeting.result === 'away') {
+      return meeting.awayTeam === a.name ? 'A' : 'B';
+    }
+    if (meeting.result === 'draw') {
+      return null;
+    }
+    return null;
+  };
+
+  let teamAWins = 0;
+  let teamBWins = 0;
+  let draws = 0;
+  let teamAProfit = 0;
+  let teamBProfit = 0;
+  let biggestMargin: {
+    side: 'A' | 'B';
+    margin: number;
+    season: SeasonId;
+    gw: string;
+    division: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeProfit: number;
+    awayProfit: number;
+  } | null = null;
+  let highestScoring: {
+    total: number;
+    season: SeasonId;
+    gw: string;
+    division: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeProfit: number;
+    awayProfit: number;
+  } | null = null;
+
+  let runSide: 'A' | 'B' | null = null;
+  let run = 0;
+  let longestSide: 'A' | 'B' | null = null;
+  let longest = 0;
+
+  const formA: Array<'W' | 'D' | 'L'> = [];
+
+  for (const meeting of meetings) {
+    if (meeting.result === 'pending') {
+      continue;
+    }
+    const side = winnerSide(meeting);
+    if (side === 'A') {
+      teamAWins += 1;
+    } else if (side === 'B') {
+      teamBWins += 1;
+    } else {
+      draws += 1;
+    }
+
+    const aIsHome = meeting.homeTeam === a.name;
+    const aProfit = aIsHome ? meeting.homeProfit : meeting.awayProfit;
+    const bProfit = aIsHome ? meeting.awayProfit : meeting.homeProfit;
+    teamAProfit += aProfit;
+    teamBProfit += bProfit;
+
+    const margin = Math.abs(meeting.homeProfit - meeting.awayProfit);
+    if (side && (!biggestMargin || margin > biggestMargin.margin)) {
+      biggestMargin = {
+        side,
+        margin,
+        season: meeting.season,
+        gw: meeting.gw,
+        division: meeting.division,
+        homeTeam: meeting.homeTeam,
+        awayTeam: meeting.awayTeam,
+        homeProfit: meeting.homeProfit,
+        awayProfit: meeting.awayProfit,
+      };
+    }
+
+    const total = meeting.homeProfit + meeting.awayProfit;
+    if (!highestScoring || total > highestScoring.total) {
+      highestScoring = {
+        total,
+        season: meeting.season,
+        gw: meeting.gw,
+        division: meeting.division,
+        homeTeam: meeting.homeTeam,
+        awayTeam: meeting.awayTeam,
+        homeProfit: meeting.homeProfit,
+        awayProfit: meeting.awayProfit,
+      };
+    }
+
+    if (side === runSide) {
+      run += 1;
+    } else {
+      runSide = side;
+      run = 1;
+    }
+    if (run > longest) {
+      longest = run;
+      longestSide = runSide;
+    }
+
+    formA.push(side === 'A' ? 'W' : side === 'B' ? 'L' : 'D');
+  }
+
+  const decided = meetings.filter((meeting) => meeting.result !== 'pending');
+  const lastMeeting = decided.length > 0 ? decided[decided.length - 1] : null;
+
+  let currentStreak: { side: 'A' | 'B' | null; count: number } = { side: null, count: 0 };
+  if (lastMeeting) {
+    const lastSide = winnerSide(lastMeeting);
+    let count = 0;
+    for (let i = decided.length - 1; i >= 0; i -= 1) {
+      if (winnerSide(decided[i]) === lastSide && lastSide !== null) {
+        count += 1;
+      } else {
+        break;
+      }
+    }
+    currentStreak = { side: lastSide, count };
+  }
+
+  return {
+    teamA: a,
+    teamB: b,
+    played: teamAWins + teamBWins + draws,
+    teamAWins,
+    teamBWins,
+    draws,
+    teamAProfit: Number(teamAProfit.toFixed(2)),
+    teamBProfit: Number(teamBProfit.toFixed(2)),
+    biggestMargin: biggestMargin
+      ? {
+          ...biggestMargin,
+          margin: Number(biggestMargin.margin.toFixed(2)),
+          homeProfit: Number(biggestMargin.homeProfit.toFixed(2)),
+          awayProfit: Number(biggestMargin.awayProfit.toFixed(2)),
+        }
+      : null,
+    highestScoring: highestScoring
+      ? {
+          ...highestScoring,
+          total: Number(highestScoring.total.toFixed(2)),
+          homeProfit: Number(highestScoring.homeProfit.toFixed(2)),
+          awayProfit: Number(highestScoring.awayProfit.toFixed(2)),
+        }
+      : null,
+    firstMeeting: decided.length > 0 ? decided[0] : null,
+    lastMeeting,
+    currentStreak,
+    longestStreak: { side: longestSide, count: longest },
+    formA: formA.slice(-5),
     meetings,
   };
 }

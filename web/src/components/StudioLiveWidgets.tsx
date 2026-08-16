@@ -31,6 +31,7 @@ export type CompetitionBracketParticipant = {
   teamName: string;
   score?: string | null;
   winner?: boolean;
+  teamId?: number;
   ballColor?: string | null;
   ringColor?: string | null;
   textColor?: string | null;
@@ -244,8 +245,8 @@ function renderTreeMatch(tie: CompetitionBracketTie, fullNames = false, showMeta
 
   return (
     <div>
-      {[tie.home, tie.away].map((side) => (
-        <div key={`${tie.id}-${side.teamName}`} className={`studio-bracket-tree-team${side.winner ? ' winner' : ''}`}>
+      {[tie.home, tie.away].map((side, sideIndex) => (
+        <div key={`${tie.id}-${sideIndex}-${side.teamName}`} className={`studio-bracket-tree-team${side.winner ? ' winner' : ''}`}>
           <div className="studio-bracket-tree-team-name">
             <TeamBadge
               name={side.teamName}
@@ -439,9 +440,9 @@ export function CompetitionBracketBoard({
                       ) : null}
                     </div>
                     <div className="studio-competition-bracket-teams">
-                      {[tie.home, tie.away].map((side) => (
+                      {[tie.home, tie.away].map((side, sideIndex) => (
                         <div
-                          key={`${tie.id}-${side.teamName}`}
+                          key={`${tie.id}-${sideIndex}-${side.teamName}`}
                           className={`studio-competition-bracket-team${side.winner ? ' winner' : ''}`}
                         >
                           <div className="team-name">
@@ -594,3 +595,4 @@ export function LowerThirdAlertRail({ items, label = 'Live Alerts', intervalMs =
     </div>
   );
 }
+

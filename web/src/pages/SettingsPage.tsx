@@ -282,6 +282,10 @@ export function SettingsPage() {
       }
       const next = await api.advanceGw();
       await api.unlockGw();
+      if (next.currentSeason !== state.currentSeason) {
+        window.location.href = '/season-finale';
+        return;
+      }
       await refreshState();
       setNotice({
         type: 'ok',
@@ -461,6 +465,38 @@ export function SettingsPage() {
                   >
                     Take penalties
                   </button>
+                  {penaltyTieQueue.length > 1 && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={async () => {
+                        setPenaltyBusy(true);
+                        try {
+                          const result = await api.autoResolveAllPenalties();
+                          setNotice({ type: 'ok', text: `Auto-resolved ${result.count} penalty tie(s).` });
+                          closePenaltyModal();
+                          // Re-fetch the queue to check if any penalties remain
+                          const remaining = await loadPenaltyTies();
+                          if (remaining.length > 0) {
+                            setPenaltyTieQueue(remaining);
+                            setPenaltyTieIndex(0);
+                            setPenaltyStep("notice");
+                            setNotice({
+                              type: "ok",
+                              text: `${remaining.length} tie(s) still require penalties.`,
+                            });
+                          }
+                        } catch (error) {
+                          setNotice({ type: 'error', text: 'Failed to auto-resolve penalties.' });
+                        } finally {
+                          setPenaltyBusy(false);
+                        }
+                      }}
+                      disabled={penaltyBusy}
+                    >
+                      {penaltyBusy ? 'Resolving all...' : 'Auto All'}
+                    </button>
+                  )}
                   {!advanceAfterPenalties && !activePenaltyIsOverdue && (
                     <button
                       type="button"

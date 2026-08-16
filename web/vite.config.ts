@@ -12,6 +12,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../dist-web'),
     emptyOutDir: true,
+    assetsInlineLimit: 8192,
+    cssMinify: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks(id) {

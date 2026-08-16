@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
+import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
 import { recentForm } from '../lib/formUtils';
@@ -214,13 +215,37 @@ export function MasterLeaguePage() {
   });
 
   return (
-    <section className="page page-wide">
-      <h1>Master League</h1>
-      <p className="muted">
-        {state
-          ? `${state.currentSeason} ${state.currentGw} • All teams in one league table.`
-          : 'Loading Master League...'}
-      </p>
+    <section className="page page-wide competition-page competition-page-master">
+      <div className="competition-page-shell">
+        <header className="competition-page-hero competition-page-hero-master">
+          <div className="competition-page-hero-head">
+            <div className="competition-page-hero-copy">
+              <span className="competition-page-kicker">Full Field</span>
+              <h1>Master League</h1>
+              <p>All teams in one league table. Cross-division race with fixture generation.</p>
+            </div>
+            <div className="competition-hero-art" aria-hidden="true">
+              <CompetitionTrophyMark variant="master" className="competition-hero-trophy trophy-master" />
+            </div>
+          </div>
+          <div className="competition-metric-row">
+            <article className="competition-metric-card">
+              <span>Teams</span>
+              <strong>{table.length}</strong>
+              <p>All clubs in one table</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Season</span>
+              <strong>{state ? state.currentSeason : '—'}</strong>
+              <p>{state ? state.currentGw : 'Loading...'}</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Fixtures</span>
+              <strong>{fixtures.length}</strong>
+              <p>Across all gameweeks</p>
+            </article>
+          </div>
+        </header>
 
       <LeagueTabs activeId="master" />
 
@@ -378,6 +403,7 @@ export function MasterLeaguePage() {
             ))}
           </div>
         )}
+      </div>
       </div>
     </section>
   );

@@ -175,6 +175,7 @@ export type TeamSpotlightData = {
   seasonProfit: number;
   winRate: number | null;
   avgProfitPerEntry: number | null;
+  played: number;
   wins: number;
   draws: number;
   losses: number;
@@ -1289,3 +1290,5 @@ export function TeamSpotlightSlides(teams: TeamSpotlightData[]): StudioSlide[] {
     };
   });
 }
+
+

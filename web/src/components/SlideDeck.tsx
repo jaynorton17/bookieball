@@ -6,7 +6,7 @@ export type StudioSlide = {
   label: string;
   durationMs?: number;
   narration?: string;
-  tone?: 'team' | 'fixtures' | 'rivalry' | 'movement' | 'system';
+  tone?: 'team' | 'fixtures' | 'rivalry' | 'movement' | 'system' | 'cup' | 'results' | 'competition';
   content: ReactNode;
 };
 

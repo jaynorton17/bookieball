@@ -11,6 +11,13 @@ Local-only Node.js CLI + web app for running a GW1..GW8 gameshow league and cup.
 - UI: Vite + React
 - DB: SQLite (`better-sqlite3`)
 
+## One-click local app
+
+- Double-click `BookieBall App.cmd` in this folder, or use the `BookieBall` desktop shortcut.
+- The launcher builds the web UI when needed, starts the local API/web app, and opens `http://localhost:5180`.
+- Keep the launcher window open while using BookieBall. Press `Ctrl+C` in that window to stop the app.
+- If the desktop shortcut ever needs recreating, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-bookieball-shortcut.ps1`.
+
 ## Local data
 
 - DB directory: `~/.bookieball`

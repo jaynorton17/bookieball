@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
+import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
 import { recentForm } from '../lib/formUtils';
@@ -190,13 +191,37 @@ export function TierLeaguePage() {
   );
 
   return (
-    <section className="page trio-page tier-league-page">
-      <h1>Tier League</h1>
-      <p className="muted">
-        {state
-          ? `${state.currentSeason} ${state.currentGw} • Eight divisions of three, with cross-tier clash fixtures ensuring every team plays from ${tierStartGw} to GW8.`
-          : 'Loading Tier League...'}
-      </p>
+    <section className="page trio-page tier-league-page competition-page competition-page-tier">
+      <div className="competition-page-shell">
+        <header className="competition-page-hero competition-page-hero-tier">
+          <div className="competition-page-hero-head">
+            <div className="competition-page-hero-copy">
+              <span className="competition-page-kicker">Expansion Format</span>
+              <h1>Tier League</h1>
+              <p>Eight divisions of three, with cross-tier clash fixtures ensuring every team plays from {tierStartGw} to GW8.</p>
+            </div>
+            <div className="competition-hero-art" aria-hidden="true">
+              <CompetitionTrophyMark variant="master" className="competition-hero-trophy trophy-master" />
+            </div>
+          </div>
+          <div className="competition-metric-row">
+            <article className="competition-metric-card">
+              <span>Format</span>
+              <strong>{TIER_DIVISION_ORDER.length} tiers</strong>
+              <p>Legendary to Awful</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Teams per tier</span>
+              <strong>3</strong>
+              <p>24 clubs total</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Season</span>
+              <strong>{state ? state.currentSeason : '—'}</strong>
+              <p>{state ? `${state.currentGw} • started: ${started ? 'Yes' : 'No'}` : 'Loading...'}</p>
+            </article>
+          </div>
+        </header>
 
       <LeagueTabs activeId="tier" />
 
@@ -374,6 +399,7 @@ export function TierLeaguePage() {
             ))}
           </div>
         )}
+      </div>
       </div>
     </section>
   );

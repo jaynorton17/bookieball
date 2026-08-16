@@ -154,6 +154,10 @@ function previousGw(gw: string): string | null {
   return idx > 0 ? GW_ORDER[idx - 1] : null;
 }
 
+function pickOne<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 export function CupDrawPage() {
   const [currentGw, setCurrentGw] = useState('GW1');
   const [cupDrawStarted, setCupDrawStarted] = useState(false);

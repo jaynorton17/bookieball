@@ -9,37 +9,37 @@ const COMPETITIONS = [
   {
     key: 'divisions',
     label: 'Divisions',
-    description: 'Official division fixtures, playoffs, and friendlies.',
+    description: '',
   },
   {
     key: 'master-league',
     label: 'Master League',
-    description: 'Cross-table fixtures for the full master schedule.',
+    description: '',
   },
   {
     key: 'trio-league',
     label: 'Trio League',
-    description: 'Regular-season and playoff trio fixtures.',
+    description: '',
   },
   {
     key: 'tier-league',
     label: 'Tier League',
-    description: 'Eight three-team divisions with cross-tier clashes from GW4 to GW8.',
+    description: '',
   },
   {
     key: 'super-cup',
     label: 'Super Cup',
-    description: 'Standalone GW1 curtain-raiser between the previous season\'s cup standard-bearers.',
+    description: '',
   },
   {
     key: 'bookieball-cup',
     label: 'BookieBall Cup',
-    description: 'The main knockout bracket across the season.',
+    description: '',
   },
   {
     key: 'master-cup',
     label: 'Master Cup',
-    description: 'Seeded knockout fixtures from the master competition.',
+    description: '',
   },
 ] as const;
 
@@ -378,7 +378,7 @@ export function AllFixturesPage() {
   const [error, setError] = useState('');
   const [selectedTeam, setSelectedTeam] = useState('');
   const [selectedCompetition, setSelectedCompetition] = useState<CompetitionKey | ''>('');
-  const [selectedGw, setSelectedGw] = useState('');
+  const [selectedGw, setSelectedGw] = useState<string>('');
 
   const load = async () => {
     setLoading(true);
@@ -397,6 +397,7 @@ export function AllFixturesPage() {
       ]);
 
       setState(nextState);
+      setSelectedGw(nextState.currentGw);
       setTeams(teamRows);
       setFixtures(
         buildFixtureRows({
@@ -533,33 +534,36 @@ export function AllFixturesPage() {
 
   return (
     <section className="page page-wide fixtures-explorer-page">
-      <h1>All Fixtures</h1>
+      <h1>Fixtures</h1>
       <p className="muted">
         {state
-          ? `${state.currentSeason} ${state.currentGw} • Browse every loaded league and cup fixture, then drill into team, competition, or gameweek.`
-          : 'Loading fixtures explorer...'}
+          ? `${state.currentSeason} ${state.currentGw}`
+          : 'Loading...'}
       </p>
 
       {error && <p className="muted" style={{ color: 'var(--danger)' }}>{error}</p>}
 
-      <div className="fixtures-summary-grid">
-        {COMPETITIONS.map((competition) => {
-          const count = competitionCounts.get(competition.key) ?? 0;
-          const disabled = count === 0 && selectedCompetition !== competition.key;
-          return (
+      <div className="gw-quickjump">
+        <span className="gw-quickjump-label">Gameweek</span>
+        <div className="gw-quickjump-buttons">
+          {GAMEWEEKS.map((gw) => (
             <button
-              key={competition.key}
+              key={gw}
               type="button"
-              className={`fixtures-summary-card ${selectedCompetition === competition.key ? 'active' : ''}`}
-              onClick={() => toggleCompetition(competition.key)}
-              disabled={disabled}
+              className={`gw-quickjump-pill ${selectedGw === gw ? 'active' : ''}`}
+              onClick={() => toggleGameweek(gw)}
             >
-              <span>{competition.label}</span>
-              <strong>{count}</strong>
-              <small>{competition.description}</small>
+              {gw}
             </button>
-          );
-        })}
+          ))}
+          <button
+            type="button"
+            className={`gw-quickjump-pill ${selectedGw === '' ? 'active' : ''}`}
+            onClick={() => setSelectedGw('')}
+          >
+            All
+          </button>
+        </div>
       </div>
 
       <div className="panel">

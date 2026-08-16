@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
+import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
+import { HeadToHeadModal, type H2HTeam } from '../components/HeadToHeadModal';
 import { displayDivisionName, getDivisionOrderForSeason, sortDivisionNames } from '../lib/divisionLabels';
 import { isOfficialDivisionFixture, recentForm } from '../lib/formUtils';
 
@@ -28,6 +30,16 @@ export function LeaguePage() {
   });
   const [divisionFixtureGw, setDivisionFixtureGw] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'tables' | 'playoffs'>('tables');
+  const [h2h, setH2h] = useState<{ teamA: H2HTeam; teamB: H2HTeam; context: string } | null>(null);
+
+  const openH2h = (homeName: string, awayName: string, division: string, gw: string) => {
+    const home = teamByName.get(homeName);
+    const away = teamByName.get(awayName);
+    if (!home || !away) {
+      return;
+    }
+    setH2h({ teamA: home, teamB: away, context: `${displayDivisionName(division)} • ${gw}` });
+  };
   const divisionOrder = useMemo(() => getDivisionOrderForSeason(state?.currentSeason ?? null), [state?.currentSeason]);
 
 
@@ -162,9 +174,37 @@ export function LeaguePage() {
 
 
   return (
-    <section className="page page-wide">
-      <h1>Division Tables</h1>
-      <p className="muted">Current: {state ? `${state.currentSeason} ${state.currentGw}` : 'Loading...'}</p>
+    <section className="page page-wide competition-page competition-page-league">
+      <div className="competition-page-shell">
+        <header className="competition-page-hero competition-page-hero-league">
+          <div className="competition-page-hero-head">
+            <div className="competition-page-hero-copy">
+              <span className="competition-page-kicker">Core Ladder</span>
+              <h1>Division Tables</h1>
+              <p>Division tables, form, movement, and playoff context for the official league structure.</p>
+            </div>
+            <div className="competition-hero-art" aria-hidden="true">
+              <CompetitionTrophyMark variant="cup" className="competition-hero-trophy trophy-cup" />
+            </div>
+          </div>
+          <div className="competition-metric-row">
+            <article className="competition-metric-card">
+              <span>Divisions</span>
+              <strong>{divisionOrder.length}</strong>
+              <p>Current league structure</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Season</span>
+              <strong>{state ? state.currentSeason : '—'}</strong>
+              <p>{state ? state.currentGw : 'Loading...'}</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Fixtures</span>
+              <strong>{leagueFixtures.length}</strong>
+              <p>Division fixtures</p>
+            </article>
+          </div>
+        </header>
 
       <LeagueTabs activeId="divisions" />
 
@@ -290,6 +330,9 @@ export function LeaguePage() {
                         <strong>{fixture.homeTeam}</strong> ({fixture.homeProfit}) vs <strong>{fixture.awayTeam}</strong> ({fixture.awayProfit}) - {fixture.result}
                         <span className={`difficulty-chip ${difficultyClass(fixture.division, fixture.awayTeam)}`}>Home Difficulty</span>
                         <span className={`difficulty-chip ${difficultyClass(fixture.division, fixture.homeTeam)}`}>Away Difficulty</span>
+                        <button type="button" className="h2h-trigger" onClick={() => openH2h(fixture.homeTeam, fixture.awayTeam, fixture.division, fixture.gw)}>
+                          Head to Head
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -350,6 +393,9 @@ export function LeaguePage() {
           )}
         </div>
       )}
+      </div>
+
+      {h2h && <HeadToHeadModal teamA={h2h.teamA} teamB={h2h.teamB} context={h2h.context} onClose={() => setH2h(null)} />}
     </section>
   );
 }

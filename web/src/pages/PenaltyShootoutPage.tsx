@@ -1,20 +1,12 @@
-// PenaltyShootoutPage.tsx
-// Entry point page for the penalty shootout simulator. Loads team data via
-// API, allows the user to pick home and away teams and then renders the
-// PenaltyShootoutBoard. This page mirrors the original but uses the
-// upgraded game and board components.
-
 import { useEffect, useMemo, useState } from 'react';
+import { PenaltyShootoutBoard, type PenaltyTeam } from '../components/PenaltyShootoutBoard';
 import { api } from '../lib/api';
-import {
-  PenaltyShootoutBoard,
-  PenaltyTeam,
-} from '../components/PenaltyShootoutBoard';
 
 export function PenaltyShootoutPage() {
   const [teams, setTeams] = useState<PenaltyTeam[]>([]);
   const [homeTeamId, setHomeTeamId] = useState<number | null>(null);
   const [awayTeamId, setAwayTeamId] = useState<number | null>(null);
+
   useEffect(() => {
     let active = true;
     api
@@ -24,12 +16,12 @@ export function PenaltyShootoutPage() {
           return;
         }
         setTeams(
-          rows.map((team: any) => ({
+          rows.map((team) => ({
             id: team.id,
             name: team.name,
             ballColor: team.ballColor ?? null,
             ringColor: team.ringColor ?? null,
-          }))
+          })),
         );
       })
       .catch(() => {
@@ -41,28 +33,31 @@ export function PenaltyShootoutPage() {
       active = false;
     };
   }, []);
+
   const homeTeam = useMemo(
     () => teams.find((team) => team.id === homeTeamId) ?? null,
-    [homeTeamId, teams]
+    [homeTeamId, teams],
   );
   const awayTeam = useMemo(
     () => teams.find((team) => team.id === awayTeamId) ?? null,
-    [awayTeamId, teams]
+    [awayTeamId, teams],
   );
+
   return (
-    <div style={{ padding: '1rem' }}>
-      <h2>Penalty Shootout</h2>
-      <p>Sandbox shootout simulator. This does not affect any real fixtures.</p>
-      <div style={{ display: 'flex', gap: '1rem' }}>
+    <section className={`page page-dashboard penalty-page${homeTeam && awayTeam ? ' penalty-page-live' : ''}`}>
+      <div className="penalty-page-hero">
+        <div>
+          <span className="hub-showcase-kicker">Shootout Studio</span>
+          <h1>Penalty Shootout</h1>
+        </div>
+      </div>
+
+      <div className="penalty-selector-panel">
         <label>
-          Home team
+          <span>Home team</span>
           <select
             value={homeTeamId ?? ''}
-            onChange={(event) =>
-              setHomeTeamId(
-                event.target.value ? Number(event.target.value) : null
-              )
-            }
+            onChange={(event) => setHomeTeamId(event.target.value ? Number(event.target.value) : null)}
           >
             <option value="">Select team</option>
             {teams.map((team) => (
@@ -73,14 +68,10 @@ export function PenaltyShootoutPage() {
           </select>
         </label>
         <label>
-          Away team
+          <span>Away team</span>
           <select
             value={awayTeamId ?? ''}
-            onChange={(event) =>
-              setAwayTeamId(
-                event.target.value ? Number(event.target.value) : null
-              )
-            }
+            onChange={(event) => setAwayTeamId(event.target.value ? Number(event.target.value) : null)}
           >
             <option value="">Select team</option>
             {teams.map((team) => (
@@ -91,6 +82,7 @@ export function PenaltyShootoutPage() {
           </select>
         </label>
       </div>
+
       {homeTeam && awayTeam ? (
         <PenaltyShootoutBoard
           homeTeam={homeTeam}
@@ -101,8 +93,8 @@ export function PenaltyShootoutPage() {
           showReset
         />
       ) : (
-        <p style={{ marginTop: '1rem' }}>Select both teams to start a shootout.</p>
+        <p className="muted penalty-empty-state">Select both teams to start a shootout.</p>
       )}
-    </div>
+    </section>
   );
 }

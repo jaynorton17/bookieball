@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { CupTabs } from '../components/CompetitionTabs';
 import { TeamBadge } from '../components/TeamBadge';
 import { api } from '../lib/api';
@@ -19,15 +20,26 @@ function pairingLabel(reason: SuperCupFixture['pairingReason']): string {
 
 function decidedByLabel(value: SuperCupFixture['decidedBy'] | SuperCupArchiveRow['decidedBy']): string {
   if (value === 'penalties') {
-    return 'penalties';
+    return 'Penalties';
   }
   if (value === 'team_id') {
-    return 'lower team id';
+    return 'Lower team id';
   }
   if (value === 'pending') {
-    return 'pending';
+    return 'Pending';
   }
-  return value;
+  if (value === 'profit') {
+    return 'Profit';
+  }
+  return 'Spins';
+}
+
+function teamVars(team?: TeamMeta | null): CSSProperties {
+  return {
+    ['--team-ball' as string]: team?.ballColor ?? '#dbe7ff',
+    ['--team-ring' as string]: team?.ringColor ?? '#7aa4bf',
+    ['--team-text' as string]: team?.textColor ?? '#08111f',
+  };
 }
 
 export function SuperCupPage() {
@@ -78,106 +90,197 @@ export function SuperCupPage() {
   }, []);
 
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  const homeMeta = currentFixture ? teamById.get(currentFixture.homeTeamId) : null;
+  const awayMeta = currentFixture ? teamById.get(currentFixture.awayTeamId) : null;
+  const completedCount = history.length;
 
   return (
-    <section className="page page-wide">
-      <h1>Super Cup</h1>
-      <p className="muted">
-        {state
-          ? `${state.currentSeason} ${state.currentGw} • Standalone GW1 curtain-raiser between the previous season's cup standard-bearers. No Bookie d'Or weighting applies.`
-          : 'Loading Super Cup...'}
-      </p>
-
-      <CupTabs activeId="super-cup" />
-
-      {message ? (
-        <div className="panel">
-          <p className="muted">{message}</p>
-        </div>
-      ) : null}
-
-      <div className="panel">
-        <h3>{state?.currentSeason ?? 'Current'} Super Cup</h3>
-        {loading ? (
-          <p className="muted">Loading Super Cup fixture...</p>
-        ) : !currentFixture ? (
-          <p className="muted">No Super Cup fixture is available for this season yet.</p>
-        ) : (
-          <div className="master-fixture-groups">
-            <div className="master-fixture-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.85rem' }}>
-                <div>
-                  <strong>{pairingLabel(currentFixture.pairingReason)}</strong>
-                  <p className="muted" style={{ margin: '0.35rem 0 0' }}>{currentFixture.pairingExplanation}</p>
-                </div>
-                <div className="muted">{currentFixture.sourceSeason} cup results • Prestige opener only • No Bookie d'Or weighting</div>
-              </div>
-
-              <div className="master-fixture-row" style={{ alignItems: 'center' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.65rem' }}>
-                  <TeamBadge
-                    name={currentFixture.homeTeam}
-                    ballColor={teamById.get(currentFixture.homeTeamId)?.ballColor ?? null}
-                    ringColor={teamById.get(currentFixture.homeTeamId)?.ringColor ?? null}
-                    textColor={teamById.get(currentFixture.homeTeamId)?.textColor ?? null}
-                    size={30}
-                  />
-                  {currentFixture.homeTeam}
-                </span>
-                <strong>
-                  {currentFixture.played
-                    ? `${currentFixture.homeProfit.toFixed(2)} - ${currentFixture.awayProfit.toFixed(2)}`
-                    : 'GW1 Fixture'}
-                </strong>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.65rem', justifyContent: 'flex-end' }}>
-                  {currentFixture.awayTeam}
-                  <TeamBadge
-                    name={currentFixture.awayTeam}
-                    ballColor={teamById.get(currentFixture.awayTeamId)?.ballColor ?? null}
-                    ringColor={teamById.get(currentFixture.awayTeamId)?.ringColor ?? null}
-                    textColor={teamById.get(currentFixture.awayTeamId)?.textColor ?? null}
-                    size={30}
-                  />
-                </span>
-              </div>
-
-              <div className="grid-row" style={{ marginTop: '0.85rem' }}>
-                <span className="muted">BookieBall Cup slot: {currentFixture.bookieballWinnerTeam}</span>
-                <span className="muted">Master Cup slot: {currentFixture.masterCupWinnerTeam}</span>
-                <span className="muted">
-                  {currentFixture.winnerTeam
-                    ? `Winner: ${currentFixture.winnerTeam} (${decidedByLabel(currentFixture.decidedBy)})`
-                    : 'Awaiting GW1 result'}
-                </span>
-              </div>
+    <section className="page page-wide competition-page competition-page-super">
+      <div className="competition-page-shell">
+        <header className="competition-page-hero competition-page-hero-super">
+          <div className="competition-page-hero-head">
+            <div className="competition-page-hero-copy">
+              <span className="competition-page-kicker">Curtain Raiser</span>
+              <h1>Super Cup</h1>
+              <p>
+                Standalone GW1 prestige fixture between the previous season&apos;s knockout standard-bearers.
+                It opens the year without changing either main cup path or adding Bookie d&apos;Or weighting.
+              </p>
+            </div>
+            <div className="competition-hero-art" aria-hidden="true">
+              <CompetitionTrophyMark variant="super" className="competition-hero-trophy trophy-super" />
             </div>
           </div>
-        )}
-      </div>
 
-      <div className="panel">
-        <h3>Super Cup Archive</h3>
-        {loading ? (
-          <p className="muted">Loading history...</p>
-        ) : history.length === 0 ? (
-          <p className="muted">No completed Super Cups yet.</p>
-        ) : (
-          <div className="master-fixture-groups">
-            {history.map((row) => (
-              <div key={`super-cup-history-${row.season}`} className="master-fixture-group">
-                <h4>{row.season}</h4>
-                <div className="master-fixture-row">
-                  <span>{row.winnerTeam ?? 'TBD'}</span>
-                  <span>{row.homeProfit.toFixed(2)} - {row.awayProfit.toFixed(2)}</span>
-                  <span>{row.runnerUpTeam ?? 'TBD'}</span>
-                </div>
-                <p className="muted" style={{ marginTop: '0.5rem' }}>
-                  {pairingLabel(row.pairingReason)} • {row.pairingExplanation} • Decided by {decidedByLabel(row.decidedBy)}.
-                </p>
-              </div>
-            ))}
+          <div className="competition-metric-row">
+            <article className="competition-metric-card">
+              <span>Live Slot</span>
+              <strong>{state?.currentGw ?? 'GW1'}</strong>
+              <p>Season opener only.</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Format</span>
+              <strong>1 Tie</strong>
+              <p>Single prestige fixture built from prior winners.</p>
+            </article>
+            <article className="competition-metric-card">
+              <span>Archive</span>
+              <strong>{completedCount}</strong>
+              <p>Completed Super Cup editions logged so far.</p>
+            </article>
           </div>
-        )}
+        </header>
+
+        <CupTabs activeId="super-cup" />
+
+        {message ? (
+          <div className="panel competition-panel">
+            <p className="muted">{message}</p>
+          </div>
+        ) : null}
+
+        <div className="competition-panel-grid">
+          <div className="panel competition-panel competition-panel-feature">
+            <div className="panel-header">
+              <h3>{state?.currentSeason ?? 'Current'} Super Cup</h3>
+              <span className="muted">
+                {state ? `${state.currentSeason} ${state.currentGw}` : 'Loading fixture'}
+              </span>
+            </div>
+            {loading ? (
+              <p className="muted">Loading Super Cup fixture...</p>
+            ) : !currentFixture ? (
+              <p className="muted">No Super Cup fixture is available for this season yet.</p>
+            ) : (
+              <div className="competition-feature-card">
+                <div className="competition-feature-meta">
+                  <div>
+                    <strong>{pairingLabel(currentFixture.pairingReason)}</strong>
+                    <p className="muted">{currentFixture.pairingExplanation}</p>
+                  </div>
+                  <span className="competition-feature-chip">
+                    {currentFixture.sourceSeason} legacy route
+                  </span>
+                </div>
+
+                <div className="competition-versus-layout">
+                  <article className="competition-team-card" style={teamVars(homeMeta)}>
+                    <span className="competition-team-label">BookieBall Cup route</span>
+                    <div className="competition-team-main">
+                      <TeamBadge
+                        name={currentFixture.homeTeam}
+                        ballColor={homeMeta?.ballColor ?? null}
+                        ringColor={homeMeta?.ringColor ?? null}
+                        textColor={homeMeta?.textColor ?? null}
+                        size={42}
+                      />
+                      <div>
+                        <h4>{currentFixture.homeTeam}</h4>
+                        <p>{currentFixture.bookieballWinnerTeam}</p>
+                      </div>
+                    </div>
+                  </article>
+
+                  <div className="competition-score-badge">
+                    <span>{currentFixture.played ? decidedByLabel(currentFixture.decidedBy) : 'GW1'}</span>
+                    <strong>
+                      {currentFixture.played
+                        ? `${currentFixture.homeProfit.toFixed(2)} - ${currentFixture.awayProfit.toFixed(2)}`
+                        : 'vs'}
+                    </strong>
+                    <p>{currentFixture.winnerTeam ? `${currentFixture.winnerTeam} won` : 'Awaiting kickoff'}</p>
+                  </div>
+
+                  <article className="competition-team-card" style={teamVars(awayMeta)}>
+                    <span className="competition-team-label">Master Cup route</span>
+                    <div className="competition-team-main">
+                      <TeamBadge
+                        name={currentFixture.awayTeam}
+                        ballColor={awayMeta?.ballColor ?? null}
+                        ringColor={awayMeta?.ringColor ?? null}
+                        textColor={awayMeta?.textColor ?? null}
+                        size={42}
+                      />
+                      <div>
+                        <h4>{currentFixture.awayTeam}</h4>
+                        <p>{currentFixture.masterCupWinnerTeam}</p>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+
+                <div className="competition-note-strip">
+                  <span>Prestige opener only</span>
+                  <span>No Bookie d&apos;Or weighting</span>
+                  <span>
+                    {currentFixture.winnerTeam
+                      ? `Winner: ${currentFixture.winnerTeam}`
+                      : 'Winner settles once GW1 scores are in'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="panel competition-panel">
+            <div className="panel-header">
+              <h3>Super Cup Archive</h3>
+              <span className="muted">{completedCount} completed editions</span>
+            </div>
+            {loading ? (
+              <p className="muted">Loading history...</p>
+            ) : history.length === 0 ? (
+              <p className="muted">No completed Super Cups yet.</p>
+            ) : (
+              <div className="competition-history-list">
+                {history.map((row) => {
+                  const winnerMeta = row.winnerTeamId ? teamById.get(row.winnerTeamId) : null;
+                  const runnerMeta = row.runnerUpTeamId ? teamById.get(row.runnerUpTeamId) : null;
+                  return (
+                    <article key={`super-cup-history-${row.season}`} className="competition-history-card" style={teamVars(winnerMeta)}>
+                      <div className="competition-history-head">
+                        <strong>{row.season}</strong>
+                        <span>{decidedByLabel(row.decidedBy)}</span>
+                      </div>
+                      <div className="competition-history-body">
+                        <div className="competition-history-team">
+                          <TeamBadge
+                            name={row.winnerTeam ?? 'TBD'}
+                            ballColor={winnerMeta?.ballColor ?? null}
+                            ringColor={winnerMeta?.ringColor ?? null}
+                            textColor={winnerMeta?.textColor ?? null}
+                            size={28}
+                          />
+                          <div>
+                            <strong>{row.winnerTeam ?? 'TBD'}</strong>
+                            <p>Winner</p>
+                          </div>
+                        </div>
+                        <div className="competition-history-score">{row.homeProfit.toFixed(2)} - {row.awayProfit.toFixed(2)}</div>
+                        <div className="competition-history-team">
+                          <TeamBadge
+                            name={row.runnerUpTeam ?? 'TBD'}
+                            ballColor={runnerMeta?.ballColor ?? null}
+                            ringColor={runnerMeta?.ringColor ?? null}
+                            textColor={runnerMeta?.textColor ?? null}
+                            size={28}
+                          />
+                          <div>
+                            <strong>{row.runnerUpTeam ?? 'TBD'}</strong>
+                            <p>Runner-up</p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="competition-history-note">
+                        {pairingLabel(row.pairingReason)} - {row.pairingExplanation}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );

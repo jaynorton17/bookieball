@@ -23,6 +23,17 @@ type GameshowDrawPoolDivision = {
   teams: GameshowDrawTeam[];
 };
 
+type HeadToHeadAllTimeMeeting = {
+  season: string;
+  gw: string;
+  division: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -186,7 +197,7 @@ export const api = {
       aggregateAwaySpins: number | null;
       played: boolean;
       result: 'home' | 'away' | 'draw' | 'pending';
-      decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'pending';
+      decidedBy: 'profit' | 'spins' | 'penalties' | 'aggregate_profit' | 'aggregate_spins' | 'aggregate_penalties' | 'walkover' | 'pending';
     }>>(`/master-cup/fixtures${queryString({ gw, all: all ? '1' : undefined, season })}`),
   superCup: (season?: string) =>
     request<Array<{
@@ -988,6 +999,44 @@ export const api = {
       draws: number;
       meetings: Array<{ gw: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; result: 'home' | 'away' | 'draw' | 'pending' }>;
     }>(`/head-to-head?teamA=${teamA}&teamB=${teamB}`),
+  headToHeadAllTime: (teamA: number, teamB: number) =>
+    request<{
+      teamA: { id: number; name: string };
+      teamB: { id: number; name: string };
+      played: number;
+      teamAWins: number;
+      teamBWins: number;
+      draws: number;
+      teamAProfit: number;
+      teamBProfit: number;
+      biggestMargin: {
+        side: 'A' | 'B';
+        margin: number;
+        season: string;
+        gw: string;
+        division: string;
+        homeTeam: string;
+        awayTeam: string;
+        homeProfit: number;
+        awayProfit: number;
+      } | null;
+      highestScoring: {
+        total: number;
+        season: string;
+        gw: string;
+        division: string;
+        homeTeam: string;
+        awayTeam: string;
+        homeProfit: number;
+        awayProfit: number;
+      } | null;
+      firstMeeting: HeadToHeadAllTimeMeeting | null;
+      lastMeeting: HeadToHeadAllTimeMeeting | null;
+      currentStreak: { side: 'A' | 'B' | null; count: number };
+      longestStreak: { side: 'A' | 'B' | null; count: number };
+      formA: Array<'W' | 'D' | 'L'>;
+      meetings: HeadToHeadAllTimeMeeting[];
+    }>(`/head-to-head/all-time?teamA=${teamA}&teamB=${teamB}`),
   snapshots: () => request<Array<{ id: number; season: string; gw: string; label: string; createdAt: string }>>('/admin/snapshots'),
   snapshotPayload: (id: number) => request<{ id: number; season: string; gw: string; label: string; createdAt: string; payload: Record<string, unknown> }>(`/admin/snapshot?id=${encodeURIComponent(String(id))}`),
   restoreSnapshot: (id: number) =>
@@ -1031,4 +1080,11 @@ export const api = {
       superCup: Array<{ season: string; teamName: string }>;
       tierLeagues: Record<string, Array<{ season: string; teamName: string }>>;
     }>('/trophy-room'),
+  autoResolvePenalty: (competition: string, fixtureId: number) =>
+    request<{ ok: true; fixtureId: number; competition: string; winnerTeamId: number }>('/admin/penalty/auto-resolve', {
+      method: 'POST',
+      body: JSON.stringify({ competition, fixtureId }),
+    }),
+  autoResolveAllPenalties: () =>
+    request<{ ok: true; count: number; total: number; errors?: Array<{ competition: string; fixtureId: number; error: string }> }>('/admin/penalty/auto-resolve-all', { method: 'POST' }),
 };

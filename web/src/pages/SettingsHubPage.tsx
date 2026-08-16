@@ -23,7 +23,6 @@ export function SettingsHubPage() {
   return (
     <section className="page page-dashboard">
       <h1>Settings</h1>
-      <p className="muted">Choose the admin or penalty tool you want to open.</p>
 
       <div className="tile-grid tile-grid-secondary">
         {settingsTiles.map((tile) => (

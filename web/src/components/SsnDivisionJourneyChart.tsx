@@ -458,8 +458,8 @@ export function SsnDivisionJourneyChart({
                 ['--ball-text' as string]: team.textColor ?? '#061327',
               } as CSSProperties}
               transform={`translate(${currentPoint.x} ${currentPoint.y})`}
-              title={team.teamName}
             >
+              <title>{team.teamName}</title>
               <circle className="ssn-journey-ball-circle" r={8.5} />
               <text className="ssn-journey-ball-text" x={0} y={0}>{(team.teamName?.trim().charAt(0) || '?').toUpperCase()}</text>
             </g>

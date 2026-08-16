@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
+import { HeadToHeadModal, type H2HTeam } from '../components/HeadToHeadModal';
 import { buildTeamResults, classifyUpset, computeMomentumIndex, computeShockOfWeek, type LeagueTable, type TeamRating } from '../lib/leagueUtils';
 import { displayDivisionName } from '../lib/divisionLabels';
 
@@ -29,6 +30,16 @@ export function MatchdayPage() {
   const [table, setTable] = useState<LeagueTable>({});
   const [ratings, setRatings] = useState<TeamRating[]>([]);
   const [spotlightIndex, setSpotlightIndex] = useState(0);
+  const [h2h, setH2h] = useState<{ teamA: H2HTeam; teamB: H2HTeam; context: string } | null>(null);
+
+  const openH2h = (fixture: Fixture) => {
+    const home = teamByName.get(fixture.homeTeam);
+    const away = teamByName.get(fixture.awayTeam);
+    if (!home || !away) {
+      return;
+    }
+    setH2h({ teamA: home, teamB: away, context: `${displayDivisionName(fixture.division)} • ${fixture.gw}` });
+  };
 
   useEffect(() => {
     Promise.all([
@@ -303,7 +314,11 @@ export function MatchdayPage() {
         {currentFixtures.map((fixture) => {
           const upset = classifyUpset(fixture.homeTeam, fixture.awayTeam, ratings);
           return (
-            <div key={fixture.id} className="fixture-card">
+            <div
+              key={fixture.id}
+              className="fixture-card is-clickable"
+              onClick={() => openH2h(fixture)}
+            >
               <div className="fixture-meta">
                 <span>{displayDivisionName(fixture.division)}</span>
                 {upset && (
@@ -311,6 +326,9 @@ export function MatchdayPage() {
                     {upset.level === 'huge' ? 'Huge upset' : 'Upset watch'}
                   </span>
                 )}
+                <button type="button" className="h2h-trigger" onClick={(event) => { event.stopPropagation(); openH2h(fixture); }}>
+                  Head to Head
+                </button>
               </div>
               <div className="fixture-row-grid">
                 <div className="fixture-team">
@@ -344,6 +362,8 @@ export function MatchdayPage() {
         })}
         {currentFixtures.length === 0 && <p className="muted">No fixtures loaded for this gameweek.</p>}
       </div>
+
+      {h2h && <HeadToHeadModal teamA={h2h.teamA} teamB={h2h.teamB} context={h2h.context} onClose={() => setH2h(null)} />}
     </section>
   );
 }
