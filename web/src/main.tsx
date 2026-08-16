@@ -5,6 +5,7 @@ import { App } from './App';
 import { AppChromeEnhancements } from './AppChromeEnhancements';
 import { PredictionBroadcastEnhancements } from './components/PredictionBroadcastEnhancements';
 import { TeamJourneyBridge } from './components/TeamJourneyBridge';
+import { GameshowTombolaCentrepiece } from './components/GameshowTombolaCentrepiece';
 import { BookieBallDataProvider } from './lib/BookieBallDataContext';
 import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
@@ -16,6 +17,7 @@ import './fixture-market.css';
 import './prediction-broadcast.css';
 import './no-zoom-overrides.css';
 import './gameshow-clean.css';
+import './tombola-centrepiece.css';
 
 installBookieBallFetchCache();
 
@@ -26,6 +28,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AppChromeEnhancements />
         <TeamJourneyBridge />
         <PredictionBroadcastEnhancements />
+        <GameshowTombolaCentrepiece />
         <App />
       </BookieBallDataProvider>
     </BrowserRouter>
