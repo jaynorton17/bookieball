@@ -16,10 +16,13 @@
     "dev:api": "tsx src/server.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "lint": "tsc --noEmit",
+    "test": "npm run lint && npm run test:cup && npm run test:trio && npm run test:studio",
     "test:cup": "tsx scripts/cup-regression.ts",
     "test:trio": "tsx scripts/trio-regression.ts",
     "test:studio": "tsx scripts/studio-regression.ts",
-    "test:smoke": "node scripts/browser-smoke.mjs"
+    "test:smoke": "node scripts/browser-smoke.mjs",
+    "test:layout": "node scripts/layout-regression.mjs",
+    "test:ci": "npm run test && npm run build && npm run test:layout"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
