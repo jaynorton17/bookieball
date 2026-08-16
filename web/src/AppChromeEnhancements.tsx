@@ -167,6 +167,29 @@ function ensureGameshowCylinder(): void {
   });
 }
 
+function simplifyGameshowShell(currentSeason?: string, currentGw?: string): void {
+  const all = Array.from(document.querySelectorAll<HTMLElement>('body *'));
+  const heroTitle = all.find((el) => el.childElementCount === 0 && el.textContent?.trim() === 'THE KICK-OFF SHOW');
+  const heroSection = heroTitle?.closest<HTMLElement>('section') ?? heroTitle?.parentElement?.parentElement?.parentElement ?? null;
+  if (heroSection) heroSection.classList.add('gameshow-hidden-intro');
+
+  const stepCards = all.filter((el) => /^STEP\s+[1-4]\s*•/i.test(el.textContent?.trim() ?? '') && el.childElementCount <= 6);
+  stepCards.forEach((card) => card.closest<HTMLElement>('button, section, article, div')?.classList.add('gameshow-stage-control'));
+
+  const resultHeading = all.find((el) => /^Step 1\s*•\s*Prediction Results/i.test(el.textContent?.trim() ?? ''));
+  const activeStage = resultHeading?.closest<HTMLElement>('section, article') ?? null;
+  if (activeStage) activeStage.classList.add('gameshow-active-stage-scroll');
+
+  if (currentSeason && currentGw) {
+    const replacement = `${currentSeason} ${currentGw}`;
+    all.forEach((el) => {
+      if (el.childElementCount !== 0) return;
+      const text = el.textContent?.trim() ?? '';
+      if (/^S\d+\s+GW\d+$/i.test(text) && text !== replacement) el.textContent = replacement;
+    });
+  }
+}
+
 export function AppChromeEnhancements() {
   const location = useLocation();
   const [penaltyCount, setPenaltyCount] = useState(0);
@@ -196,13 +219,15 @@ export function AppChromeEnhancements() {
         const signature = `${state.currentSeason}:${state.currentGw}`;
         if (!force && lastWarmedRef.current === signature) return;
         lastWarmedRef.current = signature;
-        await loadCurrentGameweekSnapshot();
 
         if (location.pathname === '/gameshow') {
+          simplifyGameshowShell(state.currentSeason, state.currentGw);
           void warmGameshowRoute();
+          void loadCurrentGameweekSnapshot();
           return;
         }
 
+        await loadCurrentGameweekSnapshot();
         const teams = await api.teams().catch(() => []);
         void Promise.all([
           api.teamSeasonHistoryBulk(teams.map((team) => team.id)).catch(() => null),
@@ -257,8 +282,17 @@ export function AppChromeEnhancements() {
 
   useEffect(() => {
     if (location.pathname !== '/gameshow') return;
+    let stateLabel: { season?: string; gw?: string } = {};
+    void api.state().then((state) => {
+      stateLabel = { season: state.currentSeason, gw: state.currentGw };
+      simplifyGameshowShell(state.currentSeason, state.currentGw);
+    }).catch(() => undefined);
+    simplifyGameshowShell();
     ensureGameshowCylinder();
-    const timer = window.setInterval(ensureGameshowCylinder, 90);
+    const timer = window.setInterval(() => {
+      simplifyGameshowShell(stateLabel.season, stateLabel.gw);
+      ensureGameshowCylinder();
+    }, 120);
     return () => window.clearInterval(timer);
   }, [location.pathname]);
 

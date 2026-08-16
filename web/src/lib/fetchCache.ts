@@ -32,7 +32,7 @@ const inFlight = new Map<string, Promise<Response>>();
 let installed = false;
 
 function categoryForUrl(url: string): CacheEntry['category'] {
-  if (/[?&]season=S\d+/i.test(url) || /\/team\/(?:history|history-bulk)/i.test(url) || /all-time/i.test(url) || /archive/i.test(url)) return 'history';
+  if (/[?&]season=S\d+/i.test(url) || /\/team\/(?:history|history-bulk|history-story-bulk)/i.test(url) || /all-time/i.test(url) || /archive/i.test(url)) return 'history';
   if (/\/state(?:\?|$)/i.test(url)) return 'state';
   return 'live';
 }
@@ -49,8 +49,8 @@ export function clearBookieBallFetchCache(category?: CacheEntry['category']): vo
     inFlight.clear();
     return;
   }
-  for (const [url, entry] of cache) {
-    if (entry.category === category) cache.delete(url);
+  for (const [key, entry] of cache) {
+    if (entry.category === category) cache.delete(key);
   }
 }
 
@@ -60,6 +60,16 @@ function isGameweekMutation(url: string): boolean {
 
 function isGameshowDrawPool(url: string): boolean {
   return /\/gameshow\/draw-pool(?:\?|$)/i.test(url);
+}
+
+function isReadOnlyPost(url: string): boolean {
+  return /\/team\/(?:history-bulk|history-story-bulk)(?:\?|$)/i.test(url);
+}
+
+async function requestCacheKey(request: Request): Promise<string> {
+  if (request.method.toUpperCase() === 'GET') return request.url;
+  const body = await request.clone().text().catch(() => '');
+  return `${request.method.toUpperCase()}:${request.url}:${body}`;
 }
 
 async function normalizeGameshowDrawPool(response: Response): Promise<Response> {
@@ -80,10 +90,6 @@ async function normalizeGameshowDrawPool(response: Response): Promise<Response> 
 
     if (allTeams.length === 0) return response;
 
-    // GameshowPage historically expects a division-grouped pool. Present one
-    // synthetic group containing every eligible team so the existing server-side
-    // draw validation/persistence remains untouched while selection is uniform
-    // across all remaining team balls.
     const combined: DrawPoolDivision[] = [{
       division: groups[0].division,
       teams: allTeams,
@@ -110,8 +116,9 @@ export function installBookieBallFetchCache(): void {
     const request = new Request(input, init);
     const method = request.method.toUpperCase();
     const url = request.url;
+    const cacheableRead = method === 'GET' || (method === 'POST' && isReadOnlyPost(url));
 
-    if (method !== 'GET') {
+    if (!cacheableRead) {
       const response = await nativeFetch(request);
       if (response.ok) {
         clearBookieBallFetchCache('state');
@@ -123,19 +130,20 @@ export function installBookieBallFetchCache(): void {
     }
 
     const category = categoryForUrl(url);
+    const key = await requestCacheKey(request);
     const now = Date.now();
-    const cached = cache.get(url);
+    const cached = cache.get(key);
     if (cached && cached.expiresAt > now) return cached.response.clone();
-    if (cached) cache.delete(url);
+    if (cached) cache.delete(key);
 
-    const pending = inFlight.get(url);
+    const pending = inFlight.get(key);
     if (pending) return (await pending).clone();
 
     const fetchPromise = nativeFetch(request)
       .then((response) => isGameshowDrawPool(url) ? normalizeGameshowDrawPool(response) : response)
       .then((response) => {
         if (response.ok) {
-          cache.set(url, {
+          cache.set(key, {
             response: response.clone(),
             expiresAt: Date.now() + ttlForCategory(category),
             category,
@@ -143,9 +151,9 @@ export function installBookieBallFetchCache(): void {
         }
         return response;
       })
-      .finally(() => inFlight.delete(url));
+      .finally(() => inFlight.delete(key));
 
-    inFlight.set(url, fetchPromise);
+    inFlight.set(key, fetchPromise);
     return (await fetchPromise).clone();
   }) as typeof window.fetch;
 }
