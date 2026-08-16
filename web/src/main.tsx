@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppChromeEnhancements } from './AppChromeEnhancements';
+import { PredictionBroadcastEnhancements } from './components/PredictionBroadcastEnhancements';
 import { TeamJourneyBridge } from './components/TeamJourneyBridge';
 import { BookieBallDataProvider } from './lib/BookieBallDataContext';
 import { installBookieBallFetchCache } from './lib/fetchCache';
@@ -11,6 +12,7 @@ import './laptop-fit.css';
 import './competition-enhancements.css';
 import './command-centre-v2.css';
 import './gameshow-entertainment.css';
+import './prediction-broadcast.css';
 import './no-zoom-overrides.css';
 
 installBookieBallFetchCache();
@@ -21,6 +23,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BookieBallDataProvider>
         <AppChromeEnhancements />
         <TeamJourneyBridge />
+        <PredictionBroadcastEnhancements />
         <App />
       </BookieBallDataProvider>
     </BrowserRouter>
