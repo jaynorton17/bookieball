@@ -96,6 +96,8 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
         const seasons = Array.from(new Set([
           ...(nextStory?.divisionJourney ?? []).map((row) => row.season),
           ...(nextStory?.masterLeagueJourney ?? []).map((row) => row.season),
+          ...(nextStory?.trioLeagueJourney ?? []).map((row) => row.season),
+          ...(nextStory?.tierLeagueJourney ?? []).map((row) => row.season),
           ...(historyPayload.seasons ?? []).map((row) => row.season),
         ])).sort((a, b) => seasonNumber(a) - seasonNumber(b));
         const masterEntries = await Promise.all(seasons.map(async (season) => [season, await api.masterCupFixtures(undefined, true, season).catch(() => [] as MasterCupFixture[])] as const));
@@ -131,8 +133,8 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
         divisionLevel: division?.divisionLevel ?? null,
         masterRank: master?.rank ?? null,
         masterTotal: master?.total ?? null,
-        trio: trio ? `${trio.division} #${trio.rank}` : null,
-        tier: tier ? `${tier.division} #${tier.rank}` : null,
+        trio: trio ? `${trio.division} #${trio.rank}/${trio.total}` : null,
+        tier: tier ? `${tier.division} #${tier.rank}/${tier.total}` : null,
         cupFinish: finishLabel(history?.cupFinish),
         masterCupFinish: masterCupFinish(masterCupBySeason[season] ?? [], selectedId),
         superCupFinish: finishLabel(history?.superCupFinish),
@@ -170,7 +172,7 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
           </div>
         </div>
 
-        {selectedTeam && <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12 }}><TeamBadge name={selectedTeam.name} ballColor={selectedTeam.ballColor} ringColor={selectedTeam.ringColor} textColor={selectedTeam.textColor} size={42} /><div><strong style={{ fontSize: 20 }}>{selectedTeam.name}</strong><div style={{ color: '#91a8bd', fontSize: 12 }}>League · Master League · BookieBall Cup · Master Cup · Super Cup</div></div></div>}
+        {selectedTeam && <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12 }}><TeamBadge name={selectedTeam.name} ballColor={selectedTeam.ballColor} ringColor={selectedTeam.ringColor} textColor={selectedTeam.textColor} size={42} /><div><strong style={{ fontSize: 20 }}>{selectedTeam.name}</strong><div style={{ color: '#91a8bd', fontSize: 12 }}>League · Master League · Trio League · Tier League · BookieBall Cup · Master Cup · Super Cup</div></div></div>}
 
         {loading ? <div style={{ padding: 40, color: '#91a8bd' }}>Building team history…</div> : snapshots.length === 0 ? <div style={{ padding: 40, color: '#91a8bd' }}>No historical journey available for this team yet.</div> : (
           <>
@@ -190,18 +192,18 @@ export function TeamJourneyOverlay({ open, onClose }: Props) {
               <div style={{ color: '#91a8bd', fontSize: 11, marginTop: -12 }}>The ball rises and falls with the club’s league level and finishing position each season.</div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 9, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(225px,1fr))', gap: 9, marginTop: 12 }}>
               {snapshots.map((row) => (
                 <article key={`snapshot-${row.season}`} style={{ background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 13, padding: 11 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><strong>{row.season}</strong><span style={{ color: '#5eb7ff', fontWeight: 900 }}>#{row.divisionRank ?? '—'}</span></div>
-                  <div style={{ color: '#c8d7e5', fontSize: 12, marginTop: 4 }}>{row.division}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '3px 8px', color: '#91a8bd', fontSize: 10, marginTop: 8 }}>
+                    <span>League</span><strong style={{ color: '#fff' }}>{row.divisionRank ? `${row.division} #${row.divisionRank}/${row.divisionTotal ?? '—'}` : row.division}</strong>
                     <span>Master League</span><strong style={{ color: '#fff' }}>{row.masterRank ? `#${row.masterRank}/${row.masterTotal ?? '—'}` : '—'}</strong>
+                    <span>Trio League</span><strong style={{ color: '#fff' }}>{row.trio ?? '—'}</strong>
+                    <span>Tier League</span><strong style={{ color: '#fff' }}>{row.tier ?? '—'}</strong>
                     <span>BookieBall Cup</span><strong style={{ color: '#fff' }}>{row.cupFinish}</strong>
                     <span>Master Cup</span><strong style={{ color: '#fff' }}>{row.masterCupFinish}</strong>
                     <span>Super Cup</span><strong style={{ color: '#fff' }}>{row.superCupFinish}</strong>
-                    {row.trio && <><span>Trio</span><strong style={{ color: '#fff' }}>{row.trio}</strong></>}
-                    {row.tier && <><span>Tier</span><strong style={{ color: '#fff' }}>{row.tier}</strong></>}
                   </div>
                 </article>
               ))}
