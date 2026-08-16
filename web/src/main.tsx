@@ -3,8 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppChromeEnhancements } from './AppChromeEnhancements';
-import { CommandCentreCompetitionFixtures } from './components/CommandCentreCompetitionFixtures';
-import { CommandCentreFixtureAnalytics } from './components/CommandCentreFixtureAnalytics';
+import { TeamJourneyBridge } from './components/TeamJourneyBridge';
 import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
 import './laptop-fit.css';
@@ -16,8 +15,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppChromeEnhancements />
-      <CommandCentreCompetitionFixtures />
-      <CommandCentreFixtureAnalytics />
+      <TeamJourneyBridge />
       <App />
     </BrowserRouter>
   </React.StrictMode>,
