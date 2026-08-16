@@ -80,8 +80,6 @@ async function warmGameshowRoute(): Promise<void> {
   ));
   if (!seasons.includes(state.currentSeason)) seasons.push(state.currentSeason);
 
-  // This is deliberately background work. GameshowPage still owns the archive
-  // calculations, but its fetches will now hit an in-flight request or warm cache.
   void Promise.all(seasons.flatMap((season) => [
     api.leagueFixtures(undefined, true, season).catch(() => []),
     api.cup(undefined, season).catch(() => []),
@@ -92,6 +90,18 @@ async function warmGameshowRoute(): Promise<void> {
 function ensureGameshowCylinder(): void {
   document.querySelectorAll<HTMLElement>('.kickoff-carousel-card').forEach((card) => {
     const nativeItems = Array.from(card.querySelectorAll<HTMLElement>('.kickoff-carousel-track-item'));
+
+    if (nativeItems.length === 1) {
+      card.classList.add('gameshow-all-team-prep');
+      const chip = card.querySelector<HTMLElement>('.news-chip');
+      const title = card.querySelector<HTMLElement>('.kickoff-wheel-card-head h3');
+      const subtitle = card.querySelector<HTMLElement>('.kickoff-wheel-card-head p');
+      if (chip) chip.textContent = 'ALL-TEAM DRAW';
+      if (title) title.textContent = 'Loading Team Balls';
+      if (subtitle) subtitle.textContent = 'Every eligible team enters the same cylinder.';
+      return;
+    }
+
     if (nativeItems.length < 8) return;
     const shell = card.querySelector<HTMLElement>('.kickoff-carousel-shell');
     if (!shell) return;
@@ -252,8 +262,6 @@ export function AppChromeEnhancements() {
     return () => window.clearInterval(timer);
   }, [location.pathname]);
 
-  // Temporary Gameshow compatibility bridge. This can disappear as GameshowPage is split
-  // into native stage components; Home no longer relies on any DOM post-processing.
   useEffect(() => {
     if (location.pathname !== '/gameshow') return;
     let active = true;
