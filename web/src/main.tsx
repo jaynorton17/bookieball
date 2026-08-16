@@ -8,6 +8,7 @@ import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
 import './laptop-fit.css';
 import './competition-enhancements.css';
+import './command-centre-v2.css';
 
 installBookieBallFetchCache();
 
