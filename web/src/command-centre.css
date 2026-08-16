@@ -218,6 +218,122 @@
   animation: commandTicker 34s linear infinite;
 }
 
+/* Small division slides: keep the current GW fixed on the right and use the spare
+   width underneath for the following GW. This intentionally does not apply to
+   Master/large competition tables, which still need their independent scroller. */
+.command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-kicker {
+  font-size: 10px !important;
+  letter-spacing: .09em !important;
+  line-height: 1 !important;
+}
+
+.command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-title {
+  font-size: clamp(24px, 2.6vw, 38px) !important;
+  line-height: 1 !important;
+  margin: 3px 0 2px !important;
+}
+
+.command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-head p {
+  font-size: 10px !important;
+  line-height: 1.15 !important;
+  margin: 1px 0 !important;
+}
+
+.command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-metric strong {
+  font-size: clamp(28px, 3vw, 42px) !important;
+}
+
+.command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-metric span {
+  font-size: 9px !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))):has(.command-fixture.is-next) {
+  position: relative;
+  padding-bottom: 104px;
+  box-sizing: border-box;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))):has(.command-fixture.is-next) .command-fixtures-native {
+  overflow: visible !important;
+  scrollbar-width: none !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))):has(.command-fixture.is-next) .command-fixtures-native::-webkit-scrollbar {
+  display: none !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-next-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 82px;
+  z-index: 5;
+  height: 18px;
+  margin: 0 !important;
+  padding: 0 2px 3px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+  font-size: 9px !important;
+  letter-spacing: .11em !important;
+  background: transparent !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next {
+  position: absolute;
+  bottom: 0;
+  z-index: 4;
+  height: 76px;
+  min-height: 76px;
+  box-sizing: border-box;
+  margin: 0 !important;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+
+/* One upcoming game takes the full strip; two games share the row. */
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-next-band + .command-fixture.is-next:last-child {
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-next-band + .command-fixture.is-next:not(:last-child) {
+  left: 0;
+  width: calc(50% - 6px);
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next:last-child:not(.command-next-band + .command-fixture.is-next:last-child) {
+  right: 0;
+  width: calc(50% - 6px);
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-topline {
+  font-size: 8px !important;
+  line-height: 1 !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-matchup {
+  margin-top: 2px !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-matchup strong {
+  font-size: 11px !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-scoreline {
+  font-size: 9px !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-market {
+  margin-top: 3px !important;
+  padding-top: 3px !important;
+  font-size: 8px !important;
+}
+
+.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next .command-fixture-h2h {
+  display: none !important;
+}
+
 @keyframes commandSlideIn {
   from { opacity: 0; transform: translateY(16px) scale(.992); filter: blur(3px); }
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
@@ -289,6 +405,10 @@
     font-size: clamp(27px, 4.1vw, 48px) !important;
   }
 
+  .command-slide:has(.command-native-layout:not(:has(.command-table-native .command-row:nth-child(5)))) .command-slide-title {
+    font-size: clamp(22px, 2.4vw, 34px) !important;
+  }
+
   .command-row {
     padding: 6px 10px !important;
   }
@@ -299,6 +419,20 @@
 
   .command-fixture {
     padding: 8px 11px !important;
+  }
+
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))):has(.command-fixture.is-next) {
+    padding-bottom: 94px;
+  }
+
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-next-band {
+    bottom: 74px;
+  }
+
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next {
+    height: 69px;
+    min-height: 69px;
+    padding: 5px 9px !important;
   }
 }
 
@@ -319,6 +453,19 @@
 
   .command-division-layout {
     grid-template-columns: 1fr;
+  }
+
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))):has(.command-fixture.is-next) {
+    padding-bottom: 0;
+  }
+
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-next-band,
+  .command-native-layout:not(:has(.command-table-native .command-row:nth-child(5))) .command-fixture.is-next {
+    position: relative;
+    inset: auto;
+    width: auto;
+    height: auto;
+    min-height: 0;
   }
 }
 
