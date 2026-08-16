@@ -6,6 +6,7 @@ import { AppChromeEnhancements } from './AppChromeEnhancements';
 import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
 import './laptop-fit.css';
+import './competition-enhancements.css';
 
 installBookieBallFetchCache();
 
