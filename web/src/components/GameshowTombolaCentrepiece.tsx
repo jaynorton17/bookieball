@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { api } from '../lib/api';
 
 type TombolaBall = {
   name: string;
@@ -8,6 +9,8 @@ type TombolaBall = {
   ringColor: string;
   textColor: string;
 };
+
+type DrawPool = Awaited<ReturnType<typeof api.gameshowDrawPool>>;
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -28,15 +31,34 @@ function cssColor(element: HTMLElement | null, property: 'backgroundColor' | 'bo
   return computed || fallback;
 }
 
+function ballsFromPool(groups: DrawPool): TombolaBall[] {
+  const unique = new Map<number, TombolaBall>();
+  groups.forEach((group) => {
+    group.teams.forEach((team) => {
+      if (unique.has(team.teamId)) return;
+      unique.set(team.teamId, {
+        name: team.teamName,
+        initials: initials(team.teamName),
+        ballColor: team.ballColor ?? '#5eb7ff',
+        ringColor: team.ringColor ?? '#f7fbff',
+        textColor: team.textColor ?? '#06101c',
+      });
+    });
+  });
+  return [...unique.values()];
+}
+
 function sourceBalls(card: HTMLElement): TombolaBall[] {
   const unique = new Map<string, TombolaBall>();
   card.querySelectorAll<HTMLElement>('.kickoff-carousel-track-item').forEach((item) => {
-    const name = item.querySelector('strong')?.textContent?.trim() ?? '';
-    if (!name || /^(TBD|BYE|\.\.\.)$/i.test(name) || unique.has(name)) return;
     const badge = item.querySelector<HTMLElement>('.team-badge');
+    const name = item.querySelector('strong')?.textContent?.trim() ?? '';
+    // Division/group carousel rows (for example "Championship") do not have a team badge.
+    // Never turn those legacy staging labels into tombola balls.
+    if (!badge || !name || /^(TBD|BYE|\.\.\.)$/i.test(name) || unique.has(name)) return;
     unique.set(name, {
       name,
-      initials: badge?.textContent?.trim() || initials(name),
+      initials: badge.textContent?.trim() || initials(name),
       ballColor: cssColor(badge, 'backgroundColor', '#5eb7ff'),
       ringColor: cssColor(badge, 'borderColor', '#f7fbff'),
       textColor: cssColor(badge, 'color', '#06101c'),
@@ -68,7 +90,7 @@ function createHost(card: HTMLElement, balls: TombolaBall[]): HTMLElement {
         <span>LIVE TEAM DRAW</span>
         <strong>Every remaining team is in the tombola</strong>
       </div>
-      <b><span data-tombola-count>${balls.length}</span> TEAMS REMAINING</b>
+      <b><span data-tombola-count>${balls.length || '…'}</span> TEAMS REMAINING</b>
     </div>
     <div class="tombola-centrepiece-stage">
       <div class="tombola-stage-glow"></div>
@@ -86,8 +108,8 @@ function createHost(card: HTMLElement, balls: TombolaBall[]): HTMLElement {
       </div>
       <div class="tombola-status">
         <small>DRAW STATUS</small>
-        <strong data-tombola-status>Loading all team balls…</strong>
-        <span data-tombola-detail>All remaining teams are entering the glass.</span>
+        <strong data-tombola-status>Loading team balls…</strong>
+        <span data-tombola-detail>The draw machine is preparing the full remaining field.</span>
       </div>
     </div>
   `;
@@ -116,23 +138,23 @@ function createHost(card: HTMLElement, balls: TombolaBall[]): HTMLElement {
   card.appendChild(host);
 
   window.setTimeout(() => {
-    if (!host.isConnected || host.classList.contains('is-picked')) return;
+    if (!host.isConnected || host.classList.contains('is-picked') || balls.length === 0) return;
     host.classList.remove('is-loading');
     host.classList.add('is-mixing');
     const status = host.querySelector<HTMLElement>('[data-tombola-status]');
     const detail = host.querySelector<HTMLElement>('[data-tombola-detail]');
     if (status) status.textContent = 'Air on — mixing every ball';
-    if (detail) detail.textContent = 'All teams are being blown around before the draw locks.';
-  }, 1350);
+    if (detail) detail.textContent = 'All remaining teams are being blown around before the draw locks.';
+  }, 1100);
 
   return host;
 }
 
-function syncCard(card: HTMLElement): void {
-  const balls = sourceBalls(card);
-  if (balls.length < 2) return;
-
+function syncCard(card: HTMLElement, apiBalls: TombolaBall[]): void {
+  const fallbackBalls = sourceBalls(card);
+  const balls = apiBalls.length > 0 ? apiBalls : fallbackBalls;
   const signature = balls.map((ball) => ball.name).join('|');
+
   let host = card.querySelector<HTMLElement>(':scope > .tombola-centrepiece');
   if (!host || host.dataset.signature !== signature) {
     host?.remove();
@@ -141,15 +163,20 @@ function syncCard(card: HTMLElement): void {
   }
 
   const count = host.querySelector<HTMLElement>('[data-tombola-count]');
-  if (count && count.textContent !== String(balls.length)) count.textContent = String(balls.length);
+  if (count) count.textContent = balls.length > 0 ? String(balls.length) : '…';
 
+  const validTeamNames = new Set(balls.map((ball) => ball.name));
   const lockedItem = card.querySelector<HTMLElement>('.kickoff-carousel-track-item.locked');
   const activeItem = card.querySelector<HTMLElement>('.kickoff-carousel-track-item.active');
-  const selectedName = lockedItem?.querySelector('strong')?.textContent?.trim() ?? '';
-  const activeName = activeItem?.querySelector('strong')?.textContent?.trim() ?? '';
+  const lockedLabel = lockedItem?.querySelector('strong')?.textContent?.trim() ?? '';
+  const activeLabel = activeItem?.querySelector('strong')?.textContent?.trim() ?? '';
+  const selectedName = validTeamNames.has(lockedLabel) ? lockedLabel : '';
+  const activeName = validTeamNames.has(activeLabel) ? activeLabel : '';
   const status = host.querySelector<HTMLElement>('[data-tombola-status]');
   const detail = host.querySelector<HTMLElement>('[data-tombola-detail]');
 
+  // A legacy one-item division stage such as "Championship" is intentionally ignored.
+  // The user sees the glass immediately while the underlying draw engine moves to team selection.
   if (selectedName) {
     host.classList.remove('is-loading', 'is-mixing');
     host.classList.add('is-picked');
@@ -168,35 +195,51 @@ function syncCard(card: HTMLElement): void {
     ball.classList.toggle('is-current', Boolean(activeName) && ball.dataset.team === activeName);
   });
 
-  if (activeName && !host.classList.contains('is-loading')) {
+  if (balls.length > 0 && !host.classList.contains('is-loading')) {
     host.classList.add('is-mixing');
     if (status) status.textContent = 'Air on — mixing every ball';
-    if (detail) detail.textContent = 'The draw is live. No side list, no preview — just the tombola.';
+    if (detail) detail.textContent = 'The draw is live — all remaining teams are in the glass.';
   }
 }
 
-function syncTombola(): void {
-  document.querySelectorAll<HTMLElement>('.kickoff-carousel-card').forEach(syncCard);
+function syncTombola(apiBalls: TombolaBall[]): void {
+  document.querySelectorAll<HTMLElement>('.kickoff-carousel-card').forEach((card) => syncCard(card, apiBalls));
 }
 
 export function GameshowTombolaCentrepiece() {
   const location = useLocation();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (location.pathname !== '/gameshow') return;
 
+    let disposed = false;
+    let apiBalls: TombolaBall[] = [];
     let queued = false;
-    const scheduleSync = () => {
-      if (queued) return;
+
+    const syncBeforePaint = () => {
+      if (queued || disposed) return;
       queued = true;
-      window.requestAnimationFrame(() => {
+      queueMicrotask(() => {
         queued = false;
-        syncTombola();
+        if (!disposed) syncTombola(apiBalls);
       });
     };
 
-    scheduleSync();
-    const observer = new MutationObserver(scheduleSync);
+    // Initial sync is deliberately synchronous inside a layout effect. This adds the
+    // empty glass before the browser paints the legacy division/carousel screen.
+    syncTombola(apiBalls);
+
+    void api.gameshowDrawPool()
+      .then((groups) => {
+        if (disposed) return;
+        apiBalls = ballsFromPool(groups);
+        syncTombola(apiBalls);
+      })
+      .catch(() => {
+        if (!disposed) syncTombola(apiBalls);
+      });
+
+    const observer = new MutationObserver(syncBeforePaint);
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -205,6 +248,7 @@ export function GameshowTombolaCentrepiece() {
     });
 
     return () => {
+      disposed = true;
       observer.disconnect();
       document.querySelectorAll<HTMLElement>('.kickoff-carousel-card.tombola-centrepiece-active').forEach((card) => {
         card.classList.remove('tombola-centrepiece-active');
