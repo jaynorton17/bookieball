@@ -1,0 +1,44 @@
+/* Gameshow should open on the four actual show stages, not the launch-page hero. */
+body.gameshow-laptop-mode .gameshow-page > .hub-showcase,
+.gameshow-page > .hub-showcase {
+  display: none !important;
+}
+
+body.gameshow-laptop-mode .gameshow-page,
+.gameshow-page {
+  padding-top: 10px !important;
+}
+
+body.gameshow-laptop-mode .gameshow-page > .kickoff-step-strip,
+.gameshow-page > .kickoff-step-strip {
+  margin-top: 0 !important;
+}
+
+body.gameshow-laptop-mode .gameshow-page .kickoff-step-strip {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #071321;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Let the active stage use the remaining viewport and scroll internally. */
+body.gameshow-laptop-mode .gameshow-page {
+  min-height: calc(100vh - 72px) !important;
+  height: calc(100vh - 72px) !important;
+  overflow: hidden !important;
+}
+
+body.gameshow-laptop-mode .gameshow-page > .kickoff-step-strip + * {
+  min-height: 0 !important;
+}
+
+body.gameshow-laptop-mode .gameshow-page .kickoff-flow-panel,
+body.gameshow-laptop-mode .gameshow-page .kickoff-step-content,
+body.gameshow-laptop-mode .gameshow-page .kickoff-results-panel,
+body.gameshow-laptop-mode .gameshow-page .kickoff-picks-panel {
+  max-height: calc(100vh - 170px) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}

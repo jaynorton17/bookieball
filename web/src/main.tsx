@@ -15,6 +15,7 @@ import './gameshow-entertainment.css';
 import './fixture-market.css';
 import './prediction-broadcast.css';
 import './no-zoom-overrides.css';
+import './gameshow-clean.css';
 
 installBookieBallFetchCache();
 
