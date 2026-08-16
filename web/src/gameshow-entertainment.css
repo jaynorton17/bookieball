@@ -15,21 +15,128 @@ body.gameshow-laptop-mode .gameshow-hidden-intro{
   display:none!important;
 }
 
+/* The Gameshow is a working screen, not a landing page. Keep navigation tiny. */
+body.gameshow-laptop-mode .kickoff-step-strip{
+  display:flex!important;
+  justify-content:center!important;
+  align-items:center!important;
+  gap:8px!important;
+  min-height:0!important;
+  height:48px!important;
+  padding:4px 8px!important;
+  margin:0!important;
+  overflow:visible!important;
+}
+
+body.gameshow-laptop-mode .kickoff-step-chip{
+  position:relative!important;
+  flex:0 0 38px!important;
+  width:38px!important;
+  height:38px!important;
+  min-width:38px!important;
+  min-height:38px!important;
+  max-width:38px!important;
+  padding:0!important;
+  margin:0!important;
+  border-radius:50%!important;
+  font-size:0!important;
+  line-height:1!important;
+  display:grid!important;
+  place-items:center!important;
+  overflow:visible!important;
+}
+
+body.gameshow-laptop-mode .kickoff-step-chip::after{
+  display:block;
+  font-size:15px;
+  font-weight:950;
+  line-height:1;
+  color:inherit;
+}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(1)::after{content:"1"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(2)::after{content:"2"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(3)::after{content:"3"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(4)::after{content:"4"}
+
+body.gameshow-laptop-mode .kickoff-step-chip::before{
+  position:absolute;
+  top:46px;
+  left:50%;
+  transform:translateX(-50%) translateY(-3px);
+  z-index:100;
+  width:max-content;
+  max-width:220px;
+  padding:7px 10px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;
+  background:rgba(5,15,26,.97);
+  box-shadow:0 10px 28px rgba(0,0,0,.32);
+  color:#f7fbff;
+  font-size:11px;
+  font-weight:850;
+  letter-spacing:.02em;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .15s ease,transform .15s ease;
+}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(1)::before{content:"Previous prediction results"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(2)::before{content:"This gameweek's predictions"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(3)::before{content:"Kick-Off Show"}
+body.gameshow-laptop-mode .kickoff-step-chip:nth-child(4)::before{content:"End recap"}
+body.gameshow-laptop-mode .kickoff-step-chip:hover::before,
+body.gameshow-laptop-mode .kickoff-step-chip:focus-visible::before{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+
+/* Remove the descriptive headers Jay does not need on Results/Picks. */
+body.gameshow-laptop-mode .kickoff-flow-shell-results > .kickoff-header,
+body.gameshow-laptop-mode .kickoff-flow-shell:not(.kickoff-flow-shell-results) > .kickoff-header{
+  display:none!important;
+}
+
+/* This is the real stage container. It must scroll when content cannot fit. */
+body.gameshow-laptop-mode .kickoff-flow-shell{
+  display:block!important;
+  min-height:0!important;
+  height:auto!important;
+  max-height:calc(100dvh - 112px)!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  scrollbar-width:thin;
+  padding:8px 10px 20px!important;
+  margin:0!important;
+}
+body.gameshow-laptop-mode .kickoff-flow-shell::-webkit-scrollbar{width:10px}
+body.gameshow-laptop-mode .kickoff-flow-shell::-webkit-scrollbar-track{background:rgba(255,255,255,.025);border-radius:999px}
+body.gameshow-laptop-mode .kickoff-flow-shell::-webkit-scrollbar-thumb{background:rgba(126,176,216,.48);border-radius:999px;border:2px solid rgba(5,15,26,.8)}
+body.gameshow-laptop-mode .kickoff-flow-shell::-webkit-scrollbar-thumb:hover{background:rgba(126,176,216,.7)}
+
+body.gameshow-laptop-mode .kickoff-grid,
+body.gameshow-laptop-mode .kickoff-grid-results,
+body.gameshow-laptop-mode .kickoff-grid-picks{
+  min-height:0!important;
+  height:auto!important;
+  max-height:none!important;
+  overflow:visible!important;
+}
+
+body.gameshow-laptop-mode .kickoff-card-scroll{
+  max-height:none!important;
+  overflow:visible!important;
+}
+
 body.gameshow-laptop-mode .gameshow-stage-control{
-  min-height:72px!important;
+  min-height:0!important;
   margin-top:0!important;
 }
 
 body.gameshow-laptop-mode .gameshow-active-stage-scroll{
-  max-height:calc(100dvh - 260px)!important;
-  overflow-y:auto!important;
-  overflow-x:hidden!important;
-  scrollbar-width:thin;
-  overscroll-behavior:contain;
+  max-height:none!important;
+  overflow:visible!important;
 }
-
-body.gameshow-laptop-mode .gameshow-active-stage-scroll::-webkit-scrollbar{width:8px}
-body.gameshow-laptop-mode .gameshow-active-stage-scroll::-webkit-scrollbar-thumb{background:rgba(126,176,216,.38);border-radius:999px}
 
 body.gameshow-laptop-mode .kickoff-wheel-card::after,
 body.gameshow-laptop-mode .sky-studio-panel::after{
@@ -267,7 +374,7 @@ body.gameshow-laptop-mode .kickoff-simple-fixture:nth-child(even){animation:game
 @keyframes gameshowWinnerFlash{0%{transform:scale(.94);box-shadow:0 0 0 rgba(246,191,79,0)}45%{transform:scale(1.05);box-shadow:0 0 28px rgba(246,191,79,.25)}100%{transform:scale(1);box-shadow:0 14px 32px rgba(0,0,0,.25)}}
 
 @media(max-height:820px){
-  body.gameshow-laptop-mode .gameshow-active-stage-scroll{max-height:calc(100dvh - 225px)!important}
+  body.gameshow-laptop-mode .kickoff-flow-shell{max-height:calc(100dvh - 104px)!important}
   .gameshow-cylinder-enhanced .kickoff-carousel-shell{min-height:260px}
   .gameshow-ball-cylinder{min-height:260px}
   .gameshow-cylinder-machine{min-height:230px}
