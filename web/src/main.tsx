@@ -9,6 +9,7 @@ import './styles.css';
 import './laptop-fit.css';
 import './competition-enhancements.css';
 import './command-centre-v2.css';
+import './no-zoom-overrides.css';
 
 installBookieBallFetchCache();
 
