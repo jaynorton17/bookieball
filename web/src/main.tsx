@@ -21,6 +21,7 @@ import './tombola-centrepiece.css';
 import './product-pass.css';
 import './competition-identities.css';
 import './analytics-pass.css';
+import './home-product-pass.css';
 
 installBookieBallFetchCache();
 
