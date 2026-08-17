@@ -29,6 +29,7 @@ type DrawPoolDivision = {
 
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<Response>>();
+const activeHistoryControllers = new Set<AbortController>();
 let installed = false;
 
 function categoryForUrl(url: string): CacheEntry['category'] {
@@ -66,6 +67,13 @@ function isReadOnlyPost(url: string): boolean {
   return /\/team\/(?:history-bulk|history-story-bulk)(?:\?|$)/i.test(url);
 }
 
+function abortBackgroundHistoryReads(): void {
+  for (const controller of activeHistoryControllers) {
+    controller.abort();
+  }
+  activeHistoryControllers.clear();
+}
+
 async function requestCacheKey(request: Request): Promise<string> {
   if (request.method.toUpperCase() === 'GET') return request.url;
   const body = await request.clone().text().catch(() => '');
@@ -78,6 +86,8 @@ async function normalizeGameshowDrawPool(response: Response): Promise<Response> 
     const groups = await response.clone().json() as DrawPoolDivision[];
     if (!Array.isArray(groups) || groups.length === 0) return response;
 
+    // The Gameshow draw is one equal pool. Keep the backend's real remaining-team
+    // list, but flatten the legacy divisions so every remaining team has one slot.
     const seen = new Set<number>();
     const allTeams: DrawPoolTeam[] = [];
     groups.forEach((group) => {
@@ -139,8 +149,33 @@ export function installBookieBallFetchCache(): void {
     const pending = inFlight.get(key);
     if (pending) return (await pending).clone();
 
-    const fetchPromise = nativeFetch(request)
-      .then((response) => isGameshowDrawPool(url) ? normalizeGameshowDrawPool(response) : response)
+    const drawPoolRequest = isGameshowDrawPool(url);
+    if (drawPoolRequest) {
+      // Starting the show must win over 16-season archive reconstruction. The
+      // historical callers already treat these reads as optional/fallback data.
+      abortBackgroundHistoryReads();
+    }
+
+    const controller = category === 'history' || drawPoolRequest ? new AbortController() : null;
+    if (controller && request.signal) {
+      if (request.signal.aborted) {
+        controller.abort();
+      } else {
+        request.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
+    if (category === 'history' && controller) activeHistoryControllers.add(controller);
+
+    let timeoutId = 0;
+    if (drawPoolRequest && controller) {
+      // Never leave the user trapped on a spinner. A failed pool request should
+      // surface as an error and allow a retry rather than hanging indefinitely.
+      timeoutId = window.setTimeout(() => controller.abort(), 8_000);
+    }
+
+    const effectiveRequest = controller ? new Request(request, { signal: controller.signal }) : request;
+    const fetchPromise = nativeFetch(effectiveRequest)
+      .then((response) => drawPoolRequest ? normalizeGameshowDrawPool(response) : response)
       .then((response) => {
         if (response.ok) {
           cache.set(key, {
@@ -151,7 +186,11 @@ export function installBookieBallFetchCache(): void {
         }
         return response;
       })
-      .finally(() => inFlight.delete(key));
+      .finally(() => {
+        inFlight.delete(key);
+        if (controller) activeHistoryControllers.delete(controller);
+        if (timeoutId) window.clearTimeout(timeoutId);
+      });
 
     inFlight.set(key, fetchPromise);
     return (await fetchPromise).clone();
