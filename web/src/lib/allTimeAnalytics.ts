@@ -4,6 +4,16 @@ type HistoricalFixture = Awaited<ReturnType<typeof api.leagueFixtures>>[number] 
 type TeamBase = Awaited<ReturnType<typeof api.teams>>[number];
 type AnalyticsResult = { teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] };
 
+type RivalryMeeting = {
+  season: string;
+  gw: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+};
+
 export type TeamAllTimeAnalytics = {
   teamId: number;
   teamName: string;
@@ -38,21 +48,16 @@ export type RivalryAnalytics = {
   closeness: number;
   rivalryScore: number;
   averageMargin: number;
-  lastMeeting: {
-    season: string;
-    gw: string;
-    homeTeam: string;
-    awayTeam: string;
-    homeProfit: number;
-    awayProfit: number;
-    result: 'home' | 'away' | 'draw' | 'pending';
-  } | null;
+  lastMeeting: RivalryMeeting | null;
+  recentMeetings: RivalryMeeting[];
+  currentStreak: string;
 };
 
 type PairDetail = {
   marginTotal: number;
   meetings: number;
-  lastMeeting: RivalryAnalytics['lastMeeting'];
+  lastMeeting: RivalryMeeting | null;
+  history: RivalryMeeting[];
 };
 
 let cachedKey = '';
@@ -63,6 +68,23 @@ const CACHE_MS = 60_000;
 function expected(a: number, b: number): number { return 1 / (1 + 10 ** ((b - a) / 400)); }
 function normalize(value: number, min: number, max: number): number { return max <= min ? 0.5 : (value - min) / (max - min); }
 function pairIds(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+function meetingWinner(meeting: RivalryMeeting): string | null {
+  if (meeting.result === 'home') return meeting.homeTeam;
+  if (meeting.result === 'away') return meeting.awayTeam;
+  return null;
+}
+function streakLabel(history: RivalryMeeting[]): string {
+  if (!history.length) return 'No previous meeting';
+  const latest = history[history.length - 1];
+  const winner = meetingWinner(latest);
+  if (!winner) return 'Last meeting: draw';
+  let streak = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (meetingWinner(history[index]) !== winner) break;
+    streak += 1;
+  }
+  return `${winner} · ${streak} straight win${streak === 1 ? '' : 's'}`;
+}
 
 async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<AnalyticsResult> {
   const [teams, allTime] = await Promise.all([api.teams(), api.allTimeLeagues()]);
@@ -143,10 +165,8 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
     else { homeRecord.draws += 1; awayRecord.draws += 1; }
 
     const key = pairIds(home.id, away.id);
-    const pair = pairDetails.get(key) ?? { marginTotal: 0, meetings: 0, lastMeeting: null };
-    pair.marginTotal += Math.abs(fixture.homeProfit - fixture.awayProfit);
-    pair.meetings += 1;
-    pair.lastMeeting = {
+    const pair = pairDetails.get(key) ?? { marginTotal: 0, meetings: 0, lastMeeting: null, history: [] };
+    const meeting: RivalryMeeting = {
       season: fixture.season,
       gw: fixture.gw,
       homeTeam: fixture.homeTeam,
@@ -155,6 +175,10 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
       awayProfit: fixture.awayProfit,
       result: fixture.result,
     };
+    pair.marginTotal += Math.abs(fixture.homeProfit - fixture.awayProfit);
+    pair.meetings += 1;
+    pair.lastMeeting = meeting;
+    pair.history.push(meeting);
     pairDetails.set(key, pair);
   }
 
@@ -238,6 +262,8 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
         rivalryScore: meetings * (0.6 + 0.4 * closeness),
         averageMargin: detail?.meetings ? detail.marginTotal / detail.meetings : 0,
         lastMeeting: detail?.lastMeeting ?? null,
+        recentMeetings: detail?.history.slice(-5).reverse() ?? [],
+        currentStreak: streakLabel(detail?.history ?? []),
       });
     }
   }
