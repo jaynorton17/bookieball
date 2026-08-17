@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
 import { TeamBadge } from '../components/TeamBadge';
+import { TablePositionJourney, type TableJourneySnapshot } from '../components/TablePositionJourney';
 import { api } from '../lib/api';
+import { loadTierTableJourney } from '../lib/tableJourneys';
 import { recentForm } from '../lib/formUtils';
 
 const INTRO_GAMEWEEKS = ['GW4', 'GW5', 'GW6', 'GW7', 'GW8'] as const;
@@ -26,6 +28,7 @@ export function TierLeaguePage() {
   const [started, setStarted] = useState(false);
   const [table, setTable] = useState<TierTableRow[]>([]);
   const [fixtures, setFixtures] = useState<TierFixture[]>([]);
+  const [journey, setJourney] = useState<TableJourneySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
@@ -43,19 +46,21 @@ export function TierLeaguePage() {
         setState({ currentSeason: nextState.currentSeason, currentGw: nextState.currentGw });
         const seasonNumber = Number(nextState.currentSeason.replace('S', ''));
         if (!Number.isFinite(seasonNumber) || seasonNumber < 6) {
-          setEnabled(false); setStarted(false); setTable([]); setFixtures([]); setMessage('Tier League starts in Season 6.');
+          setEnabled(false); setStarted(false); setTable([]); setFixtures([]); setJourney([]); setMessage('Tier League starts in Season 6.');
           return;
         }
+        const startGw = tierLeagueStartsFromGw1(nextState.currentSeason) ? 'GW1' : 'GW4';
         const [tableResponse, fixtureResponse] = await Promise.all([
           api.tierLeagueTable(nextState.currentGw),
           api.tierLeagueFixtures(undefined, true),
         ]);
         if (!active) return;
         setEnabled(tableResponse.enabled); setStarted(tableResponse.started); setTable(tableResponse.table); setFixtures(fixtureResponse);
-        setMessage(tableResponse.started ? '' : `Tier League goes live in ${tierLeagueStartsFromGw1(nextState.currentSeason) ? 'GW1' : 'GW4'}.`);
+        setMessage(tableResponse.started ? '' : `Tier League goes live in ${startGw}.`);
+        void loadTierTableJourney(nextState.currentGw, startGw).then((rows) => { if (active) setJourney(rows); }).catch(() => { if (active) setJourney([]); });
       } catch (error) {
         if (!active) return;
-        setEnabled(false); setStarted(false); setTable([]); setFixtures([]);
+        setEnabled(false); setStarted(false); setTable([]); setFixtures([]); setJourney([]);
         setMessage(error instanceof Error ? `Tier League API unavailable: ${error.message}` : 'Tier League API unavailable.');
       } finally {
         if (active) setLoading(false);
@@ -120,11 +125,12 @@ export function TierLeaguePage() {
         </div>
 
         <details className="panel tier-detail-tables">
-          <summary><strong>Detailed Tier Tables</strong> <span className="muted">· points, profit and form</span></summary>
+          <summary><strong>Detailed Tier Tables</strong> <span className="muted">· points, profit, form and position replay</span></summary>
           <div className="tier-table-grid" style={{ marginTop: 8 }}>
             {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
               <section key={`tier-table-${group.division}`} className="panel tier-table-card">
                 <h3>{group.division}</h3>
+                <TablePositionJourney snapshots={journey} division={group.division} title={`${group.division} · ${tierStartGw} to current`} />
                 {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
               </section>
             ))}

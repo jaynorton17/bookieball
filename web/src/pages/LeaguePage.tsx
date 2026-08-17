@@ -3,8 +3,10 @@ import { LeagueTabs } from '../components/CompetitionTabs';
 import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
+import { TablePositionJourney, type TableJourneySnapshot } from '../components/TablePositionJourney';
 import { HeadToHeadModal, type H2HTeam } from '../components/HeadToHeadModal';
 import { displayDivisionName, getDivisionOrderForSeason, sortDivisionNames } from '../lib/divisionLabels';
+import { loadDivisionTableJourney } from '../lib/tableJourneys';
 import { isOfficialDivisionFixture, recentForm } from '../lib/formUtils';
 
 const DIVISION_GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7'];
@@ -17,6 +19,7 @@ export function LeaguePage() {
   const [table, setTable] = useState<Record<string, DivisionRow[]>>({});
   const [leagueFixtures, setLeagueFixtures] = useState<Array<{ id: number; gw: string; division: string; homeTeam: string; awayTeam: string; homeProfit: number; awayProfit: number; homeSpins: number; awaySpins: number; result: 'home' | 'away' | 'draw' | 'pending' }>>([]);
   const [movement, setMovement] = useState<{ baselineGw: string | null; baselineLabel: string | null; movement: Record<string, Record<number, number>> }>({ baselineGw: null, baselineLabel: null, movement: {} });
+  const [journey, setJourney] = useState<TableJourneySnapshot[]>([]);
   const [divisionFixtureGw, setDivisionFixtureGw] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'tables' | 'playoffs'>('tables');
   const [h2h, setH2h] = useState<{ teamA: H2HTeam; teamB: H2HTeam; context: string } | null>(null);
@@ -79,6 +82,7 @@ export function LeaguePage() {
     const nextState = await api.state();
     const [nextTeams, nextTable, nextLeagueFixtures, nextMovement] = await Promise.all([api.teams(), api.leagueTable(), api.leagueFixtures(undefined, true), api.leagueMovement().catch(() => ({ baselineGw: null, baselineLabel: null, movement: {} }))]);
     setState({ currentSeason: nextState.currentSeason, currentGw: nextState.currentGw }); setTeams(nextTeams); setTable(nextTable); setLeagueFixtures(nextLeagueFixtures); setMovement(nextMovement);
+    void loadDivisionTableJourney(nextState.currentSeason, nextState.currentGw, nextTable, nextTeams).then(setJourney).catch(() => setJourney([]));
   };
 
   useEffect(() => { void reload(); }, []);
@@ -112,6 +116,8 @@ export function LeaguePage() {
               <article className="division-race-card"><span>TITLE RACE</span><div className="division-race-match"><strong>{race.top.teamName}</strong><b>{race.top.points}</b><em>{race.topGap} PT GAP</em><b>{race.second?.points ?? '—'}</b><strong>{race.second?.teamName ?? 'No chaser'}</strong></div></article>
               <article className="division-race-card is-drop"><span>RELEGATION FIGHT</span><div className="division-race-match"><strong>{race.aboveBottom?.teamName ?? '—'}</strong><b>{race.aboveBottom?.points ?? '—'}</b><em>{race.dropGap} PT GAP</em><b>{race.bottom.points}</b><strong>{race.bottom.teamName}</strong></div></article>
             </div> : null}
+
+            <TablePositionJourney snapshots={journey} division={division} title={`${displayDivisionName(division)} · GW1 to current`} />
 
             <div className="table-scroll"><table><thead><tr><th>Rank</th><th>Team</th><th>PLD</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>Spins</th><th>Profit</th><th>Form (Last 5)</th></tr></thead><tbody>{rows.map((row) => {
               const divisionIndex = divisionOrder.indexOf(division); const isPromotionSlot = divisionIndex > 0 && row.rank === 1; const isRelegationSlot = divisionIndex >= 0 && divisionIndex < divisionOrder.length - 1 && row.rank === rows.length; const isPlayoffChaser = divisionIndex > 0 && row.rank === 2; const isPlayoffDefender = divisionIndex >= 0 && divisionIndex < divisionOrder.length - 1 && row.rank === 3; const move = movementBadge(division, row.teamId);

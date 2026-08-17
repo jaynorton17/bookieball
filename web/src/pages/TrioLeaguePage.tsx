@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
 import { TeamBadge } from '../components/TeamBadge';
+import { TablePositionJourney, type TableJourneySnapshot } from '../components/TablePositionJourney';
 import { api } from '../lib/api';
+import { loadTrioTableJourney } from '../lib/tableJourneys';
 import { recentForm } from '../lib/formUtils';
 
 const GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
@@ -27,6 +29,7 @@ export function TrioLeaguePage() {
   const [enabled, setEnabled] = useState(false);
   const [table, setTable] = useState<TrioTableRow[]>([]);
   const [fixtures, setFixtures] = useState<TrioFixture[]>([]);
+  const [journey, setJourney] = useState<TableJourneySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
@@ -40,7 +43,7 @@ export function TrioLeaguePage() {
         setState({ currentSeason: nextState.currentSeason, currentGw: nextState.currentGw });
         const seasonNumber = Number(nextState.currentSeason.replace('S', ''));
         if (!Number.isFinite(seasonNumber) || seasonNumber < 5) {
-          setEnabled(false); setTable([]); setFixtures([]); setMessage('Trio League starts in Season 5.');
+          setEnabled(false); setTable([]); setFixtures([]); setJourney([]); setMessage('Trio League starts in Season 5.');
           return;
         }
         const [tableResponse, fixtureResponse] = await Promise.all([
@@ -50,9 +53,10 @@ export function TrioLeaguePage() {
         if (!active) return;
         setEnabled(tableResponse.enabled); setTable(tableResponse.table); setFixtures(fixtureResponse);
         setMessage(tableResponse.enabled ? '' : 'Trio League is not enabled for this season.');
+        void loadTrioTableJourney(nextState.currentGw).then((rows) => { if (active) setJourney(rows); }).catch(() => { if (active) setJourney([]); });
       } catch (error) {
         if (!active) return;
-        setEnabled(false); setTable([]); setFixtures([]);
+        setEnabled(false); setTable([]); setFixtures([]); setJourney([]);
         setMessage(error instanceof Error ? `Trio League API unavailable: ${error.message}` : 'Trio League API unavailable.');
       } finally {
         if (active) setLoading(false);
@@ -125,11 +129,12 @@ export function TrioLeaguePage() {
         )}
 
         <details className="panel trio-detail-tables">
-          <summary><strong>Detailed Trio Tables</strong> <span className="muted">· points, profit and form</span></summary>
+          <summary><strong>Detailed Trio Tables</strong> <span className="muted">· points, profit, form and position replay</span></summary>
           <div className="trio-groups-visual" style={{ marginTop: 8 }}>
             {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
               <section key={`table-${group.division}`} className="panel tier-table-card">
                 <h3>{group.division}</h3>
+                <TablePositionJourney snapshots={journey} division={group.division} title={`${group.division} · GW1 to current`} />
                 {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId, group.division).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
               </section>
             ))}

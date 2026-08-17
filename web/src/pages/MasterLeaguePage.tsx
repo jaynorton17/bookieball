@@ -3,6 +3,8 @@ import { LeagueTabs } from '../components/CompetitionTabs';
 import { CompetitionTrophyMark } from '../components/CompetitionTrophyMark';
 import { api } from '../lib/api';
 import { TeamBadge } from '../components/TeamBadge';
+import { TablePositionJourney, type TableJourneySnapshot } from '../components/TablePositionJourney';
+import { loadMasterTableJourney } from '../lib/tableJourneys';
 import { recentForm } from '../lib/formUtils';
 
 const GAMEWEEKS = ['GW1', 'GW2', 'GW3', 'GW4', 'GW5', 'GW6', 'GW7', 'GW8'];
@@ -46,6 +48,7 @@ export function MasterLeaguePage() {
   const [fixtures, setFixtures] = useState<MasterFixture[]>([]);
   const [movement, setMovement] = useState<Record<number, number>>({});
   const [baselineGw, setBaselineGw] = useState<string | null>(null);
+  const [journey, setJourney] = useState<TableJourneySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState('');
@@ -67,8 +70,9 @@ export function MasterLeaguePage() {
       setBaselineGw(tableResponse.baselineGw ?? null);
       setFixtures(fixtureResponse);
       setMessage('');
+      void loadMasterTableJourney(nextState.currentGw).then(setJourney).catch(() => setJourney([]));
     } catch (error) {
-      setTable([]); setFixtures([]); setMovement({}); setBaselineGw(null);
+      setTable([]); setFixtures([]); setMovement({}); setBaselineGw(null); setJourney([]);
       setMessage(error instanceof Error ? `Master League API unavailable: ${error.message}` : 'Master League API unavailable. Restart the backend and try again.');
     } finally { setLoading(false); }
   };
@@ -189,6 +193,7 @@ export function MasterLeaguePage() {
 
         <div className="panel">
           <h3>Master League Table</h3>
+          <TablePositionJourney snapshots={journey} title="Master League · GW1 to current" />
           {loading ? <p className="muted">Loading table...</p> : table.length === 0 ? <p className="muted">No table rows yet.</p> : <div className="table-scroll"><table className="scoreboard-table master-league-table"><thead><tr><th>#</th><th>Team</th><th>PLD</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>Spins</th><th>Profit</th><th>Form</th><th>Move</th></tr></thead><tbody>{table.map((row) => { const badge = movementBadge(row.teamId); return <tr key={`master-row-${row.teamId}`}><td>{row.rank}</td><td><span className="master-team-cell">{masterChampionTeamId === row.teamId && <span className="champion-c-badge" title="Mathematical champion">C</span>}<TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><span>{row.teamName}</span></span></td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.draws}</td><td>{row.points}</td><td>{row.spins}</td><td>{formatProfit(row.profit)}</td><td><div className="form-mini-row">{formForTeam(row.teamId).map((result, index) => <span key={`master-form-${row.teamId}-${index}-${result}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</span>)}</div></td><td><span className={badge.className}>{badge.label}</span></td></tr>; })}</tbody></table></div>}
         </div>
 

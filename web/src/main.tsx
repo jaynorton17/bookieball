@@ -29,6 +29,7 @@ import './visual-polish-pass.css';
 import './final-hub-polish.css';
 import './division-final-polish.css';
 import './viewport-final-polish.css';
+import './table-position-journey.css';
 
 installBookieBallFetchCache();
 
