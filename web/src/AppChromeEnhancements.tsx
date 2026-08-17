@@ -8,27 +8,9 @@ type LiveFixture = { homeTeam: string | null; awayTeam: string | null; homeProfi
 function fixtureKey(home: string | null | undefined, away: string | null | undefined): string {
   return `${(home ?? '').trim().toLowerCase()}|${(away ?? '').trim().toLowerCase()}`;
 }
-
 function score(value: number): string {
   const safe = Number.isFinite(value) ? value : 0;
   return `${safe > 0 ? '+' : ''}${safe.toFixed(2)}`;
-}
-
-function simplifyGameshowShell(currentSeason?: string, currentGw?: string): void {
-  const gameshow = document.querySelector<HTMLElement>('.gameshow-page');
-  if (!gameshow) return;
-
-  const hero = gameshow.querySelector<HTMLElement>(':scope > .hub-showcase');
-  if (hero) hero.classList.add('gameshow-hidden-intro');
-
-  if (currentSeason && currentGw) {
-    const replacement = `${currentSeason} ${currentGw}`;
-    gameshow.querySelectorAll<HTMLElement>('span, strong, small, p').forEach((el) => {
-      if (el.childElementCount !== 0) return;
-      const text = el.textContent?.trim() ?? '';
-      if (/^S\d+\s+GW\d+$/i.test(text) && text !== replacement) el.textContent = replacement;
-    });
-  }
 }
 
 export function AppChromeEnhancements() {
@@ -45,7 +27,6 @@ export function AppChromeEnhancements() {
         if (active) setPenaltyCount(0);
       }
     };
-
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15_000);
     const offMutation = onBookieBallEvent('data-mutated', () => void refresh());
@@ -91,40 +72,6 @@ export function AppChromeEnhancements() {
   useEffect(() => {
     if (location.pathname !== '/gameshow') return;
     let active = true;
-    let season = '';
-    let gw = '';
-    let queued = false;
-
-    const apply = () => {
-      queued = false;
-      if (active) simplifyGameshowShell(season, gw);
-    };
-    const queueApply = () => {
-      if (queued) return;
-      queued = true;
-      window.requestAnimationFrame(apply);
-    };
-
-    void api.state().then((state) => {
-      if (!active) return;
-      season = state.currentSeason;
-      gw = state.currentGw;
-      queueApply();
-    }).catch(() => undefined);
-
-    queueApply();
-    const observer = new MutationObserver(queueApply);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (location.pathname !== '/gameshow') return;
-    let active = true;
-
     const decorate = async () => {
       try {
         const state = await api.state();
