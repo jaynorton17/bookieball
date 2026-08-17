@@ -56,6 +56,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
 
   const maxRank = useMemo(() => Math.max(1, ...ordered.flatMap((snapshot) => snapshot.rows.map((row) => row.rank))), [ordered]);
   const dense = teamRows.length > 10 || maxRank > 10;
+  const playbackMs = dense ? 2500 : 1400;
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
 
@@ -85,18 +86,37 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
   }, [division, ordered.length]);
 
   useEffect(() => {
-    if (!playing || ordered.length <= 1 || step >= ordered.length - 1) return;
-    const timer = window.setTimeout(() => setStep((value) => Math.min(value + 1, ordered.length - 1)), 1000);
+    if (!playing || ordered.length <= 1) return;
+    if (step >= ordered.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setStep((value) => Math.min(value + 1, ordered.length - 1)), playbackMs);
     return () => window.clearTimeout(timer);
-  }, [ordered.length, playing, step]);
+  }, [ordered.length, playbackMs, playing, step]);
 
   const current = ordered[Math.min(step, Math.max(0, ordered.length - 1))];
   const width = Math.max(1, ordered.length - 1);
   const rankDenominator = Math.max(1, maxRank - 1);
+  const currentRows = useMemo(() => teamRows
+    .map((team) => ({ team, row: current ? rowForTeam(current, team.teamId) : undefined }))
+    .filter((entry): entry is { team: TableJourneyRow; row: TableJourneyRow } => !!entry.row)
+    .sort((a, b) => a.row.rank - b.row.rank), [current, teamRows]);
+
   const replay = () => {
     startedRef.current = true;
     setStep(0);
     setPlaying(true);
+  };
+  const previous = () => {
+    startedRef.current = true;
+    setPlaying(false);
+    setStep((value) => Math.max(0, value - 1));
+  };
+  const next = () => {
+    startedRef.current = true;
+    setPlaying(false);
+    setStep((value) => Math.min(ordered.length - 1, value + 1));
   };
 
   if (!ordered.length || !teamRows.length) {
@@ -106,44 +126,60 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
   return (
     <section ref={rootRef} className={`table-position-journey${dense ? ' is-dense' : ''}`} aria-label={`${title} position journey`}>
       <div className="table-position-journey-head">
-        <div><span>POSITION REPLAY</span><h4>{title}</h4></div>
-        <div className="table-position-journey-now"><strong>{current?.gw ?? ordered[0].gw}</strong><small>{step >= ordered.length - 1 ? 'CURRENT POSITION' : playing ? 'REPLAYING' : 'READY'}</small><button type="button" onClick={replay} disabled={playing && step === 0}>↻ Replay</button></div>
+        <div><span>POSITION REPLAY</span><h4>{title}</h4>{dense && <p>Dense table replay · {playbackMs / 1000}s per gameweek</p>}</div>
+        <div className="table-position-journey-now">
+          <strong>{current?.gw ?? ordered[0].gw}</strong>
+          <small>{step >= ordered.length - 1 ? 'CURRENT POSITION' : playing ? 'REPLAYING' : 'PAUSED'}</small>
+          <div className="table-position-controls">
+            <button type="button" onClick={previous} disabled={step === 0}>‹ Prev</button>
+            <button type="button" onClick={() => setPlaying((value) => !value)} disabled={step >= ordered.length - 1}>{playing ? 'Ⅱ Pause' : '▶ Play'}</button>
+            <button type="button" onClick={next} disabled={step >= ordered.length - 1}>Next ›</button>
+            <button type="button" onClick={replay}>↻ Replay</button>
+          </div>
+        </div>
       </div>
 
-      <div className="table-position-stage" style={{ '--journey-ranks': maxRank } as CSSProperties}>
-        <div className="table-position-ranks" aria-hidden="true">
-          {Array.from({ length: maxRank }, (_, index) => <span key={`rank-${index + 1}`} style={{ top: `${(index / rankDenominator) * 100}%` }}>#{index + 1}</span>)}
-        </div>
-        <div className="table-position-grid" aria-hidden="true">
-          {Array.from({ length: maxRank }, (_, index) => <i key={`line-${index}`} style={{ top: `${(index / rankDenominator) * 100}%` }} />)}
-          {ordered.map((snapshot, index) => <b key={snapshot.gw} style={{ left: `${(index / width) * 100}%` }}><em>{snapshot.gw}</em></b>)}
+      <div className="table-position-content">
+        <div className="table-position-stage" style={{ '--journey-ranks': maxRank } as CSSProperties}>
+          <div className="table-position-ranks" aria-hidden="true">
+            {Array.from({ length: maxRank }, (_, index) => <span key={`rank-${index + 1}`} style={{ top: `${(index / rankDenominator) * 100}%` }}>#{index + 1}</span>)}
+          </div>
+          <div className="table-position-grid" aria-hidden="true">
+            {Array.from({ length: maxRank }, (_, index) => <i key={`line-${index}`} style={{ top: `${(index / rankDenominator) * 100}%` }} />)}
+            {ordered.map((snapshot, index) => <b key={snapshot.gw} style={{ left: `${(index / width) * 100}%` }}><em>{snapshot.gw}</em></b>)}
+          </div>
+
+          <svg className="table-position-trails" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+            {teamRows.map((team) => {
+              const points = ordered.slice(0, step + 1).map((snapshot, index) => {
+                const row = rowForTeam(snapshot, team.teamId);
+                if (!row) return null;
+                const x = ordered.length === 1 ? 0 : (index / width) * 1000;
+                const y = ((row.rank - 1) / rankDenominator) * 1000;
+                return `${x},${y}`;
+              }).filter((point): point is string => !!point).join(' ');
+              if (!points.includes(' ')) return null;
+              return <polyline key={`trail-${team.teamId}`} points={points} style={{ '--journey-team-color': team.ballColor ?? '#f6c743' } as CSSProperties} />;
+            })}
+          </svg>
+
+          <div className="table-position-balls">
+            {teamRows.map((team) => {
+              const row = current ? rowForTeam(current, team.teamId) : undefined;
+              const left = ordered.length === 1 ? 0 : (step / width) * 100;
+              const top = row ? ((row.rank - 1) / rankDenominator) * 100 : 100;
+              return <div key={team.teamId} className={`table-position-ball${row ? '' : ' is-away'}`} style={{ left: `${left}%`, top: `${top}%`, zIndex: row ? maxRank - row.rank + 2 : 1 }} title={row ? `${team.teamName} · ${current.gw} · #${row.rank}` : `${team.teamName} · not in this table at ${current?.gw ?? ''}`}>
+                <TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={dense ? 22 : 26} />
+                {!dense && <span>{team.teamName}<b>#{row?.rank ?? '—'}</b></span>}
+              </div>;
+            })}
+          </div>
         </div>
 
-        <svg className="table-position-trails" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-          {teamRows.map((team) => {
-            const points = ordered.slice(0, step + 1).map((snapshot, index) => {
-              const row = rowForTeam(snapshot, team.teamId);
-              if (!row) return null;
-              const x = ordered.length === 1 ? 0 : (index / width) * 1000;
-              const y = ((row.rank - 1) / rankDenominator) * 1000;
-              return `${x},${y}`;
-            }).filter((point): point is string => !!point).join(' ');
-            if (!points.includes(' ')) return null;
-            return <polyline key={`trail-${team.teamId}`} points={points} style={{ '--journey-team-color': team.ballColor ?? '#f6c743' } as CSSProperties} />;
-          })}
-        </svg>
-
-        <div className="table-position-balls">
-          {teamRows.map((team) => {
-            const row = current ? rowForTeam(current, team.teamId) : undefined;
-            const left = ordered.length === 1 ? 0 : (step / width) * 100;
-            const top = row ? ((row.rank - 1) / rankDenominator) * 100 : 100;
-            return <div key={team.teamId} className={`table-position-ball${row ? '' : ' is-away'}`} style={{ left: `${left}%`, top: `${top}%`, zIndex: row ? maxRank - row.rank + 2 : 1 }} title={row ? `${team.teamName} · ${current.gw} · #${row.rank}` : `${team.teamName} · not in this table at ${current?.gw ?? ''}`}>
-              <TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={dense ? 18 : 26} />
-              {!dense && <span>{team.teamName}<b>#{row?.rank ?? '—'}</b></span>}
-            </div>;
-          })}
-        </div>
+        {dense && <aside className="table-position-key" aria-label={`${current?.gw ?? ''} ranking key`}>
+          <div className="table-position-key-head"><span>{current?.gw}</span><strong>LIVE RANK KEY</strong></div>
+          <div className="table-position-key-grid">{currentRows.map(({ team, row }) => <div key={`key-${team.teamId}`} className="table-position-key-row"><b>#{row.rank}</b><TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={17} /><span>{team.teamName}</span></div>)}</div>
+        </aside>}
       </div>
     </section>
   );
