@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LeagueTabs } from '../components/CompetitionTabs';
 import { TeamBadge } from '../components/TeamBadge';
+import { RankMovementBadge, rankMovementFromJourney } from '../components/RankMovementBadge';
 import { TablePositionJourney, type TableJourneySnapshot } from '../components/TablePositionJourney';
 import { api } from '../lib/api';
 import { loadTierTableJourney } from '../lib/tableJourneys';
@@ -125,13 +126,13 @@ export function TierLeaguePage() {
         </div>
 
         <details className="panel tier-detail-tables">
-          <summary><strong>Detailed Tier Tables</strong> <span className="muted">· points, profit, form and position replay</span></summary>
+          <summary><strong>Detailed Tier Tables</strong> <span className="muted">· points, profit, form and weekly movement</span></summary>
           <div className="tier-table-grid" style={{ marginTop: 8 }}>
             {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
               <section key={`tier-table-${group.division}`} className="panel tier-table-card">
                 <h3>{group.division}</h3>
                 <TablePositionJourney snapshots={journey} division={group.division} title={`${group.division} · ${tierStartGw} to current`} />
-                {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
+                {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b className="tier-rank-with-movement">#{row.rank}<RankMovementBadge delta={rankMovementFromJourney(journey, row.teamId, group.division)} compact /></b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
               </section>
             ))}
           </div>
