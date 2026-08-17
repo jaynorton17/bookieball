@@ -22,6 +22,16 @@
   .trophy-cabinet-stats-records .trophy-cabinet-stat{padding:5px 7px!important}
   .trophy-cabinet-stats-records .trophy-cabinet-stat span{font-size:6px!important}
   .trophy-cabinet-stats-records .trophy-cabinet-stat strong{font-size:11px!important}
+
+  .analytics-card-grid{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:5px!important}
+  .analytics-card-grid>.panel{padding-left:7px!important;padding-right:7px!important}
+  .analytics-card-grid .panel-header{margin-bottom:3px!important}
+  .analytics-card-grid .panel-header p{font-size:6px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .analytics-card-grid .analytics-team-line{gap:3px!important}
+  .analytics-card-grid .analytics-team-line .team-badge{width:19px!important;height:19px!important;min-width:19px!important}
+  .analytics-card-grid .analytics-team-line strong{font-size:7px!important}
+  .analytics-card-grid .analytics-team-line span{font-size:6px!important}
+  .analytics-card-grid .analytics-team-line>b{font-size:9px!important}
 }
 
 @media (max-height:950px) and (min-width:1101px){
