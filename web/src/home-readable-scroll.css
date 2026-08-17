@@ -79,6 +79,16 @@
   overflow: hidden !important;
 }
 
+/* Old copy said AUTO-SCROLLING. The panes are now explicitly user controlled. */
+.command-centre-v2 .command-single-column > .command-section-label > span:last-child {
+  font-size: 0 !important;
+}
+.command-centre-v2 .command-single-column > .command-section-label > span:last-child::after {
+  content: 'MANUAL SCROLL';
+  font-size: 9px;
+  letter-spacing: .11em;
+}
+
 /* Keep the same readable treatment on shorter laptops. Scroll instead of compressing. */
 @media (max-height: 820px) and (min-width: 821px) {
   .command-centre-v2 .command-table-native {
