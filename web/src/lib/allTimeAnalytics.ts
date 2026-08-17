@@ -2,6 +2,7 @@ import { api } from './api';
 
 type HistoricalFixture = Awaited<ReturnType<typeof api.leagueFixtures>>[number] & { season: string };
 type TeamBase = Awaited<ReturnType<typeof api.teams>>[number];
+type AnalyticsResult = { teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] };
 
 export type TeamAllTimeAnalytics = {
   teamId: number;
@@ -50,13 +51,18 @@ type PairDetail = {
   lastMeeting: RivalryAnalytics['lastMeeting'];
 };
 
+let cachedKey = '';
+let cachedAt = 0;
+let cachedPromise: Promise<AnalyticsResult> | null = null;
+const CACHE_MS = 60_000;
+
 function expected(a: number, b: number): number { return 1 / (1 + 10 ** ((b - a) / 400)); }
 function normalize(value: number, min: number, max: number): number { return max <= min ? 0.5 : (value - min) / (max - min); }
 function pairIds(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
 
-export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] }> {
-  const [state, teams, allTime] = await Promise.all([api.state(), api.teams(), api.allTimeLeagues()]);
-  const currentSeason = Math.max(1, Number(state.currentSeason.replace('S', '')) || 1);
+async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<AnalyticsResult> {
+  const [teams, allTime] = await Promise.all([api.teams(), api.allTimeLeagues()]);
+  const currentSeason = Math.max(1, Number(currentSeasonLabel.replace('S', '')) || 1);
   const seasonIds = Array.from({ length: currentSeason }, (_, index) => `S${index + 1}`);
   const history = (await Promise.all(seasonIds.map(async (season) => {
     const fixtures = await api.leagueFixtures(undefined, true, season).catch(() => []);
@@ -101,7 +107,8 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
     const k = 24;
     const nextHome = homeRating + k * (homeScore - expected(homeRating, awayRating));
     const nextAway = awayRating + k * (awayScore - expected(awayRating, homeRating));
-    ratings.set(home.id, nextHome); ratings.set(away.id, nextAway);
+    ratings.set(home.id, nextHome);
+    ratings.set(away.id, nextAway);
     peaks.set(home.id, Math.max(peaks.get(home.id) ?? 1500, nextHome));
     peaks.set(away.id, Math.max(peaks.get(away.id) ?? 1500, nextAway));
 
@@ -131,14 +138,22 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
   const pointValues = allTime.pointsTable.map((row) => row.points);
   const profitValues = allTime.pointsTable.map((row) => row.profit);
   const eloValues = teams.map((team) => ratings.get(team.id) ?? 1500);
-  const minPoints = Math.min(...pointValues, 0); const maxPoints = Math.max(...pointValues, 1);
-  const minProfit = Math.min(...profitValues, 0); const maxProfit = Math.max(...profitValues, 1);
-  const minElo = Math.min(...eloValues, 1500); const maxElo = Math.max(...eloValues, 1501);
+  const minPoints = Math.min(...pointValues, 0);
+  const maxPoints = Math.max(...pointValues, 1);
+  const minProfit = Math.min(...profitValues, 0);
+  const maxProfit = Math.max(...profitValues, 1);
+  const minElo = Math.min(...eloValues, 1500);
+  const maxElo = Math.max(...eloValues, 1501);
 
   const analytics = teams.map<TeamAllTimeAnalytics>((team) => {
     const row = allTimeById.get(team.id);
-    const played = row?.played ?? 0; const wins = row?.wins ?? 0; const draws = row?.draws ?? 0; const losses = row?.losses ?? 0;
-    const points = row?.points ?? 0; const profit = row?.profit ?? 0; const elo = ratings.get(team.id) ?? 1500;
+    const played = row?.played ?? 0;
+    const wins = row?.wins ?? 0;
+    const draws = row?.draws ?? 0;
+    const losses = row?.losses ?? 0;
+    const points = row?.points ?? 0;
+    const profit = row?.profit ?? 0;
+    const elo = ratings.get(team.id) ?? 1500;
     const winRate = played ? wins / played : 0;
     const dominanceIndex = 100 * (normalize(elo, minElo, maxElo) * 0.35 + normalize(points, minPoints, maxPoints) * 0.3 + winRate * 0.2 + normalize(profit, minProfit, maxProfit) * 0.15);
     const records = [...(opponentRecords.get(team.id)?.entries() ?? [])];
@@ -150,16 +165,30 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
       return opponent ? { teamId: opponent.id, teamName: opponent.name, ...entry[1] } : null;
     };
     return {
-      teamId: team.id, teamName: team.name, elo, peakElo: peaks.get(team.id) ?? elo, played, wins, draws, losses, points, profit, winRate, dominanceIndex,
+      teamId: team.id,
+      teamName: team.name,
+      elo,
+      peakElo: peaks.get(team.id) ?? elo,
+      played,
+      wins,
+      draws,
+      losses,
+      points,
+      profit,
+      winRate,
+      dominanceIndex,
       giantKillerWins: giantKillerWins.get(team.id) ?? 0,
-      favouriteOpponent: toOpponent(favourite), bogeyOpponent: toOpponent(bogey),
+      favouriteOpponent: toOpponent(favourite),
+      bogeyOpponent: toOpponent(bogey),
     };
   }).sort((a, b) => b.dominanceIndex - a.dominanceIndex);
 
   const rivalries: RivalryAnalytics[] = [];
   for (let i = 0; i < teams.length; i += 1) {
     for (let j = i + 1; j < teams.length; j += 1) {
-      const a = teams[i]; const b = teams[j]; const record = opponentRecords.get(a.id)?.get(b.id);
+      const a = teams[i];
+      const b = teams[j];
+      const record = opponentRecords.get(a.id)?.get(b.id);
       if (!record) continue;
       const meetings = record.wins + record.losses + record.draws;
       if (!meetings) continue;
@@ -184,4 +213,27 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
   }
   rivalries.sort((a, b) => b.rivalryScore - a.rivalryScore);
   return { teams: analytics, rivalries };
+}
+
+export async function loadAllTimeAnalytics(): Promise<AnalyticsResult> {
+  const state = await api.state();
+  const key = `${state.currentSeason}:${state.currentGw}`;
+  const now = Date.now();
+  if (cachedPromise && cachedKey === key && now - cachedAt < CACHE_MS) return cachedPromise;
+
+  cachedKey = key;
+  cachedAt = now;
+  cachedPromise = buildAllTimeAnalytics(state.currentSeason).catch((error) => {
+    cachedKey = '';
+    cachedAt = 0;
+    cachedPromise = null;
+    throw error;
+  });
+  return cachedPromise;
+}
+
+export function clearAllTimeAnalyticsCache(): void {
+  cachedKey = '';
+  cachedAt = 0;
+  cachedPromise = null;
 }
