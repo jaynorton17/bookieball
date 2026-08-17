@@ -6,6 +6,8 @@ type GraphicRow = {
   value: string;
   detail?: string;
   teamId?: number;
+  teamAId?: number;
+  teamBId?: number;
 };
 
 type Team = {
@@ -21,14 +23,14 @@ function numberFrom(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function TeamMark({ team }: { team?: Team }) {
+function TeamMark({ team, size = 34 }: { team?: Team; size?: number }) {
   return team ? (
     <TeamBadge
       name={team.name}
       ballColor={team.ballColor}
       ringColor={team.ringColor}
       textColor={team.textColor}
-      size={34}
+      size={size}
     />
   ) : null;
 }
@@ -56,20 +58,37 @@ function Podium({ rows, color, teamById }: { rows: GraphicRow[]; color: string; 
   );
 }
 
-function Rivalries({ rows, color }: { rows: GraphicRow[]; color: string }) {
+function RivalrySpotlight({ rows, color, teamById }: { rows: GraphicRow[]; color: string; teamById: Map<number, Team> }) {
+  const row = rows[0];
+  if (!row) return null;
+  const [left, right] = row.name.split(/\s+vs\s+/i);
+  const teamA = row.teamAId ? teamById.get(row.teamAId) : undefined;
+  const teamB = row.teamBId ? teamById.get(row.teamBId) : undefined;
+
   return (
-    <div className="home-rivalry-board">
-      {rows.slice(0, 6).map((row) => {
-        const [left, right] = row.name.split(/\s+vs\s+/i);
-        return (
-          <article key={`${row.rank}-${row.name}`} className="home-rivalry-card" style={{ ['--graphic-accent' as string]: color }}>
-            <div><span>#{row.rank}</span><strong>{left ?? row.name}</strong></div>
-            <b>{row.value}</b>
-            <div className="right"><span>H2H</span><strong>{right ?? ''}</strong></div>
-            {row.detail ? <small>{row.detail}</small> : null}
-          </article>
-        );
-      })}
+    <div className="home-rivalry-spotlight" style={{ ['--graphic-accent' as string]: color }}>
+      <article className="home-rivalry-side">
+        <TeamMark team={teamA} size={58} />
+        <span>TEAM A</span>
+        <strong>{left ?? row.name}</strong>
+      </article>
+
+      <div className="home-rivalry-record">
+        <span>ALL-TIME HEAD TO HEAD</span>
+        <b>{row.value}</b>
+        <small>WINS&nbsp;&nbsp;·&nbsp;&nbsp;DRAWS&nbsp;&nbsp;·&nbsp;&nbsp;WINS</small>
+      </div>
+
+      <article className="home-rivalry-side right">
+        <TeamMark team={teamB} size={58} />
+        <span>TEAM B</span>
+        <strong>{right ?? ''}</strong>
+      </article>
+
+      <div className="home-rivalry-previous">
+        <span>PREVIOUS MEETING</span>
+        <strong>{row.detail ?? 'No previous meeting recorded.'}</strong>
+      </div>
     </div>
   );
 }
@@ -99,7 +118,7 @@ function Bars({ rows, color, teamById }: { rows: GraphicRow[]; color: string; te
   );
 }
 
-const BAR_SLIDES = new Set(['dominance', 'elo', 'peak-elo', 'ratings', 'profit']);
+const BAR_SLIDES = new Set(['ratings', 'profit']);
 
 export function HomeAnalyticsGraphic({
   slideId,
@@ -113,11 +132,11 @@ export function HomeAnalyticsGraphic({
   teamById: Map<number, Team>;
 }) {
   if (slideId === 'bookiedor') return <Podium rows={rows} color={color} teamById={teamById} />;
-  if (slideId === 'rivalries') return <Rivalries rows={rows} color={color} />;
+  if (slideId.startsWith('rivalry-')) return <RivalrySpotlight rows={rows} color={color} teamById={teamById} />;
   if (BAR_SLIDES.has(slideId)) return <Bars rows={rows} color={color} teamById={teamById} />;
   return null;
 }
 
 export function isHomeGraphicSlide(slideId: string): boolean {
-  return slideId === 'bookiedor' || slideId === 'rivalries' || BAR_SLIDES.has(slideId);
+  return slideId === 'bookiedor' || slideId.startsWith('rivalry-') || BAR_SLIDES.has(slideId);
 }
