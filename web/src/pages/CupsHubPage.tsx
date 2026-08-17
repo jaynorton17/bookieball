@@ -86,28 +86,20 @@ function buildMasterCupPaths(fixtures: MasterCupFixture[], teams: Team[]): TeamP
 
 function TournamentOverview({ title, to, paths, teams }: { title: string; to: string; paths: TeamPath[]; teams: Team[] }) {
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
-  const alive = paths.filter((path) => !path.status.startsWith('OUT'));
-  const display = alive.slice(0, 8);
+  const stageLabels = paths[0]?.steps.map((step) => step.label) ?? [];
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <div><h3>{title}</h3><p className="muted">{alive.length} still alive · route to the trophy</p></div>
-        <Link className="secondary" to={to}>Open Bracket</Link>
-      </div>
-      <div style={{ display: 'grid', gap: 5 }}>
-        {display.map((path) => {
-          const team = path.teamId ? teamById.get(path.teamId) : undefined;
-          const last = [...path.steps].reverse().find((step) => step.state !== 'waiting');
-          return (
-            <div key={`${title}-${path.teamName}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(130px,.9fr) minmax(0,2.5fr) 95px', gap: 8, alignItems: 'center', padding: '6px 8px', borderRadius: 9, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.055)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>{team && <TeamBadge name={team.name} ballColor={team.ballColor} ringColor={team.ringColor} textColor={team.textColor} size={20} />}<strong style={{ fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{path.teamName}</strong></div>
-              <div style={{ display: 'flex', gap: 3, minWidth: 0 }}>{path.steps.map((step, index) => <span key={`${path.teamName}-${step.label}-${index}`} title={step.opponent ? `${step.label} vs ${step.opponent}` : step.label} style={{ flex: 1, minWidth: 28, textAlign: 'center', borderRadius: 6, padding: '4px 2px', border: `1px solid ${statusColor(step.state)}`, color: step.state === 'waiting' ? '#657b90' : statusColor(step.state), fontSize: 8, fontWeight: 900 }}>{step.label}</span>)}</div>
-              <strong style={{ textAlign: 'right', fontSize: 9, color: path.champion ? '#f2c14e' : last?.state === 'live' ? '#5eb7ff' : '#8ea7bd' }}>{path.status}</strong>
-            </div>
-          );
+    <section className="panel cup-bracket-overview">
+      <div className="panel-header"><div><h3>{title}</h3><p className="muted">Live route to the trophy</p></div><Link className="secondary" to={to}>Open Full Bracket</Link></div>
+      <div className="cup-mini-bracket">
+        {stageLabels.map((label, stageIndex) => {
+          const stageTeams = paths.filter((path) => path.steps[stageIndex] && path.steps[stageIndex].state !== 'waiting').slice(0, 8);
+          return <div key={`${title}-${label}`} className="cup-mini-round"><span>{label}</span><div>{stageTeams.map((path) => {
+            const step = path.steps[stageIndex];
+            const team = path.teamId ? teamById.get(path.teamId) : undefined;
+            return <article key={`${label}-${path.teamName}`} style={{ borderColor: statusColor(step.state) }} title={step.opponent ? `${label} vs ${step.opponent}` : label}><TeamBadge name={path.teamName} ballColor={team?.ballColor ?? null} ringColor={team?.ringColor ?? null} textColor={team?.textColor ?? null} size={18} /><strong>{path.teamName}</strong><b>{step.state === 'champion' ? '🏆' : step.state === 'live' ? 'LIVE' : step.state === 'advanced' ? '✓' : 'OUT'}</b></article>;
+          })}</div></div>;
         })}
       </div>
-      {paths.length > display.length && <details style={{ marginTop: 7 }}><summary className="muted" style={{ cursor: 'pointer', fontSize: 9 }}>Full tournament journey · {paths.length} teams</summary><div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 4 }}>{paths.map((path) => <span key={`all-${title}-${path.teamName}`} style={{ fontSize: 8, color: path.status.startsWith('OUT') ? '#6d7d8d' : '#b9cce0' }}>{path.teamName} · {path.status}</span>)}</div></details>}
     </section>
   );
 }
@@ -136,17 +128,22 @@ export function CupsHubPage() {
   const masterPaths = useMemo(() => buildMasterCupPaths(masterCupFixtures, teams), [masterCupFixtures, teams]);
   const openBookieBallTies = cupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam).length;
   const openMasterTies = masterCupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam).length;
+  const latestCup = cupFixtures.filter((fixture) => fixture.winnerTeam).slice().sort((a, b) => b.id - a.id)[0] ?? null;
+  const nextCup = cupFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
+  const nextMaster = masterCupFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
 
   return (
     <section className="page page-dashboard">
       <div className="cups-compact-head"><div><h1>Cups</h1><p className="muted">{season ? `${season} knockout picture` : 'Loading knockout picture…'}</p></div><span className="news-chip">{openBookieBallTies + openMasterTies} live ties</span></div>
-      <div className="cup-quick-tiles">
-        {cupTiles.map((tile) => <Link key={tile.to} to={tile.to} className={`hub-showcase-card hub-showcase-card-${tile.tone} cup-quick-tile`}><div className="hub-showcase-card-head"><span className="hub-showcase-card-kicker">{tile.eyebrow}</span><span className="hub-showcase-card-badge">{tile.badge}</span></div><CompetitionTrophyMark variant={tile.trophy} className="hub-showcase-card-trophy" /><h2>{tile.title}</h2><p>{tile.description}</p></Link>)}
+      <div className="cup-quick-tiles">{cupTiles.map((tile) => <Link key={tile.to} to={tile.to} className={`hub-showcase-card hub-showcase-card-${tile.tone} cup-quick-tile`}><div className="hub-showcase-card-head"><span className="hub-showcase-card-kicker">{tile.eyebrow}</span><span className="hub-showcase-card-badge">{tile.badge}</span></div><CompetitionTrophyMark variant={tile.trophy} className="hub-showcase-card-trophy" /><h2>{tile.title}</h2><p>{tile.description}</p></Link>)}</div>
+
+      <div className="cup-story-strip">
+        <article><span>LATEST CUP RESULT</span><strong>{latestCup ? `${latestCup.winnerTeam} advanced` : 'No result yet'}</strong><small>{latestCup ? `${latestCup.roundName} · ${latestCup.homeTeam} ${latestCup.homeProfit.toFixed(2)} – ${latestCup.awayProfit.toFixed(2)} ${latestCup.awayTeam}` : 'BookieBall Cup'}</small></article>
+        <article><span>NEXT BOOKIEBALL CUP TIE</span><strong>{nextCup ? `${nextCup.homeTeam} vs ${nextCup.awayTeam}` : 'No tie waiting'}</strong><small>{nextCup?.roundName ?? '—'}</small></article>
+        <article><span>NEXT MASTER CUP TIE</span><strong>{nextMaster ? `${nextMaster.homeTeam} vs ${nextMaster.awayTeam}` : 'No tie waiting'}</strong><small>{nextMaster?.roundName ?? '—'}</small></article>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 9, marginTop: 9 }}>
-        <TournamentOverview title="BookieBall Cup" to="/cup-draw" paths={cupPaths} teams={teams} />
-        <TournamentOverview title="Master Cup" to="/master-cup" paths={masterPaths} teams={teams} />
-      </div>
+
+      <div className="cup-bracket-grid"><TournamentOverview title="BookieBall Cup" to="/cup-draw" paths={cupPaths} teams={teams} /><TournamentOverview title="Master Cup" to="/master-cup" paths={masterPaths} teams={teams} /></div>
     </section>
   );
 }
