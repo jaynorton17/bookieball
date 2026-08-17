@@ -19,7 +19,7 @@ const ROUTES = [
   { path: '/master-cup', label: 'Master Cup', fit: true },
   { path: '/super-cup', label: 'Super Cup', fit: true },
   { path: '/head-to-head', label: 'Head to Head', fit: true },
-  { path: '/reports', label: 'Analytics', fit: true },
+  { path: '/reports', label: 'Analytics', fit: true, ready: '.analytics-v2' },
   { path: '/trophy-room', label: 'Trophy Room', fit: true },
   { path: '/sky-sports-news', label: 'SSN Hub', fit: true },
   { path: '/sky-sports-news/show', label: 'SSN Show', fit: true },
@@ -39,7 +39,7 @@ const ROUTES = [
 ];
 const PRIMARY_FIT_SELECTOR = [
   '.competition-page-hero:visible', '.h2h-fight-card:visible', '.trophy-cabinet-stat:visible', '.trophy-shelf:visible',
-  '.cup-quick-tile:visible', '.analytics-pass .panel:visible', '.tier-pyramid:visible', '.trio-group-visual:visible',
+  '.cup-quick-tile:visible', '.analytics-pass .panel:visible', '.analytics-v2 .av2-stage:visible', '.tier-pyramid:visible', '.trio-group-visual:visible',
   '.kickoff-flow-panel:visible', '.kickoff-step-content:visible', '.kickoff-results-panel:visible', '.kickoff-picks-panel:visible',
 ].join(', ');
 
@@ -128,6 +128,22 @@ async function assertHomeDeckFits(page, viewport) {
     if (index < total - 1) { await next.click(); await page.waitForTimeout(70); }
   }
 }
+async function assertAnalyticsModes(page, viewport) {
+  await page.goto(`${WEB}/reports`, { waitUntil: 'networkidle' });
+  await page.locator('.analytics-v2').waitFor({ timeout: 15_000 });
+  for (const mode of ['Overview', 'Races', 'Form', 'Rivalries', 'History', 'Records']) {
+    const button = page.locator('.av2-nav button').filter({ hasText: mode }).first();
+    if (!(await button.count())) throw new Error(`Analytics ${viewport.width}x${viewport.height}: ${mode} tab missing`);
+    await button.click();
+    await page.waitForTimeout(180);
+    const label = `Analytics ${viewport.width}x${viewport.height} · ${mode}`;
+    await assertNoErrorBoundary(page, label);
+    await assertNoDocumentOverflow(page, label);
+    await assertVisibleControlsInsideViewport(page, label);
+    const stage = await page.locator('.av2-stage').boundingBox();
+    if (!stage || stage.y < -2 || stage.y + stage.height > viewport.height + 2) throw new Error(`${label}: analytics stage is outside viewport`);
+  }
+}
 
 async function main() {
   await ensureServices();
@@ -166,6 +182,7 @@ async function main() {
         if (!score?.includes('VS')) throw new Error(`Home fixture ${i + 1}: scoreline is not centred around VS`);
         if (!h2h?.includes('ALL-TIME H2H')) throw new Error(`Home fixture ${i + 1}: H2H missing`);
       }
+      await assertAnalyticsModes(page, viewport);
       await context.close();
     }
   } finally {
