@@ -32,6 +32,7 @@ import './viewport-final-polish.css';
 import './table-position-journey.css';
 import './readability-fixes.css';
 import './analytics-v2.css';
+import './analytics-tv.css';
 
 installBookieBallFetchCache();
 
