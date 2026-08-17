@@ -19,6 +19,10 @@ import './no-zoom-overrides.css';
 import './gameshow-clean.css';
 import './tombola-centrepiece.css';
 import './tombola-manual-pick.css';
+import './product-pass.css';
+import './competition-identities.css';
+import './analytics-pass.css';
+import './home-product-pass.css';
 
 installBookieBallFetchCache();
 

@@ -1,0 +1,162 @@
+/* BookieBall product pass
+   One final layout authority loaded after legacy styles.
+   TV = viewport-first. Competition = data-first. Tools = functional/scrollable. */
+
+:root{
+  --bb-topbar-h:62px;
+  --bb-page-gap:10px;
+  --bb-radius:14px;
+  --bb-copy:#9fb2c7;
+}
+
+html,body,#root{min-width:0;max-width:100%;}
+html,body{zoom:1!important;overflow-x:hidden!important;}
+body{font-size:14px;}
+
+/* ----- shared typography: stop headings eating the product ----- */
+.page h1{font-size:clamp(26px,3vw,42px);line-height:1.02;letter-spacing:-.025em;}
+.page h2{font-size:clamp(18px,2vw,28px);line-height:1.08;}
+.page h3{font-size:clamp(14px,1.3vw,20px);}
+.page .muted,.competition-page-hero p{line-height:1.35;}
+
+/* ----- competition screens: compact scoreboard header, not marketing hero ----- */
+.competition-page,
+.page-dashboard,
+.page-wide{padding-top:10px!important;}
+
+.competition-page-shell{gap:10px!important;}
+.competition-page-hero{
+  padding:12px 16px!important;
+  min-height:0!important;
+  border-radius:var(--bb-radius)!important;
+}
+.competition-page-hero-head{min-height:0!important;gap:14px!important;align-items:center!important;}
+.competition-page-hero-copy{max-width:none!important;}
+.competition-page-kicker{font-size:9px!important;letter-spacing:.13em!important;line-height:1!important;}
+.competition-page-hero h1{font-size:clamp(27px,3vw,40px)!important;margin:3px 0 2px!important;line-height:1!important;}
+.competition-page-hero-copy>p{font-size:11px!important;margin:2px 0 0!important;max-width:780px!important;color:var(--bb-copy)!important;}
+.competition-hero-art{min-height:50px!important;height:50px!important;}
+.competition-hero-trophy{max-height:54px!important;max-width:74px!important;}
+.competition-hero-art-triple{gap:5px!important;}
+.competition-hero-art-triple .competition-hero-trophy{max-height:46px!important;}
+
+.competition-metric-row{
+  margin-top:8px!important;
+  gap:7px!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+}
+.competition-metric-card{padding:7px 10px!important;min-height:0!important;border-radius:10px!important;}
+.competition-metric-card>span{font-size:8px!important;letter-spacing:.1em!important;}
+.competition-metric-card>strong{font-size:19px!important;line-height:1!important;margin-top:2px!important;}
+.competition-metric-card>p{font-size:9px!important;line-height:1.15!important;margin:2px 0 0!important;}
+
+.tab-row{min-height:0!important;margin:5px 0 8px!important;gap:5px!important;}
+.tab-button{padding:6px 10px!important;font-size:10px!important;border-radius:999px!important;line-height:1!important;}
+
+.panel{border-radius:var(--bb-radius)!important;}
+.competition-page .panel,.page-dashboard>.panel{padding:12px!important;}
+.panel-header{gap:10px!important;margin-bottom:8px!important;}
+.panel-header h2,.panel-header h3{margin:0!important;}
+.panel-header p{font-size:10px!important;margin:2px 0 0!important;}
+
+/* tables are products, not documents */
+.scoreboard-table{font-size:11px!important;}
+.scoreboard-table th{font-size:8px!important;letter-spacing:.08em!important;padding:6px 7px!important;}
+.scoreboard-table td{padding:6px 7px!important;line-height:1.1!important;}
+.table-scroll{border-radius:10px!important;}
+.form-badge{width:18px!important;height:18px!important;font-size:8px!important;}
+
+/* Master controls should feel like admin controls, not the main competition. */
+.master-tools-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+.master-tools-toggle button{padding:6px 10px!important;font-size:10px!important;}
+.master-league-actions{gap:10px!important;}
+.master-league-actions p{font-size:10px!important;margin:2px 0!important;}
+.master-generate-controls{gap:6px!important;}
+.master-generate-controls label{font-size:9px!important;}
+.master-generate-controls select,.master-generate-controls button{min-height:30px!important;padding:5px 8px!important;font-size:10px!important;}
+
+/* ----- Head-to-head fight cards ----- */
+.h2h-page-head{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:8px;}
+.h2h-page-head h1{margin:0!important;}
+.h2h-page-head p{margin:2px 0 0!important;font-size:10px!important;}
+.h2h-division-block{margin-top:10px!important;}
+.h2h-division-head{margin-bottom:5px!important;}
+.h2h-division-head h2{font-size:15px!important;margin:0!important;}
+.h2h-fight-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.h2h-fight-card{cursor:pointer;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:linear-gradient(145deg,rgba(11,31,49,.98),rgba(7,20,33,.98));padding:9px 11px;min-width:0;transition:transform .16s ease,border-color .16s ease;}
+.h2h-fight-card:hover{transform:translateY(-1px);border-color:rgba(94,183,255,.35);}
+.h2h-fight-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#7993ab;font-size:8px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;}
+.h2h-fight-main{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:9px;margin:7px 0 5px;}
+.h2h-fight-team{display:flex;align-items:center;gap:7px;min-width:0;font-size:12px;font-weight:900;}
+.h2h-fight-team:last-child{justify-content:flex-end;text-align:right;}
+.h2h-fight-team span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.h2h-fight-score{text-align:center;min-width:92px;}
+.h2h-fight-score strong{display:block;color:#fff;font-size:19px;line-height:1;letter-spacing:.01em;}
+.h2h-fight-score span{display:block;color:#71899f;font-size:8px;margin-top:3px;}
+.h2h-fight-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:5px;color:#8ca3b9;font-size:8px;}
+
+/* ----- Trophy cabinet ----- */
+.trophy-cabinet-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:8px 0 10px;}
+.trophy-cabinet-stat{padding:8px 10px;border:1px solid rgba(255,255,255,.07);border-radius:10px;background:rgba(255,255,255,.025);min-width:0;}
+.trophy-cabinet-stat span{display:block;color:#8099b0;font-size:8px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;}
+.trophy-cabinet-stat strong{display:block;margin-top:2px;color:#fff;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trophy-cabinet{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;}
+.trophy-shelf{position:relative;min-height:150px;padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:radial-gradient(circle at 50% 12%,rgba(242,193,78,.09),transparent 38%),linear-gradient(180deg,rgba(16,35,53,.98),rgba(6,17,28,.98));overflow:hidden;}
+.trophy-shelf::after{content:"";position:absolute;left:7px;right:7px;bottom:8px;height:5px;border-radius:50%;background:rgba(0,0,0,.45);box-shadow:0 -1px rgba(255,255,255,.08);}
+.trophy-shelf-head{display:flex;align-items:center;gap:7px;min-height:34px;}
+.trophy-shelf-head h3{font-size:11px!important;margin:0!important;line-height:1.05!important;}
+.trophy-shelf-head p{font-size:8px;margin:2px 0 0;color:#71899f;}
+.trophy-shelf-mark{width:34px!important;height:34px!important;flex:none;}
+.trophy-recent-winners{position:relative;z-index:2;margin-top:7px;display:grid;gap:4px;}
+.trophy-recent-row{display:flex;align-items:center;gap:5px;min-width:0;font-size:8px;}
+.trophy-recent-row>span:first-child{width:23px;color:#f1c64d;font-weight:900;}
+.trophy-recent-row strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px;}
+
+/* ----- Cup hub: bracket/progression first, less card furniture ----- */
+.cups-compact-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:7px;}
+.cups-compact-head h1{margin:0!important;}
+.cups-compact-head p{margin:2px 0 0!important;font-size:10px!important;}
+.cup-quick-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+.cup-quick-tile{min-height:0!important;padding:9px 11px!important;border-radius:12px!important;}
+.cup-quick-tile .hub-showcase-card-trophy{width:38px!important;height:38px!important;margin:4px 0!important;}
+.cup-quick-tile h2{font-size:15px!important;margin:2px 0!important;}
+.cup-quick-tile p{font-size:9px!important;line-height:1.2!important;margin:2px 0!important;}
+
+/* ----- tool pages: deliberately functional ----- */
+body:not(.gameshow-laptop-mode) .entry-manager-page,
+body:not(.gameshow-laptop-mode) .settings-page{overflow:visible;}
+
+/* ----- authoritative laptop behavior ----- */
+@media(max-height:900px) and (min-width:1100px){
+  :root{--bb-topbar-h:58px;}
+  .site-header,.topbar{min-height:58px!important;}
+  .page{padding-top:7px!important;padding-bottom:8px!important;}
+  .competition-page-hero{padding:9px 13px!important;}
+  .competition-page-hero h1{font-size:30px!important;}
+  .competition-page-hero-copy>p{font-size:10px!important;}
+  .competition-metric-row{margin-top:5px!important;}
+  .competition-metric-card{padding:5px 8px!important;}
+  .competition-metric-card>strong{font-size:16px!important;}
+  .competition-metric-card>p{display:none!important;}
+  .tab-row{margin:4px 0 6px!important;}
+  .scoreboard-table th,.scoreboard-table td{padding-top:5px!important;padding-bottom:5px!important;}
+}
+
+@media(max-height:780px) and (min-width:1100px){
+  .competition-page-hero-copy>p{display:none!important;}
+  .competition-metric-card>p{display:none!important;}
+  .competition-page-hero{padding:7px 11px!important;}
+  .competition-page-hero h1{font-size:26px!important;}
+  .competition-hero-art{height:38px!important;min-height:38px!important;}
+  .competition-hero-trophy{max-height:40px!important;}
+  .competition-metric-row{margin-top:4px!important;}
+  .competition-metric-card{padding:4px 7px!important;}
+  .competition-metric-card>strong{font-size:14px!important;}
+  .trophy-shelf{min-height:132px;}
+}
+
+@media(max-width:1100px){
+  .h2h-fight-grid{grid-template-columns:1fr;}
+  .trophy-cabinet{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .trophy-cabinet-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
