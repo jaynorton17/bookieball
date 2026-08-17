@@ -1,5 +1,16 @@
 /* Final viewport corrections discovered by the stricter Playwright sweep. */
 @media (min-width:1101px){
+  :root{--topbar-height:60px}
+  .topbar{min-height:60px!important;padding:7px 12px!important;gap:7px!important;flex-wrap:nowrap!important}
+  .topbar-main{gap:8px!important;flex:1 1 auto!important;min-width:0!important}
+  .brand-lockup strong{font-size:16px!important;letter-spacing:.04em!important}
+  .brand-kicker{font-size:7px!important;letter-spacing:.11em!important}
+  .topbar-nav{gap:3px!important;flex-wrap:nowrap!important;min-width:0!important}
+  .topbar-nav-link{padding:4px 7px!important;font-size:10px!important;letter-spacing:.035em!important}
+  .topbar-status{gap:3px!important;flex-wrap:nowrap!important;flex:none!important}
+  .season-gw-chip,.gw-lock-chip,.penalty-queue-chip{padding:4px 7px!important;font-size:10px!important;line-height:1.05!important;white-space:nowrap!important}
+  .status-kicker{font-size:6px!important;letter-spacing:.09em!important;margin-bottom:1px!important}
+
   .h2h-page-head{margin-bottom:4px!important;align-items:center!important}
   .h2h-page-head h1{font-size:30px!important}
   .h2h-page-head p{font-size:9px!important}
