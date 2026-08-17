@@ -44,20 +44,20 @@ export async function loadDivisionTableJourney(
 
   const historical = await Promise.all(wanted.map(async (gw): Promise<TableJourneySnapshot | null> => {
     if (gw === currentGw) {
-      return { gw, rows: Object.values(currentTable).flat().map((row) => decorate(row, colours)) };
+      return { gw, rows: Object.entries(currentTable).flatMap(([division, divisionRows]) => divisionRows.map((row) => decorate({ ...row, division }, colours))) };
     }
     const snapshot = byGw.get(gw);
     if (!snapshot) return null;
     const payload = await api.snapshotPayload(snapshot.id).catch(() => null);
     const rawTable = payload?.payload?.table;
     if (!rawTable || typeof rawTable !== 'object' || Array.isArray(rawTable)) return null;
-    const rows = Object.values(rawTable as Record<string, unknown>).flatMap((value) => {
+    const rows = Object.entries(rawTable as Record<string, unknown>).flatMap(([division, value]) => {
       if (!Array.isArray(value)) return [];
       return value.flatMap((candidate) => {
         if (!candidate || typeof candidate !== 'object') return [];
         const row = candidate as Partial<DivisionRow>;
         if (typeof row.teamId !== 'number' || typeof row.teamName !== 'string' || typeof row.rank !== 'number') return [];
-        return [decorate({ teamId: row.teamId, teamName: row.teamName, rank: row.rank, division: typeof row.division === 'string' ? row.division : undefined }, colours)];
+        return [decorate({ teamId: row.teamId, teamName: row.teamName, rank: row.rank, division: typeof row.division === 'string' ? row.division : division }, colours)];
       });
     });
     return rows.length ? { gw, rows } : null;
@@ -67,8 +67,9 @@ export async function loadDivisionTableJourney(
 }
 
 export async function loadMasterTableJourney(currentGw: string): Promise<TableJourneySnapshot[]> {
-  const responses = await Promise.all(gameweeksThrough(currentGw).map((gw) => api.masterLeagueTable(gw).catch(() => null)));
-  return responses.flatMap((response, index) => response ? [{ gw: gameweeksThrough(currentGw)[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  const gws = gameweeksThrough(currentGw);
+  const responses = await Promise.all(gws.map((gw) => api.masterLeagueTable(gw).catch(() => null)));
+  return responses.flatMap((response, index) => response ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
 }
 
 export async function loadTrioTableJourney(currentGw: string): Promise<TableJourneySnapshot[]> {
