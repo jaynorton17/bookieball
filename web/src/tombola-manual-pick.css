@@ -1,0 +1,97 @@
+/* Urgent Gameshow draw controls: manual selection + much stronger air movement. */
+.tombola-centrepiece.is-mixing .tombola-ball,
+.tombola-centrepiece.is-picking .tombola-ball{
+  animation-timing-function:cubic-bezier(.34,.04,.68,.96)!important;
+  filter:saturate(1.08);
+}
+
+.tombola-centrepiece.is-picking .tombola-ball{
+  animation-name:tombolaAirMixTurbo!important;
+  animation-duration:calc(var(--ball-duration) * .78)!important;
+}
+
+.tombola-centrepiece.is-mixing .tombola-ball-field,
+.tombola-centrepiece.is-picking .tombola-ball-field{
+  animation:tombolaFieldBuffet .62s ease-in-out infinite alternate;
+}
+
+.tombola-centrepiece.is-mixing .tombola-air-streams,
+.tombola-centrepiece.is-picking .tombola-air-streams{
+  opacity:.38!important;
+}
+
+.tombola-centrepiece.is-mixing .tombola-air-streams i,
+.tombola-centrepiece.is-picking .tombola-air-streams i{
+  animation-duration:.48s!important;
+  border-left-width:2px;
+}
+
+.tombola-status{
+  width:min(390px,46vw)!important;
+  padding:7px 10px 8px!important;
+}
+
+.tombola-pick-button{
+  appearance:none;
+  border:1px solid rgba(255,220,97,.8);
+  border-radius:999px;
+  margin-top:6px;
+  padding:7px 22px;
+  min-width:132px;
+  background:linear-gradient(180deg,#ffd95c,#e5ad18);
+  color:#132030;
+  box-shadow:0 8px 24px rgba(238,183,30,.28),inset 0 1px 0 rgba(255,255,255,.58);
+  font:950 11px/1 system-ui,sans-serif;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  cursor:pointer;
+}
+
+.tombola-pick-button:hover:not(:disabled){
+  transform:translateY(-1px) scale(1.035);
+  filter:brightness(1.08);
+}
+
+.tombola-pick-button:active:not(:disabled){transform:translateY(0) scale(.98)}
+.tombola-pick-button:disabled{cursor:wait;opacity:.7}
+
+@keyframes tombolaFieldBuffet{
+  0%{transform:translate(-8px,5px) rotate(-.55deg)}
+  50%{transform:translate(7px,-7px) rotate(.45deg)}
+  100%{transform:translate(-3px,-11px) rotate(-.2deg)}
+}
+
+@keyframes tombolaAirMixTurbo{
+  0%{transform:translate(calc(-50% - var(--ball-drift-x) * 1.18),calc(var(--ball-drift-y) * .72)) rotate(-85deg) scale(.9)}
+  22%{transform:translate(calc(-50% + var(--ball-drift-x) * .72),calc(var(--ball-drift-y) * -1.18)) rotate(105deg) scale(1.05)}
+  47%{transform:translate(calc(-50% + var(--ball-drift-x) * 1.22),calc(var(--ball-drift-y) * .3)) rotate(225deg) scale(.94)}
+  72%{transform:translate(calc(-50% - var(--ball-drift-x) * .76),calc(var(--ball-drift-y) * -1.04)) rotate(395deg) scale(1.04)}
+  100%{transform:translate(calc(-50% + var(--ball-drift-x) * .42),calc(var(--ball-drift-y) * .9)) rotate(560deg) scale(.92)}
+}
+
+/* Override the gentler base trajectories with a wider, faster blast pattern. */
+@keyframes tombolaAirMix{
+  0%{transform:translate(calc(-50% - var(--ball-drift-x) * 1.08),calc(var(--ball-drift-y) * .62)) rotate(-70deg)}
+  24%{transform:translate(calc(-50% + var(--ball-drift-x) * .66),calc(var(--ball-drift-y) * -1.12)) rotate(115deg)}
+  51%{transform:translate(calc(-50% + var(--ball-drift-x) * 1.15),calc(var(--ball-drift-y) * .22)) rotate(245deg)}
+  76%{transform:translate(calc(-50% - var(--ball-drift-x) * .72),calc(var(--ball-drift-y) * -.92)) rotate(410deg)}
+  100%{transform:translate(calc(-50% + var(--ball-drift-x) * .36),calc(var(--ball-drift-y) * .86)) rotate(600deg)}
+}
+
+@keyframes tombolaAirMixReverse{
+  0%{transform:translate(calc(-50% + var(--ball-drift-x) * 1.12),calc(var(--ball-drift-y) * .48)) rotate(75deg)}
+  28%{transform:translate(calc(-50% - var(--ball-drift-x) * .68),calc(var(--ball-drift-y) * -1.15)) rotate(-120deg)}
+  55%{transform:translate(calc(-50% - var(--ball-drift-x) * 1.18),calc(var(--ball-drift-y) * .18)) rotate(-275deg)}
+  78%{transform:translate(calc(-50% + var(--ball-drift-x) * .74),calc(var(--ball-drift-y) * -.9)) rotate(-430deg)}
+  100%{transform:translate(calc(-50% - var(--ball-drift-x) * .4),calc(var(--ball-drift-y) * .92)) rotate(-610deg)}
+}
+
+@media(max-height:820px){
+  .tombola-status{width:min(350px,48vw)!important;padding:5px 8px 6px!important}
+  .tombola-pick-button{margin-top:4px;padding:6px 18px;font-size:10px;min-width:118px}
+}
+
+@media(max-height:700px){
+  .tombola-status{bottom:3px!important}
+  .tombola-pick-button{padding:5px 16px;font-size:9px}
+}
