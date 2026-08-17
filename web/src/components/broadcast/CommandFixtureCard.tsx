@@ -1,6 +1,8 @@
-import type { api } from '../../lib/api';
-
-type H2H = Awaited<ReturnType<typeof api.headToHeadAllTime>>;
+export type FixtureH2H = {
+  teamAWins: number;
+  teamBWins: number;
+  draws: number;
+};
 
 export type FixtureMarket = {
   home: number;
@@ -20,7 +22,7 @@ export type CommandFixture = {
   homeProfit: number;
   awayProfit: number;
   result: 'home' | 'away' | 'draw' | 'pending';
-  h2h: H2H | null;
+  h2h: FixtureH2H | null;
   market?: FixtureMarket | null;
 };
 
@@ -61,7 +63,7 @@ export function CommandFixtureCard({ fixture, color }: { fixture: CommandFixture
       <div className="command-fixture-h2h">
         {h2h
           ? `ALL-TIME H2H · ${fixture.homeTeam} ${h2h.teamAWins}W ${h2h.teamBWins}L ${h2h.draws}D · ${fixture.awayTeam} ${h2h.teamBWins}W ${h2h.teamAWins}L ${h2h.draws}D`
-          : 'ALL-TIME H2H · No previous league meetings recorded'}
+          : 'ALL-TIME H2H · Loading archive'}
       </div>
     </article>
   );
