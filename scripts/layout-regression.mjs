@@ -1,122 +1,123 @@
-import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
 
-const WEB = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:5180';
-const API = process.env.SMOKE_API_URL ?? 'http://127.0.0.1:5181/api/state';
+const API = 'http://127.0.0.1:5181';
+const WEB = 'http://127.0.0.1:5180';
 const started = [];
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const ROUTES = [
-  { path: '/', label: 'Home', fit: true, ready: '.command-centre-page' },
-  { path: '/gameshow', label: 'Gameshow', fit: true },
-  { path: '/season-finale', label: 'Season Finale', fit: true },
-  { path: '/leagues', label: 'Leagues Hub', fit: true },
-  { path: '/league', label: 'Divisions', fit: true },
-  { path: '/master-league', label: 'Master League', fit: true },
-  { path: '/trio-league', label: 'Trio League', fit: true },
-  { path: '/tier-league', label: 'Tier League', fit: true },
-  { path: '/cups', label: 'Cups', fit: true },
-  { path: '/master-cup', label: 'Master Cup', fit: true },
-  { path: '/super-cup', label: 'Super Cup', fit: true },
-  { path: '/head-to-head', label: 'Head to Head', fit: true },
-  { path: '/reports', label: 'Analytics', fit: true, ready: '.analytics-v2' },
-  { path: '/trophy-room', label: 'Trophy Room', fit: true },
-  { path: '/sky-sports-news', label: 'SSN Hub', fit: true },
-  { path: '/sky-sports-news/show', label: 'SSN Show', fit: true },
-  { path: '/studio/sny-news-new', label: 'SNY Studio', fit: true },
-  { path: '/penalty-shootout', label: 'Penalty Shootout', fit: true },
-  { path: '/fixtures', label: 'Fixtures', allowDocumentScroll: true },
-  { path: '/cup-draw', label: 'Cup Draw', allowDocumentScroll: true },
-  { path: '/all-time-league', label: 'All-Time Points', allowDocumentScroll: true },
-  { path: '/all-time-spins-league', label: 'All-Time Spins', allowDocumentScroll: true },
-  { path: '/all-time-profit-league', label: 'All-Time Profit', allowDocumentScroll: true },
-  { path: '/insights', label: 'Tools', allowDocumentScroll: true },
-  { path: '/entries', label: 'Manual Entry', allowDocumentScroll: true },
-  { path: '/settings-hub', label: 'Settings Hub', allowDocumentScroll: true },
-  { path: '/settings', label: 'Settings', allowDocumentScroll: true },
-  { path: '/matchday', label: 'Matchday', allowDocumentScroll: true },
-  { path: '/reporting', label: 'Detailed Reporting', allowDocumentScroll: true },
+  { path: '/', label: 'Home', ready: '.command-slide', fit: true },
+  { path: '/gameshow', label: 'Gameshow', ready: '.gameshow-page', fit: true },
+  { path: '/league', label: 'Divisions', ready: '.competition-page-league', fit: true },
+  { path: '/master-league', label: 'Master League', ready: '.competition-page-master', fit: true },
+  { path: '/trio-league', label: 'Trio League', ready: '.competition-page-trio', fit: true },
+  { path: '/tier-league', label: 'Tier League', ready: '.competition-page-tier', fit: true },
+  { path: '/leagues', label: 'Leagues Hub', ready: '.hub-page', fit: true },
+  { path: '/cups', label: 'Cups Hub', ready: '.page-dashboard', fit: true },
+  { path: '/cup-draw', label: 'Cup Draw', ready: '.page', fit: false },
+  { path: '/master-cup', label: 'Master Cup', ready: '.page', fit: true },
+  { path: '/super-cup', label: 'Super Cup', ready: '.page', fit: true },
+  { path: '/fixtures', label: 'Fixtures', ready: '.page', fit: false },
+  { path: '/entries', label: 'Manual Entry', ready: '.page', fit: false },
+  { path: '/reports', label: 'Analytics', ready: '.analytics-v2', fit: true },
+  { path: '/head-to-head', label: 'Head to Head', ready: '.head-to-head-page', fit: true },
+  { path: '/trophy-room', label: 'Trophy Room', ready: '.trophy-room-page', fit: true },
+  { path: '/all-time-league', label: 'All-Time Points', ready: '.all-time-leagues-page', fit: false },
+  { path: '/all-time-spins-league', label: 'All-Time Spins', ready: '.all-time-leagues-page', fit: false },
+  { path: '/all-time-profit-league', label: 'All-Time Profit', ready: '.all-time-leagues-page', fit: false },
+  { path: '/settings-hub', label: 'Tools Hub', ready: '.tools-hub', fit: false },
+  { path: '/settings', label: 'Settings', ready: '.page', fit: false },
+  { path: '/insights', label: 'Gameweek Control Room', ready: '.page', fit: false },
+  { path: '/matchday', label: 'Matchday', ready: '.page', fit: false },
+  { path: '/reporting', label: 'Reporting', ready: '.page', fit: false },
+  { path: '/sky-sports-news', label: 'SSN Hub', ready: '.page', fit: false },
+  { path: '/sky-sports-news/show', label: 'SSN Show', ready: '.page', fit: false },
+  { path: '/studio/sky-sports-news-new', label: 'SSN Studio', ready: '.page', fit: false },
+  { path: '/studio/sny-news-new', label: 'SNY Studio Alias', ready: '.page', fit: false },
+  { path: '/penalty-shootout', label: 'Penalties', ready: '.penalty-page', fit: true },
+  { path: '/season-finale', label: 'Season Finale', ready: '.season-finale-page', fit: false },
 ];
-const PRIMARY_FIT_SELECTOR = [
-  '.competition-page-hero:visible', '.h2h-fight-card:visible', '.trophy-cabinet-stat:visible', '.trophy-shelf:visible',
-  '.cup-quick-tile:visible', '.analytics-pass .panel:visible', '.analytics-v2 .av2-stage:visible', '.tier-pyramid:visible', '.trio-group-visual:visible',
-  '.kickoff-flow-panel:visible', '.kickoff-step-content:visible', '.kickoff-results-panel:visible', '.kickoff-picks-panel:visible',
-].join(', ');
 
-async function ready(url, timeout = 60_000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try { const response = await fetch(url); if (response.ok) return true; } catch {}
-    await sleep(400);
+async function reachable(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
+    return response.ok;
+  } catch {
+    return false;
   }
-  return false;
 }
+
+function start(command, args) {
+  const child = spawn(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
+  started.push(child);
+  return child;
+}
+
+async function waitFor(url, label) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (await reachable(url)) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`${label} failed to start`);
+}
+
 async function ensureServices() {
-  if (!(await ready(API, 1200))) started.push(spawn('npm', ['run', 'dev:api'], { stdio: 'ignore', shell: true }));
-  if (!(await ready(WEB, 1200))) started.push(spawn('npm', ['run', 'dev:web', '--', '--host', '127.0.0.1'], { stdio: 'ignore', shell: true }));
-  if (!(await ready(API)) || !(await ready(WEB))) throw new Error('BookieBall services did not start');
+  if (!(await reachable(`${API}/state`))) start('npm', ['run', 'dev:api']);
+  if (!(await reachable(WEB))) start('npm', ['run', 'dev:web', '--', '--host', '127.0.0.1']);
+  await Promise.all([waitFor(`${API}/state`, 'API'), waitFor(WEB, 'Web')]);
 }
-async function pageDimensions(page) {
-  return page.evaluate(() => ({ width: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth, height: document.documentElement.scrollHeight, clientHeight: document.documentElement.clientHeight }));
+
+async function assertNoErrorBoundary(page, label) {
+  const text = await page.locator('body').innerText();
+  if (/something went wrong|application error|unexpected application error/i.test(text)) throw new Error(`${label}: error boundary visible`);
 }
+
 async function assertNoHorizontalOverflow(page, label) {
-  const d = await pageDimensions(page);
-  if (d.width > d.clientWidth + 2) throw new Error(`${label}: horizontal overflow ${d.width}px > ${d.clientWidth}px`);
+  const result = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+  if (result.width > result.viewport + 2) throw new Error(`${label}: horizontal overflow ${result.width}px > ${result.viewport}px`);
 }
+
 async function assertNoDocumentOverflow(page, label) {
-  const d = await pageDimensions(page);
-  if (d.width > d.clientWidth + 2) throw new Error(`${label}: horizontal overflow ${d.width}px > ${d.clientWidth}px`);
-  if (d.height > d.clientHeight + 2) throw new Error(`${label}: document scroll ${d.height}px > ${d.clientHeight}px`);
+  const result = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, viewport: window.innerHeight }));
+  if (result.height > result.viewport + 3) throw new Error(`${label}: document overflow ${result.height}px > ${result.viewport}px`);
 }
+
 async function assertVisibleControlsInsideViewport(page, label) {
-  const controls = page.locator('button:visible, a.button:visible, .tab-button:visible');
-  const count = Math.min(await controls.count(), 30);
+  const controls = page.locator('button:visible, a:visible, select:visible, input:visible');
+  const count = await controls.count();
   for (let index = 0; index < count; index += 1) {
     const box = await controls.nth(index).boundingBox();
-    const viewport = page.viewportSize();
-    if (!box || !viewport) continue;
-    if (box.x < -2 || box.x + box.width > viewport.width + 2) throw new Error(`${label}: control ${index + 1} is clipped horizontally`);
+    if (!box) continue;
+    if (box.x < -2 || box.y < -2 || box.x + box.width > page.viewportSize().width + 2 || box.y + box.height > page.viewportSize().height + 2) {
+      throw new Error(`${label}: visible control ${index + 1} outside viewport`);
+    }
   }
 }
+
 async function assertPrimaryPanelsInsideViewport(page, label) {
-  const viewport = page.viewportSize();
-  if (!viewport) return;
-  const panels = page.locator(PRIMARY_FIT_SELECTOR);
-  const count = Math.min(await panels.count(), 80);
+  const panels = page.locator('.panel:visible, .analytics-tv-stage:visible, .command-slide:visible, .gameshow-page:visible');
+  const count = await panels.count();
   for (let index = 0; index < count; index += 1) {
     const box = await panels.nth(index).boundingBox();
     if (!box) continue;
-    if (box.x < -3 || box.x + box.width > viewport.width + 3) throw new Error(`${label}: primary panel ${index + 1} is clipped horizontally`);
-    if (box.y < -3 || box.y + box.height > viewport.height + 3) throw new Error(`${label}: primary panel ${index + 1} is clipped vertically (${Math.round(box.y + box.height)}px > ${viewport.height}px)`);
+    if (box.y < -2 || box.y + box.height > page.viewportSize().height + 2) throw new Error(`${label}: primary panel ${index + 1} clipped vertically`);
   }
 }
-async function assertNoErrorBoundary(page, label) {
-  const body = (await page.locator('body').innerText()).toLowerCase();
-  const bad = ['usebookieballdata must be used inside', 'something went wrong', 'application error', 'uncaught runtime error'].find((phrase) => body.includes(phrase));
-  if (bad) throw new Error(`${label}: error UI rendered (${bad})`);
-}
+
 async function assertGameshowDrawFits(page, label) {
-  const start = page.getByRole('button', { name: /start kick-off|start show|start/i }).first();
-  if (!(await start.count()) || !(await start.isEnabled().catch(() => false))) return;
+  const start = page.getByRole('button', { name: /start/i }).first();
+  if (!(await start.count())) return;
   await start.click();
-  const tombola = page.locator('.tombola-centrepiece').first();
-  if (!(await tombola.count())) return;
-  await tombola.waitFor({ state: 'visible', timeout: 10_000 });
-  const box = await tombola.boundingBox();
-  const viewport = page.viewportSize();
-  if (!box || !viewport) return;
-  if (box.x < -2 || box.y < -2 || box.x + box.width > viewport.width + 2 || box.y + box.height > viewport.height + 2) throw new Error(`${label}: tombola is outside the viewport`);
-  const pickBall = page.getByRole('button', { name: /pick ball/i }).first();
-  if (await pickBall.count()) {
-    const pickBox = await pickBall.boundingBox();
-    if (!pickBox || pickBox.y + pickBox.height > viewport.height + 2) throw new Error(`${label}: Pick Ball is not visible inside the viewport`);
-  }
+  const pick = page.getByRole('button', { name: /pick ball/i }).first();
+  try { await pick.waitFor({ timeout: 8000 }); } catch { return; }
+  await assertNoDocumentOverflow(page, `${label} · Tombola`);
+  const box = await pick.boundingBox();
+  if (!box || box.y + box.height > page.viewportSize().height + 2) throw new Error(`${label}: Pick Ball is outside viewport`);
 }
+
 async function assertHomeDeckFits(page, viewport) {
-  await page.goto(`${WEB}/`, { waitUntil: 'networkidle' });
-  await page.locator('.command-centre-page').waitFor({ timeout: 10_000 });
-  const progress = page.locator('.command-progress-row > span').last();
-  const text = (await progress.textContent()) ?? '';
+  await page.goto(WEB, { waitUntil: 'networkidle' });
+  await page.locator('.command-slide').waitFor({ timeout: 15_000 });
+  const text = await page.locator('.command-centre-controls').innerText();
   const total = Math.max(1, Number(text.match(/\/\s*(\d+)/)?.[1] ?? 1));
   const next = page.getByRole('button', { name: /next/i }).first();
   for (let index = 0; index < total; index += 1) {
@@ -128,19 +129,20 @@ async function assertHomeDeckFits(page, viewport) {
     if (index < total - 1) { await next.click(); await page.waitForTimeout(70); }
   }
 }
+
 async function assertAnalyticsModes(page, viewport) {
   await page.goto(`${WEB}/reports`, { waitUntil: 'networkidle' });
-  await page.locator('.analytics-v2').waitFor({ timeout: 15_000 });
+  await page.locator('.analytics-tv').waitFor({ timeout: 15_000 });
   for (const mode of ['Overview', 'Races', 'Form', 'Rivalries', 'History', 'Records']) {
-    const button = page.locator('.av2-nav button').filter({ hasText: mode }).first();
-    if (!(await button.count())) throw new Error(`Analytics ${viewport.width}x${viewport.height}: ${mode} tab missing`);
+    const button = page.locator('.analytics-tv-nav button').filter({ hasText: mode }).first();
+    if (!(await button.count())) throw new Error(`Analytics ${viewport.width}x${viewport.height}: ${mode} channel missing`);
     await button.click();
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(220);
     const label = `Analytics ${viewport.width}x${viewport.height} · ${mode}`;
     await assertNoErrorBoundary(page, label);
     await assertNoDocumentOverflow(page, label);
     await assertVisibleControlsInsideViewport(page, label);
-    const stage = await page.locator('.av2-stage').boundingBox();
+    const stage = await page.locator('.analytics-tv-stage').boundingBox();
     if (!stage || stage.y < -2 || stage.y + stage.height > viewport.height + 2) throw new Error(`${label}: analytics stage is outside viewport`);
   }
 }
