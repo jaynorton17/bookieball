@@ -32,10 +32,27 @@ export type RivalryAnalytics = {
   draws: number;
   closeness: number;
   rivalryScore: number;
+  averageMargin: number;
+  lastMeeting: {
+    season: string;
+    gw: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeProfit: number;
+    awayProfit: number;
+    result: 'home' | 'away' | 'draw' | 'pending';
+  } | null;
+};
+
+type PairDetail = {
+  marginTotal: number;
+  meetings: number;
+  lastMeeting: RivalryAnalytics['lastMeeting'];
 };
 
 function expected(a: number, b: number): number { return 1 / (1 + 10 ** ((b - a) / 400)); }
 function normalize(value: number, min: number, max: number): number { return max <= min ? 0.5 : (value - min) / (max - min); }
+function pairIds(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
 
 export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] }> {
   const [state, teams, allTime] = await Promise.all([api.state(), api.teams(), api.allTimeLeagues()]);
@@ -51,6 +68,7 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
   const peaks = new Map<number, number>(teams.map((team) => [team.id, 1500]));
   const giantKillerWins = new Map<number, number>(teams.map((team) => [team.id, 0]));
   const opponentRecords = new Map<number, Map<number, { wins: number; losses: number; draws: number }>>();
+  const pairDetails = new Map<string, PairDetail>();
 
   const sortedHistory = history.slice().sort((a, b) => {
     const seasonA = Number(a.season.replace('S', '')) || 0;
@@ -75,7 +93,6 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
     const homeRating = ratings.get(home.id) ?? 1500;
     const awayRating = ratings.get(away.id) ?? 1500;
 
-    // A giant-killer win is a win while entering the meeting at least 75 Elo below the opponent.
     if (fixture.result === 'home' && awayRating - homeRating >= 75) giantKillerWins.set(home.id, (giantKillerWins.get(home.id) ?? 0) + 1);
     if (fixture.result === 'away' && homeRating - awayRating >= 75) giantKillerWins.set(away.id, (giantKillerWins.get(away.id) ?? 0) + 1);
 
@@ -93,6 +110,21 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
     if (fixture.result === 'home') { homeRecord.wins += 1; awayRecord.losses += 1; }
     else if (fixture.result === 'away') { awayRecord.wins += 1; homeRecord.losses += 1; }
     else { homeRecord.draws += 1; awayRecord.draws += 1; }
+
+    const key = pairIds(home.id, away.id);
+    const pair = pairDetails.get(key) ?? { marginTotal: 0, meetings: 0, lastMeeting: null };
+    pair.marginTotal += Math.abs(fixture.homeProfit - fixture.awayProfit);
+    pair.meetings += 1;
+    pair.lastMeeting = {
+      season: fixture.season,
+      gw: fixture.gw,
+      homeTeam: fixture.homeTeam,
+      awayTeam: fixture.awayTeam,
+      homeProfit: fixture.homeProfit,
+      awayProfit: fixture.awayProfit,
+      result: fixture.result,
+    };
+    pairDetails.set(key, pair);
   }
 
   const allTimeById = new Map(allTime.pointsTable.map((row) => [row.teamId, row]));
@@ -133,7 +165,21 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
       if (!meetings) continue;
       const winGap = Math.abs(record.wins - record.losses);
       const closeness = Math.max(0, 1 - winGap / meetings);
-      rivalries.push({ teamAId: a.id, teamAName: a.name, teamBId: b.id, teamBName: b.name, meetings, teamAWins: record.wins, teamBWins: record.losses, draws: record.draws, closeness, rivalryScore: meetings * (0.6 + 0.4 * closeness) });
+      const detail = pairDetails.get(pairIds(a.id, b.id));
+      rivalries.push({
+        teamAId: a.id,
+        teamAName: a.name,
+        teamBId: b.id,
+        teamBName: b.name,
+        meetings,
+        teamAWins: record.wins,
+        teamBWins: record.losses,
+        draws: record.draws,
+        closeness,
+        rivalryScore: meetings * (0.6 + 0.4 * closeness),
+        averageMargin: detail?.meetings ? detail.marginTotal / detail.meetings : 0,
+        lastMeeting: detail?.lastMeeting ?? null,
+      });
     }
   }
   rivalries.sort((a, b) => b.rivalryScore - a.rivalryScore);
