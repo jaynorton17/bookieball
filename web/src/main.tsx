@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AppChromeEnhancements } from './AppChromeEnhancements';
+import { EntryKeyboardEnhancements } from './components/EntryKeyboardEnhancements';
 import { PredictionBroadcastEnhancements } from './components/PredictionBroadcastEnhancements';
 import { TeamJourneyBridge } from './components/TeamJourneyBridge';
 import { GameshowTombolaCentrepiece } from './components/GameshowTombolaCentrepiece';
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppChromeEnhancements />
+      <EntryKeyboardEnhancements />
       <TeamJourneyBridge />
       <PredictionBroadcastEnhancements />
       <GameshowTombolaCentrepiece />
