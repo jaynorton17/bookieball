@@ -19,13 +19,13 @@ body.command-centre-laptop-mode .command-row-detail { display:none!important; }
 body.command-centre-laptop-mode .command-fixture { padding:6px 9px 6px 12px!important; }
 body.command-centre-laptop-mode .command-ticker { min-height:22px!important; padding:4px 8px!important; }
 
-/* Kickoff Show: every stage fits in the normal browser window. */
+/* Kickoff Show: every stage fits at 100% browser scale. */
 @media (min-width:900px) {
   body.gameshow-laptop-mode { overflow:hidden!important; }
   body.gameshow-laptop-mode .topbar { padding-top:3px!important;padding-bottom:3px!important;min-height:48px!important; }
   body.gameshow-laptop-mode .topbar-status { gap:4px!important; }
   body.gameshow-laptop-mode main { height:calc(100dvh - 58px)!important; overflow:hidden!important; padding-top:5px!important; padding-bottom:0!important; }
-  body.gameshow-laptop-mode main > section { height:calc(100dvh - 64px)!important; min-height:0!important; max-height:calc(100dvh - 64px)!important; overflow:hidden!important; margin:0!important; max-width:none!important; width:100%!important; box-sizing:border-box; }
+  body.gameshow-laptop-mode main > section { height:calc(100dvh - 64px)!important; min-height:0!important; max-height:calc(100dvh - 64px)!important; overflow:hidden!important; margin:0!important; max-width:none!important; width:100%!important; box-sizing:border-box; zoom:1!important; transform:none!important; }
 
   body.gameshow-laptop-mode .kickoff-show-screen > header,
   body.gameshow-laptop-mode .kickoff-simple-shell > header,
@@ -56,12 +56,12 @@ body.command-centre-laptop-mode .command-ticker { min-height:22px!important; pad
 @media (min-width:900px) and (max-height:820px) {
   body.gameshow-laptop-mode .topbar { min-height:44px!important; }
   body.gameshow-laptop-mode main { height:calc(100dvh - 50px)!important; }
-  body.gameshow-laptop-mode main > section { zoom:.86; width:116.28%!important; }
+  body.gameshow-laptop-mode main > section { width:100%!important;zoom:1!important; }
   body.command-centre-laptop-mode .command-centre-page { height:calc(100dvh - 76px)!important;max-height:calc(100dvh - 76px)!important; }
 }
 
 @media (min-width:900px) and (max-height:700px) {
-  body.gameshow-laptop-mode main > section { zoom:.76; width:131.58%!important; }
+  body.gameshow-laptop-mode main > section { width:100%!important;zoom:1!important; }
   body.command-centre-laptop-mode .command-centre-page { height:calc(100dvh - 68px)!important;max-height:calc(100dvh - 68px)!important; }
 }
 
