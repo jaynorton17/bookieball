@@ -238,7 +238,6 @@ export function HomePage() {
     const out: Slide[] = [];
     const season = data.state.currentSeason;
     const gw = data.state.currentGw;
-    const followingGw = nextGw(gw);
     const current = (competition: CommandFixture['competition']) => fixtures.filter((fixture) => fixture.competition === competition && fixture.band === 'current');
     const next = (competition: CommandFixture['competition']) => fixtures.filter((fixture) => fixture.competition === competition && fixture.band === 'next');
     const divisionNames = sortDivisionNames(Object.keys(data.leagueTable), season);
@@ -314,9 +313,7 @@ export function HomePage() {
     }
 
     if (data.ratings.length) {
-      const byRating = [...data.ratings].sort((a, b) => b.rating - a.rating);
       const byProfit = [...data.ratings].sort((a, b) => b.profit - a.profit);
-      out.push({ id: 'ratings', kicker: 'CURRENT FORM', title: 'Power Ratings', subtitle: `${season} strength`, tone: 'blue', metric: byRating[0]?.rating.toFixed(3) ?? '—', metricLabel: byRating[0]?.teamName ?? '', rows: rowsFor(byRating, (row) => row.rating.toFixed(3), (row) => `${(row.winRate * 100).toFixed(0)}% win rate · ${signed(row.profit)}`) });
       out.push({ id: 'profit', kicker: 'CURRENT FORM', title: 'Profit Race', subtitle: `${season} to date`, tone: 'green', metric: signed(byProfit[0]?.profit ?? 0), metricLabel: byProfit[0]?.teamName ?? '', rows: rowsFor(byProfit, (row) => signed(row.profit), (row) => `${row.entries} entries · ${(row.winRate * 100).toFixed(0)}% win rate`) });
     }
 
