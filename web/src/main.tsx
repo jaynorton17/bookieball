@@ -20,6 +20,7 @@ import './gameshow-clean.css';
 import './tombola-centrepiece.css';
 import './product-pass.css';
 import './competition-identities.css';
+import './analytics-pass.css';
 
 installBookieBallFetchCache();
 
