@@ -15,21 +15,15 @@ function score(value: number): string {
 }
 
 function simplifyGameshowShell(currentSeason?: string, currentGw?: string): void {
-  const all = Array.from(document.querySelectorAll<HTMLElement>('body *'));
-  const heroTitle = all.find((el) => el.childElementCount === 0 && el.textContent?.trim() === 'THE KICK-OFF SHOW');
-  const heroSection = heroTitle?.closest<HTMLElement>('section') ?? heroTitle?.parentElement?.parentElement?.parentElement ?? null;
-  if (heroSection) heroSection.classList.add('gameshow-hidden-intro');
+  const gameshow = document.querySelector<HTMLElement>('.gameshow-page');
+  if (!gameshow) return;
 
-  const stepCards = all.filter((el) => /^STEP\s+[1-4]\s*•/i.test(el.textContent?.trim() ?? '') && el.childElementCount <= 6);
-  stepCards.forEach((card) => card.closest<HTMLElement>('button, section, article, div')?.classList.add('gameshow-stage-control'));
-
-  const resultHeading = all.find((el) => /^Step 1\s*•\s*Prediction Results/i.test(el.textContent?.trim() ?? ''));
-  const activeStage = resultHeading?.closest<HTMLElement>('section, article') ?? null;
-  if (activeStage) activeStage.classList.add('gameshow-active-stage-scroll');
+  const hero = gameshow.querySelector<HTMLElement>(':scope > .hub-showcase');
+  if (hero) hero.classList.add('gameshow-hidden-intro');
 
   if (currentSeason && currentGw) {
     const replacement = `${currentSeason} ${currentGw}`;
-    all.forEach((el) => {
+    gameshow.querySelectorAll<HTMLElement>('span, strong, small, p').forEach((el) => {
       if (el.childElementCount !== 0) return;
       const text = el.textContent?.trim() ?? '';
       if (/^S\d+\s+GW\d+$/i.test(text) && text !== replacement) el.textContent = replacement;
