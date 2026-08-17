@@ -25,6 +25,7 @@ import './home-product-pass.css';
 import './home-analytics-graphics.css';
 import './tools-hub.css';
 import './viewport-fixes.css';
+import './visual-polish-pass.css';
 
 installBookieBallFetchCache();
 
