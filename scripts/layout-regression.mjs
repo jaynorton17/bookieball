@@ -24,6 +24,11 @@ const ROUTES = [
   { path: '/entries', label: 'Manual Entry', allowDocumentScroll: true },
   { path: '/settings', label: 'Settings', allowDocumentScroll: true },
 ];
+const PRIMARY_FIT_SELECTOR = [
+  '.competition-page-hero:visible', '.h2h-fight-card:visible', '.trophy-cabinet-stat:visible', '.trophy-shelf:visible',
+  '.cup-quick-tile:visible', '.analytics-pass .panel:visible', '.tier-pyramid:visible', '.trio-group-visual:visible',
+  '.kickoff-flow-panel:visible', '.kickoff-step-content:visible', '.kickoff-results-panel:visible', '.kickoff-picks-panel:visible',
+].join(', ');
 
 async function ready(url, timeout = 60_000) {
   const start = Date.now();
@@ -33,13 +38,11 @@ async function ready(url, timeout = 60_000) {
   }
   return false;
 }
-
 async function ensureServices() {
   if (!(await ready(API, 1200))) started.push(spawn('npm', ['run', 'dev:api'], { stdio: 'ignore', shell: true }));
   if (!(await ready(WEB, 1200))) started.push(spawn('npm', ['run', 'dev:web', '--', '--host', '127.0.0.1'], { stdio: 'ignore', shell: true }));
   if (!(await ready(API)) || !(await ready(WEB))) throw new Error('BookieBall services did not start');
 }
-
 async function pageDimensions(page) {
   return page.evaluate(() => ({ width: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth, height: document.documentElement.scrollHeight, clientHeight: document.documentElement.clientHeight }));
 }
@@ -60,6 +63,18 @@ async function assertVisibleControlsInsideViewport(page, label) {
     const viewport = page.viewportSize();
     if (!box || !viewport) continue;
     if (box.x < -2 || box.x + box.width > viewport.width + 2) throw new Error(`${label}: control ${index + 1} is clipped horizontally`);
+  }
+}
+async function assertPrimaryPanelsInsideViewport(page, label) {
+  const viewport = page.viewportSize();
+  if (!viewport) return;
+  const panels = page.locator(PRIMARY_FIT_SELECTOR);
+  const count = Math.min(await panels.count(), 80);
+  for (let index = 0; index < count; index += 1) {
+    const box = await panels.nth(index).boundingBox();
+    if (!box) continue;
+    if (box.x < -3 || box.x + box.width > viewport.width + 3) throw new Error(`${label}: primary panel ${index + 1} is clipped horizontally`);
+    if (box.y < -3 || box.y + box.height > viewport.height + 3) throw new Error(`${label}: primary panel ${index + 1} is clipped vertically (${Math.round(box.y + box.height)}px > ${viewport.height}px)`);
   }
 }
 async function assertNoErrorBoundary(page, label) {
@@ -121,7 +136,10 @@ async function main() {
         await assertNoErrorBoundary(page, label);
         await assertNoHorizontalOverflow(page, label);
         await assertVisibleControlsInsideViewport(page, label);
-        if (route.fit) await assertNoDocumentOverflow(page, label);
+        if (route.fit) {
+          await assertNoDocumentOverflow(page, label);
+          await assertPrimaryPanelsInsideViewport(page, label);
+        }
         if (route.path === '/gameshow') await assertGameshowDrawFits(page, label);
       }
 
