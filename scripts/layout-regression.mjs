@@ -7,6 +7,25 @@ const started = [];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const ROUTES = [
+  { path: '/', label: 'Home', fit: true, ready: '.command-centre-page' },
+  { path: '/gameshow', label: 'Gameshow', fit: true },
+  { path: '/league', label: 'Divisions' },
+  { path: '/master-league', label: 'Master League' },
+  { path: '/trio-league', label: 'Trio League' },
+  { path: '/tier-league', label: 'Tier League' },
+  { path: '/cups', label: 'Cups' },
+  { path: '/master-cup', label: 'Master Cup' },
+  { path: '/super-cup', label: 'Super Cup' },
+  { path: '/fixtures', label: 'Fixtures' },
+  { path: '/head-to-head', label: 'Head to Head' },
+  { path: '/reports', label: 'Analytics' },
+  { path: '/insights', label: 'Insights' },
+  { path: '/trophy-room', label: 'Trophy Room' },
+  { path: '/entries', label: 'Manual Entry', allowDocumentScroll: true },
+  { path: '/settings', label: 'Settings', allowDocumentScroll: true },
+];
+
 async function ready(url, timeout = 60_000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -22,15 +41,66 @@ async function ensureServices() {
   if (!(await ready(API)) || !(await ready(WEB))) throw new Error('BookieBall services did not start');
 }
 
-async function assertNoDocumentOverflow(page, label) {
-  const dimensions = await page.evaluate(() => ({
+async function pageDimensions(page) {
+  return page.evaluate(() => ({
     width: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
     height: document.documentElement.scrollHeight,
     clientHeight: document.documentElement.clientHeight,
   }));
+}
+
+async function assertNoHorizontalOverflow(page, label) {
+  const dimensions = await pageDimensions(page);
+  if (dimensions.width > dimensions.clientWidth + 2) {
+    throw new Error(`${label}: horizontal overflow ${dimensions.width}px > ${dimensions.clientWidth}px`);
+  }
+}
+
+async function assertNoDocumentOverflow(page, label) {
+  const dimensions = await pageDimensions(page);
   if (dimensions.width > dimensions.clientWidth + 2) throw new Error(`${label}: horizontal overflow ${dimensions.width}px > ${dimensions.clientWidth}px`);
   if (dimensions.height > dimensions.clientHeight + 2) throw new Error(`${label}: document scroll ${dimensions.height}px > ${dimensions.clientHeight}px`);
+}
+
+async function assertVisibleControlsInsideViewport(page, label) {
+  const controls = page.locator('button:visible, a.button:visible, .tab-button:visible');
+  const count = Math.min(await controls.count(), 30);
+  for (let index = 0; index < count; index += 1) {
+    const box = await controls.nth(index).boundingBox();
+    if (!box) continue;
+    const viewport = page.viewportSize();
+    if (!viewport) continue;
+    if (box.x < -2 || box.x + box.width > viewport.width + 2) {
+      throw new Error(`${label}: control ${index + 1} is clipped horizontally`);
+    }
+  }
+}
+
+async function assertGameshowDrawFits(page, label) {
+  const start = page.getByRole('button', { name: /start kick-off|start show|start/i }).first();
+  if (!(await start.count())) return;
+  if (!(await start.isEnabled().catch(() => false))) return;
+
+  await start.click();
+  const tombola = page.locator('.tombola-centrepiece').first();
+  if (!(await tombola.count())) return;
+  await tombola.waitFor({ state: 'visible', timeout: 10_000 });
+
+  const box = await tombola.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box || !viewport) return;
+  if (box.x < -2 || box.y < -2 || box.x + box.width > viewport.width + 2 || box.y + box.height > viewport.height + 2) {
+    throw new Error(`${label}: tombola is outside the viewport`);
+  }
+
+  const pickBall = page.getByRole('button', { name: /pick ball/i }).first();
+  if (await pickBall.count()) {
+    const pickBox = await pickBall.boundingBox();
+    if (!pickBox || pickBox.y + pickBox.height > viewport.height + 2) {
+      throw new Error(`${label}: Pick Ball is not visible inside the viewport`);
+    }
+  }
 }
 
 async function main() {
@@ -40,10 +110,20 @@ async function main() {
     for (const viewport of [{ width: 1706, height: 930 }, { width: 1440, height: 800 }, { width: 1366, height: 768 }]) {
       const context = await browser.newContext({ viewport });
       const page = await context.newPage();
-      await page.goto(`${WEB}/`, { waitUntil: 'networkidle' });
-      await page.locator('.command-centre-page').waitFor();
-      await assertNoDocumentOverflow(page, `Home ${viewport.width}x${viewport.height}`);
 
+      for (const route of ROUTES) {
+        await page.goto(`${WEB}${route.path}`, { waitUntil: route.path === '/gameshow' ? 'domcontentloaded' : 'networkidle' });
+        if (route.ready) await page.locator(route.ready).waitFor({ timeout: 10_000 });
+        if (route.path === '/gameshow') await page.waitForTimeout(900);
+
+        const label = `${route.label} ${viewport.width}x${viewport.height}`;
+        await assertNoHorizontalOverflow(page, label);
+        await assertVisibleControlsInsideViewport(page, label);
+        if (route.fit) await assertNoDocumentOverflow(page, label);
+        if (route.path === '/gameshow') await assertGameshowDrawFits(page, label);
+      }
+
+      await page.goto(`${WEB}/`, { waitUntil: 'networkidle' });
       const cards = page.locator('.command-fixture');
       if (await cards.count()) {
         for (let i = 0; i < Math.min(await cards.count(), 8); i += 1) {
@@ -55,9 +135,6 @@ async function main() {
         }
       }
 
-      await page.goto(`${WEB}/gameshow`, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1200);
-      await assertNoDocumentOverflow(page, `Kickoff Show ${viewport.width}x${viewport.height}`);
       await context.close();
     }
   } finally {
