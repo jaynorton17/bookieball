@@ -132,7 +132,7 @@ async function assertAnalyticsModes(page, viewport) {
   await page.goto(`${WEB}/reports`, { waitUntil: 'networkidle' });
   await page.locator('.analytics-v2').waitFor({ timeout: 15_000 });
   for (const mode of ['Overview', 'Races', 'Form', 'Rivalries', 'History', 'Records']) {
-    const button = page.locator('.av2-nav').getByRole('button', { name: mode, exact: true });
+    const button = page.locator('.av2-nav button').filter({ hasText: mode }).first();
     if (!(await button.count())) throw new Error(`Analytics ${viewport.width}x${viewport.height}: ${mode} tab missing`);
     await button.click();
     await page.waitForTimeout(180);
