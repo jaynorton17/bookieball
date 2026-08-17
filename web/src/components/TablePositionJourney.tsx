@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { TeamBadge } from './TeamBadge';
+import { RankMovementBadge, rankMovementFromJourney } from './RankMovementBadge';
 
 export type TableJourneyRow = {
   teamId: number;
@@ -24,7 +25,8 @@ type Props = {
 };
 
 function gwNumber(gw: string): number {
-  return Number(gw.replace('GW', '')) || 99;
+  const parsed = Number(gw.replace('GW', ''));
+  return Number.isFinite(parsed) ? parsed : 99;
 }
 
 function rowForTeam(snapshot: TableJourneySnapshot, teamId: number): TableJourneyRow | undefined {
@@ -96,6 +98,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
   }, [ordered.length, playbackMs, playing, step]);
 
   const current = ordered[Math.min(step, Math.max(0, ordered.length - 1))];
+  const movementSnapshots = ordered.slice(0, Math.min(step + 1, ordered.length));
   const width = Math.max(1, ordered.length - 1);
   const rankDenominator = Math.max(1, maxRank - 1);
   const currentRows = useMemo(() => teamRows
@@ -123,13 +126,22 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
     return <section ref={rootRef} className="table-position-journey is-empty"><div className="table-position-journey-head"><div><span>POSITION REPLAY</span><h4>{title}</h4></div></div><p className="muted">{emptyLabel}</p></section>;
   }
 
+  const statusLabel = current?.gw === 'GW0' && step === 0
+    ? 'STARTING GRID'
+    : step >= ordered.length - 1
+      ? 'CURRENT POSITION'
+      : playing
+        ? 'REPLAYING'
+        : 'PAUSED';
+  const displayTitle = ordered[0]?.gw === 'GW0' ? title.replace(/GW\d+ to current/i, 'GW0 to current') : title;
+
   return (
-    <section ref={rootRef} className={`table-position-journey${dense ? ' is-dense' : ''}`} aria-label={`${title} position journey`}>
+    <section ref={rootRef} className={`table-position-journey${dense ? ' is-dense' : ''}`} aria-label={`${displayTitle} position journey`}>
       <div className="table-position-journey-head">
-        <div><span>POSITION REPLAY</span><h4>{title}</h4>{dense && <p>Dense table replay · {playbackMs / 1000}s per gameweek</p>}</div>
+        <div><span>POSITION REPLAY</span><h4>{displayTitle}</h4>{dense && <p>Dense table replay · {playbackMs / 1000}s per gameweek</p>}</div>
         <div className="table-position-journey-now">
           <strong>{current?.gw ?? ordered[0].gw}</strong>
-          <small>{step >= ordered.length - 1 ? 'CURRENT POSITION' : playing ? 'REPLAYING' : 'PAUSED'}</small>
+          <small>{statusLabel}</small>
           <div className="table-position-controls">
             <button type="button" onClick={previous} disabled={step === 0}>‹ Prev</button>
             <button type="button" onClick={() => setPlaying((value) => !value)} disabled={step >= ordered.length - 1}>{playing ? 'Ⅱ Pause' : '▶ Play'}</button>
@@ -168,17 +180,18 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
               const row = current ? rowForTeam(current, team.teamId) : undefined;
               const left = ordered.length === 1 ? 0 : (step / width) * 100;
               const top = row ? ((row.rank - 1) / rankDenominator) * 100 : 100;
+              const move = rankMovementFromJourney(movementSnapshots, team.teamId);
               return <div key={team.teamId} className={`table-position-ball${row ? '' : ' is-away'}`} style={{ left: `${left}%`, top: `${top}%`, zIndex: row ? maxRank - row.rank + 2 : 1 }} title={row ? `${team.teamName} · ${current.gw} · #${row.rank}` : `${team.teamName} · not in this table at ${current?.gw ?? ''}`}>
                 <TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={dense ? 22 : 26} />
-                {!dense && <span>{team.teamName}<b>#{row?.rank ?? '—'}</b></span>}
+                {!dense && <span>{team.teamName}<b>#{row?.rank ?? '—'}</b><RankMovementBadge delta={move} compact /></span>}
               </div>;
             })}
           </div>
         </div>
 
         {dense && <aside className="table-position-key" aria-label={`${current?.gw ?? ''} ranking key`}>
-          <div className="table-position-key-head"><span>{current?.gw}</span><strong>LIVE RANK KEY</strong></div>
-          <div className="table-position-key-grid">{currentRows.map(({ team, row }) => <div key={`key-${team.teamId}`} className="table-position-key-row"><b>#{row.rank}</b><TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={17} /><span>{team.teamName}</span></div>)}</div>
+          <div className="table-position-key-head"><span>{current?.gw}</span><strong>{current?.gw === 'GW0' ? 'STARTING GRID' : 'LIVE RANK KEY'}</strong></div>
+          <div className="table-position-key-grid">{currentRows.map(({ team, row }) => <div key={`key-${team.teamId}`} className="table-position-key-row"><b>#{row.rank}</b><TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={17} /><span>{team.teamName}</span><RankMovementBadge delta={rankMovementFromJourney(movementSnapshots, team.teamId)} compact /></div>)}</div>
         </aside>}
       </div>
     </section>

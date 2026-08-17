@@ -26,6 +26,28 @@ function decorate(row: { teamId: number; teamName: string; rank: number; divisio
   };
 }
 
+function preseasonSnapshot(rows: TableJourneyRow[]): TableJourneySnapshot {
+  const grouped = new Map<string, TableJourneyRow[]>();
+  rows.forEach((row) => {
+    const key = row.division ?? '__all__';
+    const group = grouped.get(key) ?? [];
+    group.push(row);
+    grouped.set(key, group);
+  });
+
+  const preseasonRows = [...grouped.values()].flatMap((group) => group
+    .slice()
+    .sort((a, b) => a.teamName.localeCompare(b.teamName))
+    .map((row, index) => ({ ...row, rank: index + 1 })));
+
+  return { gw: 'GW0', rows: preseasonRows };
+}
+
+function withPreseason(snapshots: TableJourneySnapshot[]): TableJourneySnapshot[] {
+  if (!snapshots.length || snapshots.some((snapshot) => snapshot.gw === 'GW0')) return snapshots;
+  return [preseasonSnapshot(snapshots[0].rows), ...snapshots];
+}
+
 export async function loadDivisionTableJourney(
   currentSeason: string,
   currentGw: string,
@@ -63,23 +85,26 @@ export async function loadDivisionTableJourney(
     return rows.length ? { gw, rows } : null;
   }));
 
-  return historical.filter((snapshot): snapshot is TableJourneySnapshot => !!snapshot);
+  return withPreseason(historical.filter((snapshot): snapshot is TableJourneySnapshot => !!snapshot));
 }
 
 export async function loadMasterTableJourney(currentGw: string): Promise<TableJourneySnapshot[]> {
   const gws = gameweeksThrough(currentGw);
   const responses = await Promise.all(gws.map((gw) => api.masterLeagueTable(gw).catch(() => null)));
-  return responses.flatMap((response, index) => response ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  const snapshots = responses.flatMap((response, index) => response ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  return withPreseason(snapshots);
 }
 
 export async function loadTrioTableJourney(currentGw: string): Promise<TableJourneySnapshot[]> {
   const gws = gameweeksThrough(currentGw);
   const responses = await Promise.all(gws.map((gw) => api.trioLeagueTable(gw).catch(() => null)));
-  return responses.flatMap((response, index) => response?.enabled ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  const snapshots = responses.flatMap((response, index) => response?.enabled ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  return withPreseason(snapshots);
 }
 
 export async function loadTierTableJourney(currentGw: string, startGw: string): Promise<TableJourneySnapshot[]> {
   const gws = gameweeksThrough(currentGw, startGw);
   const responses = await Promise.all(gws.map((gw) => api.tierLeagueTable(gw).catch(() => null)));
-  return responses.flatMap((response, index) => response?.enabled && response.started ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  const snapshots = responses.flatMap((response, index) => response?.enabled && response.started ? [{ gw: gws[index], rows: response.table.map((row) => decorate(row, new Map())) }] : []);
+  return withPreseason(snapshots);
 }
