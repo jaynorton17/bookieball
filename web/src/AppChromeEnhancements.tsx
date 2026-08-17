@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from './lib/api';
 import { onBookieBallEvent } from './lib/appEvents';
@@ -15,29 +15,6 @@ function score(value: number): string {
 
 export function AppChromeEnhancements() {
   const location = useLocation();
-  const [penaltyCount, setPenaltyCount] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        const queue = await api.penaltyQueue();
-        if (active) setPenaltyCount(queue.length);
-      } catch {
-        if (active) setPenaltyCount(0);
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
-    const offMutation = onBookieBallEvent('data-mutated', () => void refresh());
-    const offGameweek = onBookieBallEvent('gameweek-changed', () => void refresh());
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      offMutation();
-      offGameweek();
-    };
-  }, []);
 
   useEffect(() => {
     document.body.classList.toggle('gameshow-laptop-mode', location.pathname === '/gameshow');
@@ -47,27 +24,6 @@ export function AppChromeEnhancements() {
       document.body.classList.remove('command-centre-laptop-mode');
     };
   }, [location.pathname]);
-
-  useEffect(() => {
-    const nav = document.querySelector('.topbar-nav');
-    if (!nav) return;
-    let penaltyLink = nav.querySelector<HTMLAnchorElement>('a[data-penalties-nav="true"]');
-    if (!penaltyLink) {
-      penaltyLink = document.createElement('a');
-      penaltyLink.href = '/penalty-shootout';
-      penaltyLink.dataset.penaltiesNav = 'true';
-      penaltyLink.className = 'topbar-nav-link penalties-nav-link';
-      penaltyLink.addEventListener('click', (event) => {
-        event.preventDefault();
-        window.history.pushState({}, '', '/penalty-shootout');
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      });
-      nav.appendChild(penaltyLink);
-    }
-    penaltyLink.textContent = penaltyCount > 0 ? `Penalties (${penaltyCount})` : 'Penalties';
-    penaltyLink.classList.toggle('active', location.pathname === '/penalty-shootout');
-    penaltyLink.classList.toggle('penalties-live', penaltyCount > 0);
-  }, [location.pathname, penaltyCount]);
 
   useEffect(() => {
     if (location.pathname !== '/gameshow') return;
