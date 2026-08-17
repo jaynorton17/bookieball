@@ -92,16 +92,19 @@ export function TierLeaguePage() {
         <LeagueTabs activeId="tier" />
         {message && <div className="panel"><p className="muted">{message}</p></div>}
 
-        <section className="tier-pyramid" aria-label="Tier League pyramid">
+        <section className="tier-pyramid tier-pyramid-primary" aria-label="Tier League pyramid">
           {TIER_DIVISION_ORDER.map((division, index) => {
             const group = tableByDivision.find((entry) => entry.division === division);
             return (
-              <div key={division} className="tier-pyramid-level" style={{ '--tier-index': index } as React.CSSProperties}>
-                <strong className="tier-pyramid-name">{division}</strong>
-                <div className="tier-pyramid-teams">
-                  {(group?.rows ?? []).map((row) => <div key={row.teamId} className="tier-pyramid-team" title={`${row.points} pts · ${formatProfit(row.profit)}`}><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={22} /><span>{row.teamName}</span><b>#{row.rank}</b></div>)}
-                  {!group?.rows.length && <span className="muted">{started ? 'Waiting for standings' : 'Seeds appear when competition starts'}</span>}
+              <div key={division} className="tier-pyramid-level-wrap">
+                <div className="tier-pyramid-level" style={{ '--tier-index': index } as React.CSSProperties}>
+                  <strong className="tier-pyramid-name">{division}</strong>
+                  <div className="tier-pyramid-teams">
+                    {(group?.rows ?? []).map((row) => <div key={row.teamId} className="tier-pyramid-team" title={`${row.points} pts · ${formatProfit(row.profit)}`}><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={24} /><span>{row.teamName}</span><b>{row.points} pts</b></div>)}
+                    {!group?.rows.length && <span className="muted">{started ? 'Waiting for standings' : 'Seeds appear when competition starts'}</span>}
+                  </div>
                 </div>
+                {index < TIER_DIVISION_ORDER.length - 1 ? <div className="tier-pyramid-flow" aria-hidden="true"><span>↑ PROMOTION</span><i>↕</i><span>RELEGATION ↓</span></div> : null}
               </div>
             );
           })}
@@ -116,14 +119,17 @@ export function TierLeaguePage() {
           )}
         </div>
 
-        <div className="tier-table-grid">
-          {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
-            <section key={`tier-table-${group.division}`} className="panel tier-table-card">
-              <h3>{group.division}</h3>
-              {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
-            </section>
-          ))}
-        </div>
+        <details className="panel tier-detail-tables">
+          <summary><strong>Detailed Tier Tables</strong> <span className="muted">· points, profit and form</span></summary>
+          <div className="tier-table-grid" style={{ marginTop: 8 }}>
+            {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
+              <section key={`tier-table-${group.division}`} className="panel tier-table-card">
+                <h3>{group.division}</h3>
+                {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
+              </section>
+            ))}
+          </div>
+        </details>
 
         <details className="panel"><summary><strong>Season Fixture Board</strong> <span className="muted">· {fixtures.length} fixtures</span></summary><div className="tier-season-board">{fixturesByGw.map((group) => <div key={group.gw}><h4>{group.gw}</h4>{group.rows.map((fixture) => <div key={fixture.id} className="master-fixture-row"><span>{fixture.homeTeam}</span><b>{fixture.result === 'pending' ? 'vs' : `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`}</b><span>{fixture.awayTeam}</span></div>)}</div>)}</div></details>
       </div>
