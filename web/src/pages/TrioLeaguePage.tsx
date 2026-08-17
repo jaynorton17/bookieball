@@ -18,6 +18,10 @@ function stageLabel(fixture: TrioFixture): string {
   return 'League';
 }
 
+function RouteTeam({ row, label }: { row?: TrioTableRow; label: string }) {
+  return <div className="trio-route-team"><span>{label}</span>{row ? <><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={22} /><strong>{row.teamName}</strong><b>{row.points} pts</b></> : <em>TBD</em>}</div>;
+}
+
 export function TrioLeaguePage() {
   const [state, setState] = useState<{ currentSeason: string; currentGw: string } | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -78,26 +82,29 @@ export function TrioLeaguePage() {
     <section className="page page-wide competition-page competition-page-trio">
       <div className="competition-page-shell">
         <header className="trio-identity-head">
-          <div><span className="competition-page-kicker">Three-Tier Ladder</span><h1>Trio League</h1><p className="muted">{state ? `${state.currentSeason} ${state.currentGw}` : 'Loading…'} · league phase to GW6 · playoffs GW7–GW8</p></div>
+          <div><span className="competition-page-kicker">Promotion Race</span><h1>Trio League</h1><p className="muted">{state ? `${state.currentSeason} ${state.currentGw}` : 'Loading…'} · league phase to GW6 · playoffs GW7–GW8</p></div>
           <div className="trio-identity-key"><span>1st · auto promotion</span><span>2nd–5th · playoffs</span><span>GW8 · promotion final</span></div>
         </header>
 
         <LeagueTabs activeId="trio" />
         {message && <div className="panel"><p className="muted">{message}</p></div>}
 
-        <section className="trio-groups-visual" aria-label="Trio League groups">
+        <section className="trio-promotion-routes" aria-label="Trio League promotion routes">
           {TRIO_DIVISION_ORDER.map((division) => {
             const group = tableByDivision.find((entry) => entry.division === division);
-            const leaders = (group?.rows ?? []).slice(0, 3);
-            return (
-              <article key={division} className="trio-group-visual">
-                <h3>{division}</h3>
-                <div className="trio-triangle">
-                  {leaders.map((row) => <div key={row.teamId} className="trio-triangle-team"><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={22} /><span>{row.teamName}</span><b>#{row.rank}</b></div>)}
-                  {leaders.length === 0 && <span className="muted">Standings will appear here</span>}
+            const rows = group?.rows ?? [];
+            return <article key={division} className="trio-route-card">
+              <div className="trio-route-head"><h3>{division}</h3><span>PROMOTION ROUTE</span></div>
+              <div className="trio-auto-promote"><RouteTeam row={rows[0]} label="1ST · AUTO PROMOTED" /></div>
+              <div className="trio-route-bracket">
+                <div className="trio-route-semis">
+                  <div><RouteTeam row={rows[1]} label="2ND" /><i>VS</i><RouteTeam row={rows[4]} label="5TH" /></div>
+                  <div><RouteTeam row={rows[2]} label="3RD" /><i>VS</i><RouteTeam row={rows[3]} label="4TH" /></div>
                 </div>
-              </article>
-            );
+                <div className="trio-route-arrow">→</div>
+                <div className="trio-route-final"><span>GW8</span><strong>PROMOTION FINAL</strong><small>Winners of both semis</small></div>
+              </div>
+            </article>;
           })}
         </section>
 
@@ -112,19 +119,22 @@ export function TrioLeaguePage() {
 
         {playoffFixtures.length > 0 && (
           <section className="panel">
-            <div className="panel-header"><div><h3>Promotion Playoffs</h3><p className="muted">2nd v 5th and 3rd v 4th feed the GW8 final</p></div><span className="news-chip">{playoffFixtures.length} ties</span></div>
+            <div className="panel-header"><div><h3>Live Promotion Playoffs</h3><p className="muted">Actual GW7–GW8 playoff ties</p></div><span className="news-chip">{playoffFixtures.length} ties</span></div>
             <div className="tier-current-fixtures">{playoffFixtures.map((fixture) => <article key={`playoff-${fixture.id}`} className="tier-fixture-card is-cross"><span>{fixture.gw} · {fixture.division} · {stageLabel(fixture)}</span><strong>{fixture.homeTeam}</strong><b>{fixture.result === 'pending' ? 'VS' : `${formatProfit(fixture.homeProfit)} · ${formatProfit(fixture.awayProfit)}`}</b><strong>{fixture.awayTeam}</strong></article>)}</div>
           </section>
         )}
 
-        <div className="trio-groups-visual">
-          {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
-            <section key={`table-${group.division}`} className="panel tier-table-card">
-              <h3>{group.division}</h3>
-              {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId, group.division).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
-            </section>
-          ))}
-        </div>
+        <details className="panel trio-detail-tables">
+          <summary><strong>Detailed Trio Tables</strong> <span className="muted">· points, profit and form</span></summary>
+          <div className="trio-groups-visual" style={{ marginTop: 8 }}>
+            {loading ? <div className="panel"><p className="muted">Loading standings…</p></div> : tableByDivision.map((group) => (
+              <section key={`table-${group.division}`} className="panel tier-table-card">
+                <h3>{group.division}</h3>
+                {group.rows.map((row) => <div key={row.teamId} className="tier-table-row"><b>#{row.rank}</b><TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><strong>{row.teamName}</strong><span>{row.points} pts</span><span>{formatProfit(row.profit)}</span><div className="form-mini-row">{formForTeam(row.teamId, group.division).map((result, i) => <i key={`${row.teamId}-${i}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</i>)}</div></div>)}
+              </section>
+            ))}
+          </div>
+        </details>
 
         <details className="panel"><summary><strong>Season Fixture Board</strong> <span className="muted">· {fixtures.length} fixtures</span></summary><div className="tier-season-board">{fixturesByGw.map((group) => <div key={group.gw}><h4>{group.gw}</h4>{group.rows.map((fixture) => <div key={fixture.id} className="master-fixture-row"><span>{fixture.homeTeam}</span><b>{fixture.result === 'pending' ? 'vs' : `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`}</b><span>{fixture.awayTeam}</span></div>)}</div>)}</div></details>
       </div>
