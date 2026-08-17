@@ -28,9 +28,7 @@ type CardRecord = {
   currentStreak: string;
 };
 
-function signed(value: number): string {
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
-}
+function signed(value: number): string { return `${value > 0 ? '+' : ''}${value.toFixed(2)}`; }
 function norm(name: string): string { return name.trim().toLowerCase(); }
 function pairKey(home: string, away: string): string { return `${norm(home)}|${norm(away)}`; }
 function recentResult(meeting: RivalryAnalytics['recentMeetings'][number], teamName: string): 'W' | 'D' | 'L' {
@@ -64,15 +62,14 @@ export function HeadToHeadPage() {
   }, []);
 
   const teamByName = useMemo(() => new Map(teams.map((team) => [team.name, team])), [teams]);
-  const currentFixtures = useMemo(() => fixtures.filter((fixture) => fixture.gw === (state?.currentGw ?? 'GW1')), [fixtures, state?.currentGw]);
   const divisionOrder = useMemo(() => getDivisionOrderForSeason(state?.currentSeason ?? null), [state?.currentSeason]);
-
-  const groups = useMemo(() => {
-    const order = divisionOrder.length > 0 ? divisionOrder : [...new Set(currentFixtures.map((fixture) => fixture.division))];
-    return order
-      .map((division) => [division, currentFixtures.filter((fixture) => fixture.division === division)] as const)
-      .filter(([, rows]) => rows.length > 0);
-  }, [currentFixtures, divisionOrder]);
+  const currentFixtures = useMemo(() => {
+    const order = new Map(divisionOrder.map((division, index) => [division, index]));
+    return fixtures
+      .filter((fixture) => fixture.gw === (state?.currentGw ?? 'GW1'))
+      .slice()
+      .sort((a, b) => (order.get(a.division) ?? 99) - (order.get(b.division) ?? 99) || a.id - b.id);
+  }, [fixtures, state?.currentGw, divisionOrder]);
 
   const recordsByPair = useMemo(() => {
     const map = new Map<string, CardRecord>();
@@ -107,7 +104,7 @@ export function HeadToHeadPage() {
   };
 
   return (
-    <section className="page page-wide">
+    <section className="page page-wide h2h-board-page">
       <div className="h2h-page-head">
         <div>
           <h1>Head to Head</h1>
@@ -116,51 +113,43 @@ export function HeadToHeadPage() {
         <span className="news-chip">{currentFixtures.length} live matchups</span>
       </div>
 
-      {currentFixtures.length === 0 && <p className="muted">No fixtures loaded for this gameweek.</p>}
-
-      {groups.map(([division, divisionFixtures]) => (
-        <section key={division} className="h2h-division-block">
-          <div className="h2h-division-head">
-            <h2>{displayDivisionName(division)}</h2>
-            <span className="muted">{divisionFixtures.length} fixture{divisionFixtures.length === 1 ? '' : 's'}</span>
-          </div>
-          <div className="h2h-fight-grid">
-            {divisionFixtures.map((fixture) => {
-              const record = recordsByPair.get(pairKey(fixture.homeTeam, fixture.awayTeam));
-              const latest = record?.lastMeeting;
-              const home = teamByName.get(fixture.homeTeam);
-              const away = teamByName.get(fixture.awayTeam);
-              return (
-                <article key={fixture.id} className="h2h-fight-card" onClick={() => openH2h(fixture)}>
-                  <div className="h2h-fight-top">
-                    <span>{fixture.gw} · {fixture.result === 'pending' ? 'To Play' : 'Resolved'}</span>
-                    <span>{record ? `${record.played} meetings` : 'Loading rivalry…'}</span>
+      {currentFixtures.length === 0 ? <p className="muted">No fixtures loaded for this gameweek.</p> : (
+        <div className="h2h-fight-grid h2h-fight-grid-flat">
+          {currentFixtures.map((fixture) => {
+            const record = recordsByPair.get(pairKey(fixture.homeTeam, fixture.awayTeam));
+            const latest = record?.lastMeeting;
+            const home = teamByName.get(fixture.homeTeam);
+            const away = teamByName.get(fixture.awayTeam);
+            return (
+              <article key={fixture.id} className="h2h-fight-card" onClick={() => openH2h(fixture)}>
+                <div className="h2h-fight-top">
+                  <span>{displayDivisionName(fixture.division)} · {fixture.gw}</span>
+                  <span>{record ? `${record.played} meetings` : 'Loading rivalry…'}</span>
+                </div>
+                <div className="h2h-fight-main">
+                  <div className="h2h-fight-team">
+                    <TeamBadge name={fixture.homeTeam} ballColor={home?.ballColor ?? null} ringColor={home?.ringColor ?? null} textColor={home?.textColor ?? null} size={32} />
+                    <span>{fixture.homeTeam}</span>
                   </div>
-                  <div className="h2h-fight-main">
-                    <div className="h2h-fight-team">
-                      <TeamBadge name={fixture.homeTeam} ballColor={home?.ballColor ?? null} ringColor={home?.ringColor ?? null} textColor={home?.textColor ?? null} size={32} />
-                      <span>{fixture.homeTeam}</span>
-                    </div>
-                    <div className="h2h-fight-score">
-                      <strong>{record ? `${record.teamAWins} — ${record.draws} — ${record.teamBWins}` : '— VS —'}</strong>
-                      <span>ALL-TIME W · D · W</span>
-                    </div>
-                    <div className="h2h-fight-team">
-                      <span>{fixture.awayTeam}</span>
-                      <TeamBadge name={fixture.awayTeam} ballColor={away?.ballColor ?? null} ringColor={away?.ringColor ?? null} textColor={away?.textColor ?? null} size={32} />
-                    </div>
+                  <div className="h2h-fight-score">
+                    <strong>{record ? `${record.teamAWins} — ${record.draws} — ${record.teamBWins}` : '— VS —'}</strong>
+                    <span>W · D · W</span>
                   </div>
-                  {record?.recentMeetings.length ? <div className="h2h-last-five"><span>LAST 5</span><div>{record.recentMeetings.map((meeting, index) => { const result = recentResult(meeting, fixture.homeTeam); return <i key={`${meeting.season}-${meeting.gw}-${index}`} className={`is-${result.toLowerCase()}`} title={`${meeting.season} ${meeting.gw}`}>{result}</i>; })}</div><strong>{record.currentStreak}</strong></div> : null}
-                  <div className="h2h-fight-foot">
-                    <span>{latest ? `Previous: ${latest.season} ${latest.gw} · ${latest.homeTeam} ${signed(latest.homeProfit)} vs ${signed(latest.awayProfit)} ${latest.awayTeam}` : 'No previous meeting'}</span>
-                    <span>Click for full series</span>
+                  <div className="h2h-fight-team">
+                    <span>{fixture.awayTeam}</span>
+                    <TeamBadge name={fixture.awayTeam} ballColor={away?.ballColor ?? null} ringColor={away?.ringColor ?? null} textColor={away?.textColor ?? null} size={32} />
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+                </div>
+                {record?.recentMeetings.length ? <div className="h2h-last-five"><span>LAST 5</span><div>{record.recentMeetings.map((meeting, index) => { const result = recentResult(meeting, fixture.homeTeam); return <i key={`${meeting.season}-${meeting.gw}-${index}`} className={`is-${result.toLowerCase()}`} title={`${meeting.season} ${meeting.gw}`}>{result}</i>; })}</div><strong>{record.currentStreak}</strong></div> : null}
+                <div className="h2h-fight-foot">
+                  <span>{latest ? `Previous: ${latest.season} ${latest.gw} · ${latest.homeTeam} ${signed(latest.homeProfit)} vs ${signed(latest.awayProfit)} ${latest.awayTeam}` : 'No previous meeting'}</span>
+                  <span>Open series</span>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
 
       {h2h && <HeadToHeadModal teamA={h2h.teamA} teamB={h2h.teamB} context={h2h.context} onClose={() => setH2h(null)} />}
     </section>
