@@ -18,6 +18,7 @@ export function EntryKeyboardEnhancements() {
     if (location.pathname !== '/entries') return undefined;
     let panel: HTMLElement | null = null;
     let cleanupPanel: (() => void) | null = null;
+    let observer: MutationObserver | null = null;
 
     const attach = () => {
       if (panel?.isConnected) return;
@@ -25,6 +26,7 @@ export function EntryKeyboardEnhancements() {
       panel = findManualPanel();
       if (!panel) return;
 
+      observer?.disconnect();
       panel.classList.add('entry-keyboard-ready');
       const teamSelect = panel.querySelector<HTMLSelectElement>('select');
       window.setTimeout(() => teamSelect?.focus(), 80);
@@ -42,13 +44,12 @@ export function EntryKeyboardEnhancements() {
         }
 
         if (event.key !== 'Enter' || target instanceof HTMLSelectElement) return;
-        if (!(target instanceof HTMLInputElement)) return;
-        if (target.type === 'checkbox') return;
+        if (!(target instanceof HTMLInputElement) || target.type === 'checkbox') return;
 
         event.preventDefault();
         const fields = enabledInputs(panel);
         const index = fields.indexOf(target);
-        const next = fields.slice(index + 1).find((field) => !(field instanceof HTMLInputElement) || !field.disabled);
+        const next = fields.slice(index + 1)[0];
         if (next) {
           next.focus();
           if (next instanceof HTMLInputElement && next.type === 'number') next.select();
@@ -65,10 +66,13 @@ export function EntryKeyboardEnhancements() {
     };
 
     attach();
-    const observer = new MutationObserver(attach);
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (!panel) {
+      observer = new MutationObserver(attach);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       cleanupPanel?.();
     };
   }, [location.pathname]);
