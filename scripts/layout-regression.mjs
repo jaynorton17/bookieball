@@ -9,6 +9,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const ROUTES = [
   { path: '/', label: 'Home', fit: true, ready: '.command-centre-page' },
   { path: '/gameshow', label: 'Gameshow', fit: true },
+  { path: '/season-finale', label: 'Season Finale', fit: true },
+  { path: '/leagues', label: 'Leagues Hub', fit: true },
   { path: '/league', label: 'Divisions', fit: true },
   { path: '/master-league', label: 'Master League', fit: true },
   { path: '/trio-league', label: 'Trio League', fit: true },
@@ -19,10 +21,21 @@ const ROUTES = [
   { path: '/head-to-head', label: 'Head to Head', fit: true },
   { path: '/reports', label: 'Analytics', fit: true },
   { path: '/trophy-room', label: 'Trophy Room', fit: true },
+  { path: '/sky-sports-news', label: 'SSN Hub', fit: true },
+  { path: '/sky-sports-news/show', label: 'SSN Show', fit: true },
+  { path: '/studio/sny-news-new', label: 'SNY Studio', fit: true },
+  { path: '/penalty-shootout', label: 'Penalty Shootout', fit: true },
   { path: '/fixtures', label: 'Fixtures', allowDocumentScroll: true },
-  { path: '/insights', label: 'Insights', allowDocumentScroll: true },
+  { path: '/cup-draw', label: 'Cup Draw', allowDocumentScroll: true },
+  { path: '/all-time-league', label: 'All-Time Points', allowDocumentScroll: true },
+  { path: '/all-time-spins-league', label: 'All-Time Spins', allowDocumentScroll: true },
+  { path: '/all-time-profit-league', label: 'All-Time Profit', allowDocumentScroll: true },
+  { path: '/insights', label: 'Tools', allowDocumentScroll: true },
   { path: '/entries', label: 'Manual Entry', allowDocumentScroll: true },
+  { path: '/settings-hub', label: 'Settings Hub', allowDocumentScroll: true },
   { path: '/settings', label: 'Settings', allowDocumentScroll: true },
+  { path: '/matchday', label: 'Matchday', allowDocumentScroll: true },
+  { path: '/reporting', label: 'Detailed Reporting', allowDocumentScroll: true },
 ];
 const PRIMARY_FIT_SELECTOR = [
   '.competition-page-hero:visible', '.h2h-fight-card:visible', '.trophy-cabinet-stat:visible', '.trophy-shelf:visible',
@@ -128,9 +141,10 @@ async function main() {
 
       for (const route of ROUTES) {
         runtimeErrors.length = 0;
-        await page.goto(`${WEB}${route.path}`, { waitUntil: route.path === '/gameshow' ? 'domcontentloaded' : 'networkidle' });
+        const lightLoad = route.path === '/gameshow' || route.path === '/season-finale' || route.path.includes('sky-sports-news') || route.path.includes('sny-news');
+        await page.goto(`${WEB}${route.path}`, { waitUntil: lightLoad ? 'domcontentloaded' : 'networkidle' });
         if (route.ready) await page.locator(route.ready).waitFor({ timeout: 10_000 });
-        if (route.path === '/gameshow') await page.waitForTimeout(900);
+        if (lightLoad) await page.waitForTimeout(900);
         const label = `${route.label} ${viewport.width}x${viewport.height}`;
         if (runtimeErrors.length) throw new Error(`${label}: browser runtime error: ${runtimeErrors[0]}`);
         await assertNoErrorBoundary(page, label);
