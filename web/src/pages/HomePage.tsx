@@ -25,7 +25,15 @@ type Rating = Awaited<ReturnType<typeof api.teamRatings>>[number];
 type BookieDor = Awaited<ReturnType<typeof api.bookieDor>>;
 type ReportPack = Awaited<ReturnType<typeof api.reportPack>>;
 
-type Row = { rank: number; name: string; value: string; detail?: string; teamId?: number };
+type Row = {
+  rank: number;
+  name: string;
+  value: string;
+  detail?: string;
+  teamId?: number;
+  teamAId?: number;
+  teamBId?: number;
+};
 type Slide = {
   id: string;
   kicker: string;
@@ -88,9 +96,6 @@ function rowsFor<T extends { teamId: number; teamName: string }>(rows: T[], valu
     teamId: row.teamId,
   }));
 }
-function analyticsRows(rows: TeamAllTimeAnalytics[], value: (row: TeamAllTimeAnalytics) => string, detail: (row: TeamAllTimeAnalytics) => string): Row[] {
-  return rows.map((row, index) => ({ rank: index + 1, name: row.teamName, value: value(row), detail: detail(row), teamId: row.teamId }));
-}
 function fixtureBelongsToRows(fixture: CommandFixture, rows: Array<{ teamName: string }>): boolean {
   const members = new Set(rows.map((row) => norm(row.teamName)));
   return members.has(norm(fixture.homeTeam)) || members.has(norm(fixture.awayTeam));
@@ -113,6 +118,18 @@ function buildMarket(h2h: FixtureH2H | null, homeRating: number | null, awayRati
   away = Math.max(0.08, away);
   const sum = home + draw + away;
   return { home: home / sum, draw: draw / sum, away: away / sum };
+}
+function previousMeetingLabel(rivalry: RivalryAnalytics): string {
+  const previous = rivalry.lastMeeting;
+  if (!previous) return 'No previous meeting recorded.';
+  const outcome = previous.result === 'draw'
+    ? 'Draw'
+    : previous.result === 'home'
+      ? `${previous.homeTeam} won`
+      : previous.result === 'away'
+        ? `${previous.awayTeam} won`
+        : 'Result pending';
+  return `${previous.season} ${previous.gw} · ${previous.homeTeam} ${signed(previous.homeProfit)} vs ${signed(previous.awayProfit)} ${previous.awayTeam} · ${outcome}`;
 }
 
 export function HomePage() {
@@ -274,17 +291,26 @@ export function HomePage() {
       out.push({ id: 'all-time-spins', kicker: '16-SEASON ARCHIVE', title: 'Spin Kings', subtitle: 'Most spins in BookieBall history', tone: 'blue', metric: String(data.allTime.spinsTable[0]?.spins ?? 0), metricLabel: data.allTime.spinsTable[0]?.teamName ?? '', rows: rowsFor(data.allTime.spinsTable, (row) => `${row.spins} spins`, (row) => `${row.played} games · ${signed(row.profit)} profit`) });
     }
 
-    if (archive?.teams.length) {
-      const byElo = archive.teams.slice().sort((a, b) => b.elo - a.elo);
-      const byPeak = archive.teams.slice().sort((a, b) => b.peakElo - a.peakElo);
-      out.push({ id: 'dominance', kicker: 'HISTORICAL POWER', title: 'Dominance Index', subtitle: 'Elo · points · win rate · profit', tone: 'gold', metric: archive.teams[0].dominanceIndex.toFixed(1), metricLabel: archive.teams[0].teamName, rows: analyticsRows(archive.teams, (row) => row.dominanceIndex.toFixed(1), (row) => `${row.wins} wins · ${(row.winRate * 100).toFixed(0)}% · ${signed(row.profit)}`) });
-      out.push({ id: 'elo', kicker: 'HISTORICAL POWER', title: 'All-Time Elo', subtitle: 'Strength across every season', tone: 'blue', metric: byElo[0].elo.toFixed(0), metricLabel: byElo[0].teamName, rows: analyticsRows(byElo, (row) => row.elo.toFixed(0), (row) => `Peak ${row.peakElo.toFixed(0)} · ${row.played} matches`) });
-      out.push({ id: 'peak-elo', kicker: 'HISTORICAL RECORD', title: 'Peak Ratings', subtitle: 'Highest level each team has reached', tone: 'red', metric: byPeak[0].peakElo.toFixed(0), metricLabel: byPeak[0].teamName, rows: analyticsRows(byPeak, (row) => row.peakElo.toFixed(0), (row) => `Current ${row.elo.toFixed(0)} · ${row.wins} wins`) });
-    }
-
     if (archive?.rivalries.length) {
-      const top = archive.rivalries.slice(0, 12);
-      out.push({ id: 'rivalries', kicker: 'RIVALRY INDEX', title: 'Biggest Rivalries', subtitle: 'Most-played and closest all-time pairings', tone: 'red', metric: String(top[0].meetings), metricLabel: `${top[0].teamAName} vs ${top[0].teamBName}`, rows: top.map((row, index) => ({ rank: index + 1, name: `${row.teamAName} vs ${row.teamBName}`, value: `${row.teamAWins}-${row.draws}-${row.teamBWins}`, detail: `${row.meetings} meetings · ${(row.closeness * 100).toFixed(0)}% closeness` })) });
+      archive.rivalries.slice(0, 6).forEach((row, index) => {
+        out.push({
+          id: `rivalry-${index + 1}`,
+          kicker: `BIGGEST RIVALRY #${index + 1}`,
+          title: `${row.teamAName} vs ${row.teamBName}`,
+          subtitle: `${row.meetings} all-time meetings`,
+          tone: 'red',
+          metric: String(row.meetings),
+          metricLabel: 'meetings',
+          rows: [{
+            rank: index + 1,
+            name: `${row.teamAName} vs ${row.teamBName}`,
+            value: `${row.teamAWins} - ${row.draws} - ${row.teamBWins}`,
+            detail: previousMeetingLabel(row),
+            teamAId: row.teamAId,
+            teamBId: row.teamBId,
+          }],
+        });
+      });
     }
 
     if (data.ratings.length) {
