@@ -1179,11 +1179,11 @@ type KickoffSpinCarouselProps = {
   lockedId?: string | null;
 };
 
-const KICKOFF_CAROUSEL_STEP_MS = 160;
-const KICKOFF_CAROUSEL_SLOW_STEP_MS = 260;
-const KICKOFF_CAROUSEL_HOLD_MS = 1100;
-const KICKOFF_CAROUSEL_START_DELAY_MS = 120;
-const KICKOFF_CAROUSEL_PASSES = 4;
+const KICKOFF_CAROUSEL_STEP_MS = 80;
+const KICKOFF_CAROUSEL_SLOW_STEP_MS = 130;
+const KICKOFF_CAROUSEL_HOLD_MS = 600;
+const KICKOFF_CAROUSEL_START_DELAY_MS = 60;
+const KICKOFF_CAROUSEL_PASSES = 2;
 
 function waitForKickoffCarousel(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
