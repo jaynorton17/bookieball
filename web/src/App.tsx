@@ -70,7 +70,7 @@ const topNavLinks: TopNavLink[] = [
   { to: '/reports', label: 'Analytics' },
   { to: '/entries', label: 'Manual Entry' },
   { to: '/penalty-shootout', label: 'Penalties' },
-  { to: '/insights', label: 'Tools' },
+  { to: '/settings-hub', label: 'Tools' },
 ];
 
 function penaltyCompetitionLabel(competition: PenaltyCompetition): string {
@@ -136,14 +136,11 @@ export function App() {
     const refresh = async () => {
       try {
         const next = await api.state();
-        if (active) {
-          setState({ currentSeason: next.currentSeason, currentGw: next.currentGw, gwLocked: next.gwLocked });
-        }
+        if (active) setState({ currentSeason: next.currentSeason, currentGw: next.currentGw, gwLocked: next.gwLocked });
       } catch {
         // Header status is non-critical; keep the last known state on transient errors.
       }
     };
-
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15_000);
     const offMutation = onBookieBallEvent('data-mutated', () => void refresh());
@@ -158,14 +155,12 @@ export function App() {
 
   useEffect(() => {
     if (!allowGlobalPenaltyPrompt) setPenaltyModalOpen(false);
-
     let active = true;
     const loadPenaltyQueue = async () => {
       const requestId = ++penaltyQueueRequestRef.current;
       try {
         const queue = sortPenaltyQueue(await api.penaltyQueue().catch(() => [] as PenaltyTieFixture[]));
         if (!active || requestId !== penaltyQueueRequestRef.current) return;
-
         setPenaltyTieQueue(queue);
         setPenaltyTieIndex((current) => (queue.length === 0 ? 0 : Math.min(current, queue.length - 1)));
 
@@ -178,16 +173,11 @@ export function App() {
         const signature = penaltyQueueSignature(queue);
         if (allowGlobalPenaltyPrompt && dismissedPenaltySignature !== signature) setPenaltyModalOpen(true);
         if (!allowGlobalPenaltyPrompt) setPenaltyModalOpen(false);
-
         if (!allowGlobalPenaltyPrompt) return;
+
         const teams = await api.teams().catch(() => [] as Array<{ id: number; name: string; ballColor: string | null; ringColor: string | null }>);
         if (!active || requestId !== penaltyQueueRequestRef.current) return;
-        setPenaltyTeams(teams.map((team) => ({
-          id: team.id,
-          name: team.name,
-          ballColor: team.ballColor ?? null,
-          ringColor: team.ringColor ?? null,
-        })));
+        setPenaltyTeams(teams.map((team) => ({ id: team.id, name: team.name, ballColor: team.ballColor ?? null, ringColor: team.ringColor ?? null })));
       } catch {
         if (active && requestId === penaltyQueueRequestRef.current) setPenaltyTieQueue([]);
       }
@@ -215,13 +205,14 @@ export function App() {
     setPenaltyNotice('');
   }, [activePenaltyTie?.fixtureId]);
 
-  const activeTopNav = useMemo(() => (
-    topNavLinks.find((link) => (
+  const activeTopNav = useMemo(() => {
+    if (location.pathname === '/insights' || location.pathname === '/settings' || location.pathname === '/settings-hub') return '/settings-hub';
+    return topNavLinks.find((link) => (
       link.to === '/'
         ? location.pathname === '/'
         : location.pathname === link.to || location.pathname.startsWith(`${link.to}/`)
-    ))?.to ?? null
-  ), [location.pathname]);
+    ))?.to ?? null;
+  }, [location.pathname]);
 
   const closeGlobalPenaltyPrompt = () => {
     setPenaltyModalOpen(false);
@@ -292,17 +283,11 @@ export function App() {
     if (!activePenaltyTie || penaltyBusy) return;
     setPenaltyBusy(true);
     try {
-      if (activePenaltyTie.competition === 'cup') {
-        await api.setCupWinner(activePenaltyTie.fixtureId, winner.id);
-      } else if (activePenaltyTie.competition === 'super_cup') {
-        await api.setSuperCupWinner(activePenaltyTie.fixtureId, winner.id);
-      } else if (activePenaltyTie.competition === 'master_cup') {
-        await api.setMasterCupWinner(activePenaltyTie.fixtureId, winner.id);
-      } else if (activePenaltyTie.competition === 'trio_playoff') {
-        await api.setTrioPlayoffWinner(activePenaltyTie.fixtureId, winner.id);
-      } else {
-        await api.setGw8PlayoffWinner(activePenaltyTie.fixtureId, winner.id);
-      }
+      if (activePenaltyTie.competition === 'cup') await api.setCupWinner(activePenaltyTie.fixtureId, winner.id);
+      else if (activePenaltyTie.competition === 'super_cup') await api.setSuperCupWinner(activePenaltyTie.fixtureId, winner.id);
+      else if (activePenaltyTie.competition === 'master_cup') await api.setMasterCupWinner(activePenaltyTie.fixtureId, winner.id);
+      else if (activePenaltyTie.competition === 'trio_playoff') await api.setTrioPlayoffWinner(activePenaltyTie.fixtureId, winner.id);
+      else await api.setGw8PlayoffWinner(activePenaltyTie.fixtureId, winner.id);
 
       const requestId = ++penaltyQueueRequestRef.current;
       const nextQueue = sortPenaltyQueue(await api.penaltyQueue().catch(() => [] as PenaltyTieFixture[]));
@@ -323,35 +308,19 @@ export function App() {
       {!isPresentation && (
         <header className="topbar">
           <div className="topbar-main">
-            <Link to="/" className="brand brand-lockup">
-              <span className="brand-kicker">BookieBall</span>
-              <strong>bookieball</strong>
-            </Link>
+            <Link to="/" className="brand brand-lockup"><span className="brand-kicker">BookieBall</span><strong>bookieball</strong></Link>
             <nav className="topbar-nav" aria-label="Primary">
               {topNavLinks.map((link) => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={`topbar-nav-link ${activeTopNav === link.to ? 'active' : ''}${link.to === '/penalty-shootout' && penaltyTieQueue.length > 0 ? ' penalties-live' : ''}`}
-                >
+                <Link key={link.to} to={link.to} className={`topbar-nav-link ${activeTopNav === link.to ? 'active' : ''}${link.to === '/penalty-shootout' && penaltyTieQueue.length > 0 ? ' penalties-live' : ''}`}>
                   <span>{link.label}{link.to === '/penalty-shootout' && penaltyTieQueue.length > 0 ? ` (${penaltyTieQueue.length})` : ''}</span>
                 </Link>
               ))}
             </nav>
           </div>
           <div className="topbar-status">
-            <div className="season-gw-chip">
-              <span className="status-kicker">Season Feed</span>
-              <strong>{state ? `${state.currentSeason}, ${state.currentGw}` : 'Loading season...'}</strong>
-            </div>
-            <div className={`gw-lock-chip ${state?.gwLocked ? 'locked' : 'open'}`}>
-              <span className="status-kicker">Gameweek</span>
-              <strong>{state ? (state.gwLocked ? 'Locked' : 'Unlocked') : 'Lock status...'}</strong>
-            </div>
-            <div className={`penalty-queue-chip ${penaltyTieQueue.length > 0 ? 'live' : ''}`}>
-              <span className="status-kicker">Penalties</span>
-              <strong>{penaltyTieQueue.length > 0 ? `${penaltyTieQueue.length} waiting` : 'Queue clear'}</strong>
-            </div>
+            <div className="season-gw-chip"><span className="status-kicker">Season Feed</span><strong>{state ? `${state.currentSeason}, ${state.currentGw}` : 'Loading season...'}</strong></div>
+            <div className={`gw-lock-chip ${state?.gwLocked ? 'locked' : 'open'}`}><span className="status-kicker">Gameweek</span><strong>{state ? (state.gwLocked ? 'Locked' : 'Unlocked') : 'Lock status...'}</strong></div>
+            <div className={`penalty-queue-chip ${penaltyTieQueue.length > 0 ? 'live' : ''}`}><span className="status-kicker">Penalties</span><strong>{penaltyTieQueue.length > 0 ? `${penaltyTieQueue.length} waiting` : 'Queue clear'}</strong></div>
           </div>
         </header>
       )}
@@ -395,10 +364,7 @@ export function App() {
         <div className="penalty-modal-backdrop">
           <div className="penalty-modal-card">
             <div className="penalty-modal-header">
-              <div>
-                <h3>{penaltyCompetitionLabel(activePenaltyTie.competition)} Alert</h3>
-                <p className="muted">{activePenaltySummary}</p>
-              </div>
+              <div><h3>{penaltyCompetitionLabel(activePenaltyTie.competition)} Alert</h3><p className="muted">{activePenaltySummary}</p></div>
               <span className="penalty-modal-count">{penaltyTieIndex + 1} of {penaltyTieQueue.length}</span>
             </div>
             <p className="muted">
@@ -416,18 +382,8 @@ export function App() {
             </p>
             <div className="penalty-shootout-card">
               <PenaltyShootoutBoard
-                homeTeam={{
-                  id: activePenaltyTie.homeTeamId,
-                  name: activePenaltyTie.homeTeamName,
-                  ballColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ballColor ?? null,
-                  ringColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ringColor ?? null,
-                }}
-                awayTeam={{
-                  id: activePenaltyTie.awayTeamId,
-                  name: activePenaltyTie.awayTeamName,
-                  ballColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ballColor ?? null,
-                  ringColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ringColor ?? null,
-                }}
+                homeTeam={{ id: activePenaltyTie.homeTeamId, name: activePenaltyTie.homeTeamName, ballColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ballColor ?? null, ringColor: penaltyTeamById.get(activePenaltyTie.homeTeamId)?.ringColor ?? null }}
+                awayTeam={{ id: activePenaltyTie.awayTeamId, name: activePenaltyTie.awayTeamName, ballColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ballColor ?? null, ringColor: penaltyTeamById.get(activePenaltyTie.awayTeamId)?.ringColor ?? null }}
                 resetKey={`${activePenaltyTie.competition}-${activePenaltyTie.fixtureId}-${penaltyTieIndex}${penaltyComputerPlay ? `-computer-${penaltyComputerNonce}` : '-manual'}`}
                 autoStart={activePenaltyIsOverdue || penaltyComputerPlay}
                 initialAutoPlay={penaltyComputerPlay}
@@ -441,14 +397,11 @@ export function App() {
               />
             </div>
             <div className="penalty-fixture-meta">
-              <span>{activePenaltyTie.gw}</span>
-              <span>{activePenaltyTie.roundName}</span>
+              <span>{activePenaltyTie.gw}</span><span>{activePenaltyTie.roundName}</span>
               <span>
-                Profit {activePenaltyTie.homeProfit}
-                {activePenaltyTie.competition === 'cup' || activePenaltyTie.competition === 'master_cup' ? ` | ${activePenaltyTie.homeSpins} spins` : ''}
+                Profit {activePenaltyTie.homeProfit}{activePenaltyTie.competition === 'cup' || activePenaltyTie.competition === 'master_cup' ? ` | ${activePenaltyTie.homeSpins} spins` : ''}
                 {' vs '}
-                Profit {activePenaltyTie.awayProfit}
-                {activePenaltyTie.competition === 'cup' || activePenaltyTie.competition === 'master_cup' ? ` | ${activePenaltyTie.awaySpins} spins` : ''}
+                Profit {activePenaltyTie.awayProfit}{activePenaltyTie.competition === 'cup' || activePenaltyTie.competition === 'master_cup' ? ` | ${activePenaltyTie.awaySpins} spins` : ''}
               </span>
             </div>
             {penaltyNotice ? <p className="muted" style={{ margin: 0 }}>{penaltyNotice}</p> : null}
@@ -457,13 +410,9 @@ export function App() {
                 <button type="button" className="secondary" onClick={startComputerPenaltyPlay} disabled={penaltyBusy}>Computer takes all</button>
                 <button type="button" className="secondary" onClick={() => void skipCurrentPenalty()} disabled={penaltyBusy}>{penaltyBusy ? 'Skipping...' : 'Skip game'}</button>
                 <button type="button" className="secondary" onClick={() => void skipAllPenalties()} disabled={penaltyBusy}>{penaltyBusy ? 'Skipping all...' : 'Skip all'}</button>
-                {!activePenaltyIsOverdue && (
-                  <button type="button" className="secondary" onClick={() => { closeGlobalPenaltyPrompt(); setPenaltyTieIndex(0); }}>Later</button>
-                )}
+                {!activePenaltyIsOverdue && <button type="button" className="secondary" onClick={() => { closeGlobalPenaltyPrompt(); setPenaltyTieIndex(0); }}>Later</button>}
               </div>
-            ) : (
-              <p className="muted">The computer is taking the penalties — sit back and watch.</p>
-            )}
+            ) : <p className="muted">The computer is taking the penalties — sit back and watch.</p>}
           </div>
         </div>
       )}
