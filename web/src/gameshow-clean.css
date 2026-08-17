@@ -6,7 +6,7 @@ body.gameshow-laptop-mode .gameshow-page > .hub-showcase,
 
 body.gameshow-laptop-mode .gameshow-page,
 .gameshow-page {
-  padding-top: 10px !important;
+  padding-top: 8px !important;
 }
 
 body.gameshow-laptop-mode .gameshow-page > .kickoff-step-strip,
@@ -19,14 +19,16 @@ body.gameshow-laptop-mode .gameshow-page .kickoff-step-strip {
   top: 0;
   z-index: 20;
   background: #071321;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
-/* Let the active stage use the remaining viewport and scroll internally. */
+/* The show stage owns the remaining laptop viewport. Normal results/picks layouts
+   should fit without a scroller; overflow becomes a fallback only on genuinely
+   shorter windows. */
 body.gameshow-laptop-mode .gameshow-page {
-  min-height: calc(100vh - 72px) !important;
-  height: calc(100vh - 72px) !important;
+  min-height: calc(100dvh - 72px) !important;
+  height: calc(100dvh - 72px) !important;
   overflow: hidden !important;
 }
 
@@ -38,7 +40,17 @@ body.gameshow-laptop-mode .gameshow-page .kickoff-flow-panel,
 body.gameshow-laptop-mode .gameshow-page .kickoff-step-content,
 body.gameshow-laptop-mode .gameshow-page .kickoff-results-panel,
 body.gameshow-laptop-mode .gameshow-page .kickoff-picks-panel {
-  max-height: calc(100vh - 170px) !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
+  max-height: calc(100dvh - 154px) !important;
+  overflow: hidden !important;
+  min-height: 0 !important;
+}
+
+@media (max-height: 700px) {
+  body.gameshow-laptop-mode .gameshow-page .kickoff-flow-panel,
+  body.gameshow-laptop-mode .gameshow-page .kickoff-step-content,
+  body.gameshow-laptop-mode .gameshow-page .kickoff-results-panel,
+  body.gameshow-laptop-mode .gameshow-page .kickoff-picks-panel {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
 }

@@ -38,7 +38,10 @@ function run(): void {
       fail(`expected ${expectedTeamCount} teams, got ${teams.length}`);
     }
 
-    loadTrioLeagueFixturesForRange(db, state.currentSeason, 'GW1', 'GW6');
+    // Always reconcile through GW7 before asserting the bracket. The bundled/local
+    // database can legitimately contain playoff rows produced by an older build;
+    // testing those stale rows would say nothing about the current generator.
+    loadTrioLeagueFixturesForRange(db, state.currentSeason, 'GW1', 'GW7');
     const fixtures = getTrioLeagueFixtures(db, state.currentSeason);
     const regularFixtures = fixtures.filter((fixture) => fixture.stage === 'regular');
     const semiFixtures = fixtures.filter((fixture) => fixture.stage === 'playoff_semi');

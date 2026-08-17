@@ -1,0 +1,25 @@
+/* Last-mile viewport corrections discovered by the full Playwright route sweep. */
+
+@media(min-width:1101px){
+  .h2h-fight-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important}
+  .h2h-fight-card{padding:6px 8px!important;border-radius:10px!important}
+  .h2h-fight-main{gap:5px!important;margin:5px 0 3px!important}
+  .h2h-fight-team{gap:5px!important;font-size:9px!important}
+  .h2h-fight-score{min-width:68px!important}
+  .h2h-fight-score strong{font-size:14px!important}
+  .h2h-fight-score span{font-size:6px!important}
+  .h2h-last-five{gap:4px!important;margin:2px 0 3px!important;padding:3px 0!important}
+  .h2h-last-five i{width:14px!important;height:14px!important;font-size:6px!important}
+  .h2h-last-five>strong{font-size:6px!important}
+  .h2h-fight-foot{font-size:6px!important;padding-top:3px!important}
+  .h2h-division-block{margin-top:6px!important}
+  .h2h-division-head{margin-bottom:3px!important}
+}
+
+@media(max-height:800px) and (min-width:1101px){
+  .h2h-page-head{margin-bottom:4px!important}
+  .h2h-page-head h1{font-size:26px!important}
+  .h2h-division-head h2{font-size:12px!important}
+  .h2h-fight-card{padding:5px 7px!important}
+  .h2h-fight-top{font-size:6px!important}
+}

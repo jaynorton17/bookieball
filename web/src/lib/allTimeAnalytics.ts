@@ -1,8 +1,18 @@
 import { api } from './api';
 
 type HistoricalFixture = Awaited<ReturnType<typeof api.leagueFixtures>>[number] & { season: string };
-
 type TeamBase = Awaited<ReturnType<typeof api.teams>>[number];
+type AnalyticsResult = { teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] };
+
+type RivalryMeeting = {
+  season: string;
+  gw: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeProfit: number;
+  awayProfit: number;
+  result: 'home' | 'away' | 'draw' | 'pending';
+};
 
 export type TeamAllTimeAnalytics = {
   teamId: number;
@@ -17,6 +27,11 @@ export type TeamAllTimeAnalytics = {
   profit: number;
   winRate: number;
   dominanceIndex: number;
+  giantKillerWins: number;
+  expectationDelta: number;
+  bouncebackWins: number;
+  bouncebackOpportunities: number;
+  bouncebackRate: number;
   favouriteOpponent: { teamId: number; teamName: string; wins: number; losses: number; draws: number } | null;
   bogeyOpponent: { teamId: number; teamName: string; wins: number; losses: number; draws: number } | null;
 };
@@ -32,20 +47,48 @@ export type RivalryAnalytics = {
   draws: number;
   closeness: number;
   rivalryScore: number;
+  averageMargin: number;
+  lastMeeting: RivalryMeeting | null;
+  recentMeetings: RivalryMeeting[];
+  currentStreak: string;
 };
 
-function expected(a: number, b: number): number {
-  return 1 / (1 + 10 ** ((b - a) / 400));
+type PairDetail = {
+  marginTotal: number;
+  meetings: number;
+  lastMeeting: RivalryMeeting | null;
+  history: RivalryMeeting[];
+};
+
+let cachedKey = '';
+let cachedAt = 0;
+let cachedPromise: Promise<AnalyticsResult> | null = null;
+const CACHE_MS = 60_000;
+
+function expected(a: number, b: number): number { return 1 / (1 + 10 ** ((b - a) / 400)); }
+function normalize(value: number, min: number, max: number): number { return max <= min ? 0.5 : (value - min) / (max - min); }
+function pairIds(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+function meetingWinner(meeting: RivalryMeeting): string | null {
+  if (meeting.result === 'home') return meeting.homeTeam;
+  if (meeting.result === 'away') return meeting.awayTeam;
+  return null;
+}
+function streakLabel(history: RivalryMeeting[]): string {
+  if (!history.length) return 'No previous meeting';
+  const latest = history[history.length - 1];
+  const winner = meetingWinner(latest);
+  if (!winner) return 'Last meeting: draw';
+  let streak = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (meetingWinner(history[index]) !== winner) break;
+    streak += 1;
+  }
+  return `${winner} · ${streak} straight win${streak === 1 ? '' : 's'}`;
 }
 
-function normalize(value: number, min: number, max: number): number {
-  if (max <= min) return 0.5;
-  return (value - min) / (max - min);
-}
-
-export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalytics[]; rivalries: RivalryAnalytics[] }> {
-  const [state, teams, allTime] = await Promise.all([api.state(), api.teams(), api.allTimeLeagues()]);
-  const currentSeason = Math.max(1, Number(state.currentSeason.replace('S', '')) || 1);
+async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<AnalyticsResult> {
+  const [teams, allTime] = await Promise.all([api.teams(), api.allTimeLeagues()]);
+  const currentSeason = Math.max(1, Number(currentSeasonLabel.replace('S', '')) || 1);
   const seasonIds = Array.from({ length: currentSeason }, (_, index) => `S${index + 1}`);
   const history = (await Promise.all(seasonIds.map(async (season) => {
     const fixtures = await api.leagueFixtures(undefined, true, season).catch(() => []);
@@ -55,7 +98,13 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
   const teamByName = new Map<string, TeamBase>(teams.map((team) => [team.name, team]));
   const ratings = new Map<number, number>(teams.map((team) => [team.id, 1500]));
   const peaks = new Map<number, number>(teams.map((team) => [team.id, 1500]));
+  const giantKillerWins = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const expectationTotals = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const bouncebackWins = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const bouncebackOpportunities = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const previousWasLoss = new Map<number, boolean>(teams.map((team) => [team.id, false]));
   const opponentRecords = new Map<number, Map<number, { wins: number; losses: number; draws: number }>>();
+  const pairDetails = new Map<string, PairDetail>();
 
   const sortedHistory = history.slice().sort((a, b) => {
     const seasonA = Number(a.season.replace('S', '')) || 0;
@@ -67,15 +116,9 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
 
   const getOpponent = (teamId: number, opponentId: number) => {
     let byOpponent = opponentRecords.get(teamId);
-    if (!byOpponent) {
-      byOpponent = new Map();
-      opponentRecords.set(teamId, byOpponent);
-    }
+    if (!byOpponent) { byOpponent = new Map(); opponentRecords.set(teamId, byOpponent); }
     let record = byOpponent.get(opponentId);
-    if (!record) {
-      record = { wins: 0, losses: 0, draws: 0 };
-      byOpponent.set(opponentId, record);
-    }
+    if (!record) { record = { wins: 0, losses: 0, draws: 0 }; byOpponent.set(opponentId, record); }
     return record;
   };
 
@@ -85,11 +128,31 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
     if (!home || !away) continue;
     const homeRating = ratings.get(home.id) ?? 1500;
     const awayRating = ratings.get(away.id) ?? 1500;
+    const homeExpectation = expected(homeRating, awayRating);
+    const awayExpectation = 1 - homeExpectation;
+
+    if (fixture.result === 'home' && awayRating - homeRating >= 75) giantKillerWins.set(home.id, (giantKillerWins.get(home.id) ?? 0) + 1);
+    if (fixture.result === 'away' && homeRating - awayRating >= 75) giantKillerWins.set(away.id, (giantKillerWins.get(away.id) ?? 0) + 1);
+
     const homeScore = fixture.result === 'home' ? 1 : fixture.result === 'draw' ? 0.5 : 0;
     const awayScore = 1 - homeScore;
+    expectationTotals.set(home.id, (expectationTotals.get(home.id) ?? 0) + (homeScore - homeExpectation));
+    expectationTotals.set(away.id, (expectationTotals.get(away.id) ?? 0) + (awayScore - awayExpectation));
+
+    if (previousWasLoss.get(home.id)) {
+      bouncebackOpportunities.set(home.id, (bouncebackOpportunities.get(home.id) ?? 0) + 1);
+      if (homeScore === 1) bouncebackWins.set(home.id, (bouncebackWins.get(home.id) ?? 0) + 1);
+    }
+    if (previousWasLoss.get(away.id)) {
+      bouncebackOpportunities.set(away.id, (bouncebackOpportunities.get(away.id) ?? 0) + 1);
+      if (awayScore === 1) bouncebackWins.set(away.id, (bouncebackWins.get(away.id) ?? 0) + 1);
+    }
+    previousWasLoss.set(home.id, homeScore === 0);
+    previousWasLoss.set(away.id, awayScore === 0);
+
     const k = 24;
-    const nextHome = homeRating + k * (homeScore - expected(homeRating, awayRating));
-    const nextAway = awayRating + k * (awayScore - expected(awayRating, homeRating));
+    const nextHome = homeRating + k * (homeScore - homeExpectation);
+    const nextAway = awayRating + k * (awayScore - awayExpectation);
     ratings.set(home.id, nextHome);
     ratings.set(away.id, nextAway);
     peaks.set(home.id, Math.max(peaks.get(home.id) ?? 1500, nextHome));
@@ -97,16 +160,26 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
 
     const homeRecord = getOpponent(home.id, away.id);
     const awayRecord = getOpponent(away.id, home.id);
-    if (fixture.result === 'home') {
-      homeRecord.wins += 1;
-      awayRecord.losses += 1;
-    } else if (fixture.result === 'away') {
-      awayRecord.wins += 1;
-      homeRecord.losses += 1;
-    } else {
-      homeRecord.draws += 1;
-      awayRecord.draws += 1;
-    }
+    if (fixture.result === 'home') { homeRecord.wins += 1; awayRecord.losses += 1; }
+    else if (fixture.result === 'away') { awayRecord.wins += 1; homeRecord.losses += 1; }
+    else { homeRecord.draws += 1; awayRecord.draws += 1; }
+
+    const key = pairIds(home.id, away.id);
+    const pair = pairDetails.get(key) ?? { marginTotal: 0, meetings: 0, lastMeeting: null, history: [] };
+    const meeting: RivalryMeeting = {
+      season: fixture.season,
+      gw: fixture.gw,
+      homeTeam: fixture.homeTeam,
+      awayTeam: fixture.awayTeam,
+      homeProfit: fixture.homeProfit,
+      awayProfit: fixture.awayProfit,
+      result: fixture.result,
+    };
+    pair.marginTotal += Math.abs(fixture.homeProfit - fixture.awayProfit);
+    pair.meetings += 1;
+    pair.lastMeeting = meeting;
+    pair.history.push(meeting);
+    pairDetails.set(key, pair);
   }
 
   const allTimeById = new Map(allTime.pointsTable.map((row) => [row.teamId, row]));
@@ -130,13 +203,7 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
     const profit = row?.profit ?? 0;
     const elo = ratings.get(team.id) ?? 1500;
     const winRate = played ? wins / played : 0;
-    const dominanceIndex = 100 * (
-      normalize(elo, minElo, maxElo) * 0.35
-      + normalize(points, minPoints, maxPoints) * 0.3
-      + winRate * 0.2
-      + normalize(profit, minProfit, maxProfit) * 0.15
-    );
-
+    const dominanceIndex = 100 * (normalize(elo, minElo, maxElo) * 0.35 + normalize(points, minPoints, maxPoints) * 0.3 + winRate * 0.2 + normalize(profit, minProfit, maxProfit) * 0.15);
     const records = [...(opponentRecords.get(team.id)?.entries() ?? [])];
     const favourite = records.slice().sort((a, b) => (b[1].wins - b[1].losses) - (a[1].wins - a[1].losses) || b[1].wins - a[1].wins)[0];
     const bogey = records.slice().sort((a, b) => (b[1].losses - b[1].wins) - (a[1].losses - a[1].wins) || b[1].losses - a[1].losses)[0];
@@ -145,7 +212,8 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
       const opponent = teams.find((candidate) => candidate.id === entry[0]);
       return opponent ? { teamId: opponent.id, teamName: opponent.name, ...entry[1] } : null;
     };
-
+    const opportunities = bouncebackOpportunities.get(team.id) ?? 0;
+    const bounceWins = bouncebackWins.get(team.id) ?? 0;
     return {
       teamId: team.id,
       teamName: team.name,
@@ -159,6 +227,11 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
       profit,
       winRate,
       dominanceIndex,
+      giantKillerWins: giantKillerWins.get(team.id) ?? 0,
+      expectationDelta: played ? ((expectationTotals.get(team.id) ?? 0) / played) * 100 : 0,
+      bouncebackWins: bounceWins,
+      bouncebackOpportunities: opportunities,
+      bouncebackRate: opportunities ? bounceWins / opportunities : 0,
       favouriteOpponent: toOpponent(favourite),
       bogeyOpponent: toOpponent(bogey),
     };
@@ -175,6 +248,7 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
       if (!meetings) continue;
       const winGap = Math.abs(record.wins - record.losses);
       const closeness = Math.max(0, 1 - winGap / meetings);
+      const detail = pairDetails.get(pairIds(a.id, b.id));
       rivalries.push({
         teamAId: a.id,
         teamAName: a.name,
@@ -186,10 +260,36 @@ export async function loadAllTimeAnalytics(): Promise<{ teams: TeamAllTimeAnalyt
         draws: record.draws,
         closeness,
         rivalryScore: meetings * (0.6 + 0.4 * closeness),
+        averageMargin: detail?.meetings ? detail.marginTotal / detail.meetings : 0,
+        lastMeeting: detail?.lastMeeting ?? null,
+        recentMeetings: detail?.history.slice(-5).reverse() ?? [],
+        currentStreak: streakLabel(detail?.history ?? []),
       });
     }
   }
   rivalries.sort((a, b) => b.rivalryScore - a.rivalryScore);
-
   return { teams: analytics, rivalries };
+}
+
+export async function loadAllTimeAnalytics(): Promise<AnalyticsResult> {
+  const state = await api.state();
+  const key = `${state.currentSeason}:${state.currentGw}`;
+  const now = Date.now();
+  if (cachedPromise && cachedKey === key && now - cachedAt < CACHE_MS) return cachedPromise;
+
+  cachedKey = key;
+  cachedAt = now;
+  cachedPromise = buildAllTimeAnalytics(state.currentSeason).catch((error) => {
+    cachedKey = '';
+    cachedAt = 0;
+    cachedPromise = null;
+    throw error;
+  });
+  return cachedPromise;
+}
+
+export function clearAllTimeAnalyticsCache(): void {
+  cachedKey = '';
+  cachedAt = 0;
+  cachedPromise = null;
 }

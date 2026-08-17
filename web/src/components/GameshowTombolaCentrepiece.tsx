@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -71,25 +71,7 @@ function deterministicPosition(index: number, total: number) {
   return { x, y, driftX, driftY, duration, delay: index * 0.018 };
 }
 
-function readSelectedTeam(target: HTMLElement, validNames: Set<string>): string {
-  const selectors = [
-    '.kickoff-carousel-track-item.locked strong',
-    '.kickoff-carousel-spotlight.locked strong',
-  ];
-  for (const selector of selectors) {
-    const label = target.querySelector<HTMLElement>(selector)?.textContent?.trim() ?? '';
-    if (validNames.has(label)) return label;
-  }
-  return '';
-}
-
-function TombolaStage({
-  balls,
-  phase,
-  selectedName,
-  error,
-  onPickBall,
-}: {
+function TombolaStage({ balls, phase, selectedName, error, onPickBall }: {
   balls: TombolaBall[];
   phase: TombolaPhase;
   selectedName: string;
@@ -118,13 +100,9 @@ function TombolaStage({
   return (
     <div className={`tombola-portal-root tombola-centrepiece is-${phase}`} aria-live="polite">
       <div className="tombola-centrepiece-head">
-        <div>
-          <span>LIVE TEAM DRAW</span>
-          <strong>BookieBall draw machine</strong>
-        </div>
+        <div><span>LIVE TEAM DRAW</span><strong>BookieBall draw machine</strong></div>
         <b>{balls.length > 0 ? balls.length : '…'} TEAMS REMAINING</b>
       </div>
-
       <div className="tombola-centrepiece-stage">
         <div className="tombola-stage-glow" aria-hidden="true" />
         <div className="tombola-machine" aria-label="BookieBall glass tombola">
@@ -136,50 +114,21 @@ function TombolaStage({
               {balls.map((ball, index) => {
                 const position = deterministicPosition(index, balls.length);
                 const style: BallStyle = {
-                  '--ball-x': `${position.x}%`,
-                  '--ball-y': `${position.y}%`,
-                  '--ball-drift-x': `${position.driftX}px`,
-                  '--ball-drift-y': `${position.driftY}px`,
-                  '--ball-duration': `${position.duration}s`,
-                  '--ball-delay': `${position.delay}s`,
-                  '--ball-color': ball.ballColor,
-                  '--ball-ring': ball.ringColor,
-                  '--ball-text': ball.textColor,
+                  '--ball-x': `${position.x}%`, '--ball-y': `${position.y}%`, '--ball-drift-x': `${position.driftX}px`, '--ball-drift-y': `${position.driftY}px`,
+                  '--ball-duration': `${position.duration}s`, '--ball-delay': `${position.delay}s`, '--ball-color': ball.ballColor, '--ball-ring': ball.ringColor, '--ball-text': ball.textColor,
                 };
                 const winner = phase === 'picked' && ball.name === selectedName;
                 const loser = phase === 'picked' && ball.name !== selectedName;
-                return (
-                  <div
-                    key={ball.id}
-                    className={`tombola-ball${winner ? ' is-winner' : ''}${loser ? ' is-not-winner' : ''}`}
-                    style={style}
-                    title={ball.name}
-                    aria-label={ball.name}
-                  >
-                    {ball.initials}
-                  </div>
-                );
+                return <div key={ball.id} className={`tombola-ball${winner ? ' is-winner' : ''}${loser ? ' is-not-winner' : ''}`} style={style} title={ball.name} aria-label={ball.name}>{ball.initials}</div>;
               })}
             </div>
             <div className="tombola-pick-chute" aria-hidden="true"><i /></div>
           </div>
           <div className="tombola-base"><span /><strong>BOOKIEBALL</strong><span /></div>
         </div>
-
         <div className="tombola-status">
-          <small>DRAW STATUS</small>
-          <strong>{status}</strong>
-          <span>{detail}</span>
-          {(phase === 'mixing' || phase === 'picking') && (
-            <button
-              type="button"
-              className="tombola-pick-button"
-              onClick={onPickBall}
-              disabled={phase === 'picking'}
-            >
-              {phase === 'picking' ? 'Picking…' : 'Pick Ball'}
-            </button>
-          )}
+          <small>DRAW STATUS</small><strong>{status}</strong><span>{detail}</span>
+          {(phase === 'mixing' || phase === 'picking') && <button type="button" className="tombola-pick-button" onClick={onPickBall} disabled={phase === 'picking'}>{phase === 'picking' ? 'Picking…' : 'Pick Ball'}</button>}
         </div>
       </div>
     </div>
@@ -198,16 +147,11 @@ export function GameshowTombolaCentrepiece() {
   const pickedResultRef = useRef<DrawResult | null>(null);
 
   useLayoutEffect(() => {
-    if (location.pathname !== '/gameshow') {
-      setTarget(null);
-      return undefined;
-    }
-
+    if (location.pathname !== '/gameshow') { setTarget(null); return undefined; }
     const syncTarget = () => {
       const next = document.querySelector<HTMLElement>('.kickoff-wheel-overlay-card');
       setTarget((current) => current === next ? current : next);
     };
-
     syncTarget();
     const observer = new MutationObserver(syncTarget);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -222,27 +166,17 @@ export function GameshowTombolaCentrepiece() {
 
   useEffect(() => {
     if (!target) return undefined;
-
     const originalDrawTeam = api.drawTeam;
     originalDrawTeamRef.current = originalDrawTeam;
     pickedResultRef.current = null;
     pendingDrawResolversRef.current = [];
-
     const gatedDrawTeam: typeof api.drawTeam = async () => {
-      if (pickedResultRef.current) {
-        return pickedResultRef.current;
-      }
-      return new Promise<DrawResult>((resolve, reject) => {
-        pendingDrawResolversRef.current.push({ resolve, reject });
-      });
+      if (pickedResultRef.current) return pickedResultRef.current;
+      return new Promise<DrawResult>((resolve, reject) => pendingDrawResolversRef.current.push({ resolve, reject }));
     };
-
     api.drawTeam = gatedDrawTeam;
-
     return () => {
-      if (api.drawTeam === gatedDrawTeam) {
-        api.drawTeam = originalDrawTeam;
-      }
+      if (api.drawTeam === gatedDrawTeam) api.drawTeam = originalDrawTeam;
       originalDrawTeamRef.current = null;
       pendingDrawResolversRef.current = [];
       pickedResultRef.current = null;
@@ -251,106 +185,45 @@ export function GameshowTombolaCentrepiece() {
 
   useEffect(() => {
     if (!target) {
-      setBalls([]);
-      setSelectedName('');
-      setPhase('loading');
-      setError('');
+      setBalls([]); setSelectedName(''); setPhase('loading'); setError('');
       return undefined;
     }
-
     let active = true;
     let mixTimer = 0;
-    setBalls([]);
-    setSelectedName('');
-    setPhase('loading');
-    setError('');
-
+    setBalls([]); setSelectedName(''); setPhase('loading'); setError('');
     void api.gameshowDrawPool()
       .then((groups) => {
         if (!active) return;
         const nextBalls = ballsFromPool(groups);
-        if (nextBalls.length === 0) {
-          setError('No undrawn teams were returned for this gameweek.');
-          setPhase('error');
-          return;
-        }
+        if (nextBalls.length === 0) { setError('No undrawn teams were returned for this gameweek.'); setPhase('error'); return; }
         setBalls(nextBalls);
-        mixTimer = window.setTimeout(() => {
-          if (active) setPhase('mixing');
-        }, 550);
+        mixTimer = window.setTimeout(() => { if (active) setPhase('mixing'); }, 550);
       })
       .catch((reason) => {
         if (!active) return;
-        setError(reason instanceof Error ? reason.message : 'The draw pool request failed.');
-        setPhase('error');
+        setError(reason instanceof Error ? reason.message : 'The draw pool request failed.'); setPhase('error');
       });
-
-    return () => {
-      active = false;
-      if (mixTimer) window.clearTimeout(mixTimer);
-    };
+    return () => { active = false; if (mixTimer) window.clearTimeout(mixTimer); };
   }, [target]);
 
   const handlePickBall = useCallback(() => {
     if (phase !== 'mixing') return;
     const originalDrawTeam = originalDrawTeamRef.current;
-    if (!originalDrawTeam) {
-      setError('The live draw is not ready yet.');
-      setPhase('error');
-      return;
-    }
-
-    setPhase('picking');
-    setError('');
+    if (!originalDrawTeam) { setError('The live draw is not ready yet.'); setPhase('error'); return; }
+    setPhase('picking'); setError('');
     void originalDrawTeam()
       .then((picked) => {
         pickedResultRef.current = picked;
         setSelectedName(picked.teamName);
         setPhase('picked');
-        const waiters = pendingDrawResolversRef.current.splice(0);
-        waiters.forEach(({ resolve }) => resolve(picked));
+        pendingDrawResolversRef.current.splice(0).forEach(({ resolve }) => resolve(picked));
       })
       .catch((reason) => {
-        const waiters = pendingDrawResolversRef.current.splice(0);
-        waiters.forEach(({ reject }) => reject(reason));
-        setError(reason instanceof Error ? reason.message : 'Unable to pick a team ball.');
-        setPhase('error');
+        pendingDrawResolversRef.current.splice(0).forEach(({ reject }) => reject(reason));
+        setError(reason instanceof Error ? reason.message : 'Unable to pick a team ball.'); setPhase('error');
       });
   }, [phase]);
 
-  const validNames = useMemo(() => new Set(balls.map((ball) => ball.name)), [balls]);
-
-  useEffect(() => {
-    if (!target || validNames.size === 0 || phase === 'picked') return undefined;
-
-    const syncWinner = () => {
-      const nextSelected = readSelectedTeam(target, validNames);
-      if (!nextSelected) return;
-      setSelectedName(nextSelected);
-      setPhase('picked');
-    };
-
-    syncWinner();
-    const observer = new MutationObserver(syncWinner);
-    observer.observe(target, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-    return () => observer.disconnect();
-  }, [phase, target, validNames]);
-
   if (!target) return null;
-
-  return createPortal(
-    <TombolaStage
-      balls={balls}
-      phase={phase}
-      selectedName={selectedName}
-      error={error}
-      onPickBall={handlePickBall}
-    />,
-    target,
-  );
+  return createPortal(<TombolaStage balls={balls} phase={phase} selectedName={selectedName} error={error} onPickBall={handlePickBall} />, target);
 }
