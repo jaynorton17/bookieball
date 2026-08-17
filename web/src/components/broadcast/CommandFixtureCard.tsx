@@ -38,13 +38,17 @@ function statusLabel(fixture: CommandFixture): string {
   return fixture.result === 'home' ? `${fixture.homeTeam} WIN` : `${fixture.awayTeam} WIN`;
 }
 
-function pct(value: number): string {
-  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+function marketPct(value: number): number {
+  return Math.round(Math.max(0, Math.min(1, value)) * 100);
 }
 
 export function CommandFixtureCard({ fixture, color }: { fixture: CommandFixture; color: string }) {
   const h2h = fixture.h2h;
   const market = fixture.market;
+  const homePct = market ? marketPct(market.home) : 0;
+  const drawPct = market ? marketPct(market.draw) : 0;
+  const awayPct = market ? Math.max(0, 100 - homePct - drawPct) : 0;
+
   return (
     <article className={`command-fixture${fixture.result === 'pending' ? ' is-pending' : ''}${fixture.band === 'next' ? ' is-next' : ''}`} style={{ borderLeftColor: color }}>
       <div className="command-fixture-topline"><span>{statusLabel(fixture)}</span></div>
@@ -53,17 +57,26 @@ export function CommandFixtureCard({ fixture, color }: { fixture: CommandFixture
         <span className="command-fixture-scoreline">{fixture.band === 'next' ? '—' : signed(fixture.homeProfit)} <b>VS</b> {fixture.band === 'next' ? '—' : signed(fixture.awayProfit)}</span>
         <strong>{fixture.awayTeam}</strong>
       </div>
+
       {market ? (
-        <div className="command-fixture-market">
-          <span><b>{pct(market.home)}</b> HOME</span>
-          <span><b>{pct(market.draw)}</b> DRAW</span>
-          <span><b>{pct(market.away)}</b> AWAY</span>
+        <div className="command-market-graphic" aria-label={`Prediction: home ${homePct}%, draw ${drawPct}%, away ${awayPct}%`}>
+          <div className="command-market-labels">
+            <span><b>{homePct}%</b> HOME</span>
+            <span><b>{drawPct}%</b> DRAW</span>
+            <span><b>{awayPct}%</b> AWAY</span>
+          </div>
+          <div className="command-market-bar" aria-hidden="true">
+            <i className="home" style={{ width: `${homePct}%` }} />
+            <i className="draw" style={{ width: `${drawPct}%` }} />
+            <i className="away" style={{ width: `${awayPct}%` }} />
+          </div>
         </div>
       ) : null}
-      <div className="command-fixture-h2h">
-        {h2h
-          ? `ALL-TIME H2H · ${fixture.homeTeam} ${h2h.teamAWins}W ${h2h.teamBWins}L ${h2h.draws}D · ${fixture.awayTeam} ${h2h.teamBWins}W ${h2h.teamAWins}L ${h2h.draws}D`
-          : 'ALL-TIME H2H · Loading archive'}
+
+      <div className="command-h2h-strip">
+        <span>H2H</span>
+        {h2h ? <strong>{h2h.teamAWins} <em>—</em> {h2h.draws} <em>—</em> {h2h.teamBWins}</strong> : <strong>— · — · —</strong>}
+        <small>W · D · W</small>
       </div>
     </article>
   );
