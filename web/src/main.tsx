@@ -23,6 +23,7 @@ import './product-pass.css';
 import './competition-identities.css';
 import './analytics-pass.css';
 import './home-product-pass.css';
+import './home-analytics-graphics.css';
 
 installBookieBallFetchCache();
 
