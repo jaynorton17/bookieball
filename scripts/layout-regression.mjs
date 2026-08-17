@@ -52,9 +52,7 @@ async function pageDimensions(page) {
 
 async function assertNoHorizontalOverflow(page, label) {
   const dimensions = await pageDimensions(page);
-  if (dimensions.width > dimensions.clientWidth + 2) {
-    throw new Error(`${label}: horizontal overflow ${dimensions.width}px > ${dimensions.clientWidth}px`);
-  }
+  if (dimensions.width > dimensions.clientWidth + 2) throw new Error(`${label}: horizontal overflow ${dimensions.width}px > ${dimensions.clientWidth}px`);
 }
 
 async function assertNoDocumentOverflow(page, label) {
@@ -71,10 +69,19 @@ async function assertVisibleControlsInsideViewport(page, label) {
     if (!box) continue;
     const viewport = page.viewportSize();
     if (!viewport) continue;
-    if (box.x < -2 || box.x + box.width > viewport.width + 2) {
-      throw new Error(`${label}: control ${index + 1} is clipped horizontally`);
-    }
+    if (box.x < -2 || box.x + box.width > viewport.width + 2) throw new Error(`${label}: control ${index + 1} is clipped horizontally`);
   }
+}
+
+async function assertNoErrorBoundary(page, label) {
+  const body = (await page.locator('body').innerText()).toLowerCase();
+  const bad = [
+    'usebookieballdata must be used inside',
+    'something went wrong',
+    'application error',
+    'uncaught runtime error',
+  ].find((phrase) => body.includes(phrase));
+  if (bad) throw new Error(`${label}: error UI rendered (${bad})`);
 }
 
 async function assertGameshowDrawFits(page, label) {
@@ -90,16 +97,12 @@ async function assertGameshowDrawFits(page, label) {
   const box = await tombola.boundingBox();
   const viewport = page.viewportSize();
   if (!box || !viewport) return;
-  if (box.x < -2 || box.y < -2 || box.x + box.width > viewport.width + 2 || box.y + box.height > viewport.height + 2) {
-    throw new Error(`${label}: tombola is outside the viewport`);
-  }
+  if (box.x < -2 || box.y < -2 || box.x + box.width > viewport.width + 2 || box.y + box.height > viewport.height + 2) throw new Error(`${label}: tombola is outside the viewport`);
 
   const pickBall = page.getByRole('button', { name: /pick ball/i }).first();
   if (await pickBall.count()) {
     const pickBox = await pickBall.boundingBox();
-    if (!pickBox || pickBox.y + pickBox.height > viewport.height + 2) {
-      throw new Error(`${label}: Pick Ball is not visible inside the viewport`);
-    }
+    if (!pickBox || pickBox.y + pickBox.height > viewport.height + 2) throw new Error(`${label}: Pick Ball is not visible inside the viewport`);
   }
 }
 
@@ -110,13 +113,18 @@ async function main() {
     for (const viewport of [{ width: 1706, height: 930 }, { width: 1440, height: 800 }, { width: 1366, height: 768 }]) {
       const context = await browser.newContext({ viewport });
       const page = await context.newPage();
+      const runtimeErrors = [];
+      page.on('pageerror', (error) => runtimeErrors.push(error.message));
 
       for (const route of ROUTES) {
+        runtimeErrors.length = 0;
         await page.goto(`${WEB}${route.path}`, { waitUntil: route.path === '/gameshow' ? 'domcontentloaded' : 'networkidle' });
         if (route.ready) await page.locator(route.ready).waitFor({ timeout: 10_000 });
         if (route.path === '/gameshow') await page.waitForTimeout(900);
 
         const label = `${route.label} ${viewport.width}x${viewport.height}`;
+        if (runtimeErrors.length) throw new Error(`${label}: browser runtime error: ${runtimeErrors[0]}`);
+        await assertNoErrorBoundary(page, label);
         await assertNoHorizontalOverflow(page, label);
         await assertVisibleControlsInsideViewport(page, label);
         if (route.fit) await assertNoDocumentOverflow(page, label);
