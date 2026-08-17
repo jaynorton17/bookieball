@@ -1,0 +1,42 @@
+/* Home Command Centre: data slides stay dense; story slides keep broadcast scale. */
+.command-slide:has(.command-slide-body.has-fixtures) .command-slide-kicker,
+.command-slide:has(.command-single-column) .command-slide-kicker{font-size:9px!important;letter-spacing:.1em!important;line-height:1!important;}
+.command-slide:has(.command-slide-body.has-fixtures) .command-slide-title,
+.command-slide:has(.command-single-column) .command-slide-title{font-size:clamp(25px,2.7vw,38px)!important;line-height:1!important;margin:3px 0 2px!important;}
+.command-slide:has(.command-slide-body.has-fixtures) .command-slide-head p,
+.command-slide:has(.command-single-column) .command-slide-head p{font-size:9px!important;line-height:1.15!important;margin:1px 0!important;color:#849db4!important;}
+.command-slide:has(.command-slide-body.has-fixtures) .command-slide-metric strong,
+.command-slide:has(.command-single-column) .command-slide-metric strong{font-size:clamp(27px,3vw,40px)!important;line-height:1!important;}
+.command-slide:has(.command-slide-body.has-fixtures) .command-slide-metric span,
+.command-slide:has(.command-single-column) .command-slide-metric span{font-size:8px!important;}
+
+.command-section-label{font-size:8px!important;letter-spacing:.09em!important;line-height:1!important;}
+.command-row{min-height:0!important;}
+.command-row-rank{font-size:9px!important;}
+.command-row-team strong{font-size:10px!important;line-height:1.05!important;}
+.command-row-team small{font-size:7px!important;line-height:1.05!important;margin-top:2px!important;}
+.command-row-value{font-size:10px!important;}
+
+.command-fixture-topline{font-size:7px!important;letter-spacing:.08em!important;}
+.command-fixture-matchup strong{font-size:10px!important;}
+.command-fixture-scoreline{font-size:9px!important;}
+.command-fixture-market{font-size:7px!important;}
+.command-fixture-h2h{font-size:7px!important;line-height:1.15!important;}
+
+/* A story-only slide is allowed to behave like television rather than a table. */
+.command-slide:not(:has(.command-slide-body.has-fixtures)):not(:has(.command-single-column)) .command-slide-title{font-size:clamp(38px,5vw,66px)!important;max-width:1080px;}
+.command-slide:not(:has(.command-slide-body.has-fixtures)):not(:has(.command-single-column)) .command-story{font-size:clamp(18px,2.2vw,30px)!important;line-height:1.25!important;max-width:1060px;}
+
+@media(max-height:800px) and (min-width:1100px){
+  .command-centre-header{min-height:30px!important;}
+  .command-eyebrow{font-size:8px!important;}.command-subline{font-size:8px!important;}
+  .command-nav-btn{height:28px!important;min-width:34px!important;padding:0 8px!important;font-size:9px!important;}
+  .command-live{font-size:8px!important;}.command-live small{font-size:7px!important;}
+  .command-slide:has(.command-slide-body.has-fixtures) .command-slide-title,
+  .command-slide:has(.command-single-column) .command-slide-title{font-size:clamp(22px,2.4vw,32px)!important;}
+  .command-slide:has(.command-slide-body.has-fixtures) .command-slide-head p,
+  .command-slide:has(.command-single-column) .command-slide-head p{display:none!important;}
+  .command-slide:has(.command-slide-body.has-fixtures) .command-slide-metric strong,
+  .command-slide:has(.command-single-column) .command-slide-metric strong{font-size:28px!important;}
+  .command-row-team small{display:none!important;}
+}
