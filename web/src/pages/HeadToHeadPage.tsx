@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { loadAllTimeAnalytics, type RivalryAnalytics } from '../lib/allTimeAnalytics';
 import { TeamBadge } from '../components/TeamBadge';
 import { HeadToHeadModal, type H2HTeam } from '../components/HeadToHeadModal';
 import { displayDivisionName, getDivisionOrderForSeason } from '../lib/divisionLabels';
@@ -17,31 +18,26 @@ type Fixture = {
   result: 'home' | 'away' | 'draw' | 'pending';
 };
 
-type H2HRecord = Awaited<ReturnType<typeof api.headToHeadAllTime>>;
-
-function sortValue(season: string, gw: string): number {
-  return (Number(season.replace('S', '')) || 0) * 100 + (Number(gw.replace('GW', '')) || 0);
-}
+type CardRecord = {
+  played: number;
+  teamAWins: number;
+  teamBWins: number;
+  draws: number;
+  averageMargin: number;
+  lastMeeting: RivalryAnalytics['lastMeeting'];
+};
 
 function signed(value: number): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 }
-
-function latestMeeting(record: H2HRecord | undefined) {
-  if (!record?.meetings?.length) return null;
-  return record.meetings.slice().sort((a, b) => sortValue(b.season, b.gw) - sortValue(a.season, a.gw))[0] ?? null;
-}
-
-function averageMargin(record: H2HRecord | undefined): number {
-  if (!record?.meetings?.length) return 0;
-  return record.meetings.reduce((sum, meeting) => sum + Math.abs(meeting.homeProfit - meeting.awayProfit), 0) / record.meetings.length;
-}
+function norm(name: string): string { return name.trim().toLowerCase(); }
+function pairKey(home: string, away: string): string { return `${norm(home)}|${norm(away)}`; }
 
 export function HeadToHeadPage() {
   const [state, setState] = useState<{ currentSeason: string; currentGw: string } | null>(null);
   const [teams, setTeams] = useState<Array<{ id: number; name: string; ballColor: string | null; ringColor: string | null; textColor: string | null }>>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
-  const [recordsByFixtureId, setRecordsByFixtureId] = useState<Record<number, H2HRecord>>({});
+  const [rivalries, setRivalries] = useState<RivalryAnalytics[]>([]);
   const [h2h, setH2h] = useState<{ teamA: H2HTeam; teamB: H2HTeam; context: string } | null>(null);
 
   useEffect(() => {
@@ -54,6 +50,10 @@ export function HeadToHeadPage() {
         setFixtures(nextFixtures);
       })
       .catch(() => { if (active) setFixtures([]); });
+
+    void loadAllTimeAnalytics()
+      .then((archive) => { if (active) setRivalries(archive.rivalries); })
+      .catch(() => { if (active) setRivalries([]); });
     return () => { active = false; };
   }, []);
 
@@ -68,26 +68,28 @@ export function HeadToHeadPage() {
       .filter(([, rows]) => rows.length > 0);
   }, [currentFixtures, divisionOrder]);
 
-  useEffect(() => {
-    if (currentFixtures.length === 0) return;
-    let active = true;
-    Promise.all(currentFixtures.map(async (fixture) => {
-      const home = teamByName.get(fixture.homeTeam);
-      const away = teamByName.get(fixture.awayTeam);
-      if (!home || !away) return null;
-      try {
-        return { fixtureId: fixture.id, record: await api.headToHeadAllTime(home.id, away.id) };
-      } catch {
-        return null;
-      }
-    })).then((results) => {
-      if (!active) return;
-      const next: Record<number, H2HRecord> = {};
-      results.forEach((result) => { if (result) next[result.fixtureId] = result.record; });
-      setRecordsByFixtureId(next);
+  const recordsByPair = useMemo(() => {
+    const map = new Map<string, CardRecord>();
+    rivalries.forEach((row) => {
+      map.set(pairKey(row.teamAName, row.teamBName), {
+        played: row.meetings,
+        teamAWins: row.teamAWins,
+        teamBWins: row.teamBWins,
+        draws: row.draws,
+        averageMargin: row.averageMargin,
+        lastMeeting: row.lastMeeting,
+      });
+      map.set(pairKey(row.teamBName, row.teamAName), {
+        played: row.meetings,
+        teamAWins: row.teamBWins,
+        teamBWins: row.teamAWins,
+        draws: row.draws,
+        averageMargin: row.averageMargin,
+        lastMeeting: row.lastMeeting,
+      });
     });
-    return () => { active = false; };
-  }, [currentFixtures, teamByName]);
+    return map;
+  }, [rivalries]);
 
   const openH2h = (fixture: Fixture) => {
     const home = teamByName.get(fixture.homeTeam);
@@ -116,9 +118,8 @@ export function HeadToHeadPage() {
           </div>
           <div className="h2h-fight-grid">
             {divisionFixtures.map((fixture) => {
-              const record = recordsByFixtureId[fixture.id];
-              const latest = latestMeeting(record);
-              const margin = averageMargin(record);
+              const record = recordsByPair.get(pairKey(fixture.homeTeam, fixture.awayTeam));
+              const latest = record?.lastMeeting;
               const home = teamByName.get(fixture.homeTeam);
               const away = teamByName.get(fixture.awayTeam);
               return (
@@ -142,8 +143,8 @@ export function HeadToHeadPage() {
                     </div>
                   </div>
                   <div className="h2h-fight-foot">
-                    <span>{latest ? `Last: ${latest.season} ${latest.gw} · ${signed(latest.homeProfit)}–${signed(latest.awayProfit)}` : 'No previous meeting'}</span>
-                    <span>{record?.played ? `Avg margin ${margin.toFixed(2)}` : 'Click for full series'}</span>
+                    <span>{latest ? `Last: ${latest.season} ${latest.gw} · ${latest.homeTeam} ${signed(latest.homeProfit)} vs ${signed(latest.awayProfit)} ${latest.awayTeam}` : 'No previous meeting'}</span>
+                    <span>{record?.played ? `Avg margin ${record.averageMargin.toFixed(2)}` : 'Click for full series'}</span>
                   </div>
                 </article>
               );
