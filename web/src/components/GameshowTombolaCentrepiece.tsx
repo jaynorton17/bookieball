@@ -216,6 +216,7 @@ export function GameshowTombolaCentrepiece() {
         pickedResultRef.current = picked;
         setSelectedName(picked.teamName);
         setPhase('picked');
+        window.dispatchEvent(new CustomEvent<DrawResult>('bookieball:gameshow-team-selected', { detail: picked }));
         pendingDrawResolversRef.current.splice(0).forEach(({ resolve }) => resolve(picked));
       })
       .catch((reason) => {

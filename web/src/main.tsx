@@ -7,6 +7,7 @@ import { EntryKeyboardEnhancements } from './components/EntryKeyboardEnhancement
 import { PredictionBroadcastEnhancements } from './components/PredictionBroadcastEnhancements';
 import { TeamJourneyBridge } from './components/TeamJourneyBridge';
 import { GameshowTombolaCentrepiece } from './components/GameshowTombolaCentrepiece';
+import { GameshowDrawResultEnhancement } from './components/GameshowDrawResultEnhancement';
 import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
 import './laptop-fit.css';
@@ -18,6 +19,7 @@ import './prediction-broadcast.css';
 import './gameshow-clean.css';
 import './tombola-centrepiece.css';
 import './tombola-manual-pick.css';
+import './gameshow-result-h2h.css';
 import './product-pass.css';
 import './competition-identities.css';
 import './analytics-pass.css';
@@ -45,6 +47,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <TeamJourneyBridge />
       <PredictionBroadcastEnhancements />
       <GameshowTombolaCentrepiece />
+      <GameshowDrawResultEnhancement />
       <App />
     </BrowserRouter>
   </React.StrictMode>,
