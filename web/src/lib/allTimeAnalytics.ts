@@ -18,6 +18,10 @@ export type TeamAllTimeAnalytics = {
   winRate: number;
   dominanceIndex: number;
   giantKillerWins: number;
+  expectationDelta: number;
+  bouncebackWins: number;
+  bouncebackOpportunities: number;
+  bouncebackRate: number;
   favouriteOpponent: { teamId: number; teamName: string; wins: number; losses: number; draws: number } | null;
   bogeyOpponent: { teamId: number; teamName: string; wins: number; losses: number; draws: number } | null;
 };
@@ -73,6 +77,10 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
   const ratings = new Map<number, number>(teams.map((team) => [team.id, 1500]));
   const peaks = new Map<number, number>(teams.map((team) => [team.id, 1500]));
   const giantKillerWins = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const expectationTotals = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const bouncebackWins = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const bouncebackOpportunities = new Map<number, number>(teams.map((team) => [team.id, 0]));
+  const previousWasLoss = new Map<number, boolean>(teams.map((team) => [team.id, false]));
   const opponentRecords = new Map<number, Map<number, { wins: number; losses: number; draws: number }>>();
   const pairDetails = new Map<string, PairDetail>();
 
@@ -98,15 +106,31 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
     if (!home || !away) continue;
     const homeRating = ratings.get(home.id) ?? 1500;
     const awayRating = ratings.get(away.id) ?? 1500;
+    const homeExpectation = expected(homeRating, awayRating);
+    const awayExpectation = 1 - homeExpectation;
 
     if (fixture.result === 'home' && awayRating - homeRating >= 75) giantKillerWins.set(home.id, (giantKillerWins.get(home.id) ?? 0) + 1);
     if (fixture.result === 'away' && homeRating - awayRating >= 75) giantKillerWins.set(away.id, (giantKillerWins.get(away.id) ?? 0) + 1);
 
     const homeScore = fixture.result === 'home' ? 1 : fixture.result === 'draw' ? 0.5 : 0;
     const awayScore = 1 - homeScore;
+    expectationTotals.set(home.id, (expectationTotals.get(home.id) ?? 0) + (homeScore - homeExpectation));
+    expectationTotals.set(away.id, (expectationTotals.get(away.id) ?? 0) + (awayScore - awayExpectation));
+
+    if (previousWasLoss.get(home.id)) {
+      bouncebackOpportunities.set(home.id, (bouncebackOpportunities.get(home.id) ?? 0) + 1);
+      if (homeScore === 1) bouncebackWins.set(home.id, (bouncebackWins.get(home.id) ?? 0) + 1);
+    }
+    if (previousWasLoss.get(away.id)) {
+      bouncebackOpportunities.set(away.id, (bouncebackOpportunities.get(away.id) ?? 0) + 1);
+      if (awayScore === 1) bouncebackWins.set(away.id, (bouncebackWins.get(away.id) ?? 0) + 1);
+    }
+    previousWasLoss.set(home.id, homeScore === 0);
+    previousWasLoss.set(away.id, awayScore === 0);
+
     const k = 24;
-    const nextHome = homeRating + k * (homeScore - expected(homeRating, awayRating));
-    const nextAway = awayRating + k * (awayScore - expected(awayRating, homeRating));
+    const nextHome = homeRating + k * (homeScore - homeExpectation);
+    const nextAway = awayRating + k * (awayScore - awayExpectation);
     ratings.set(home.id, nextHome);
     ratings.set(away.id, nextAway);
     peaks.set(home.id, Math.max(peaks.get(home.id) ?? 1500, nextHome));
@@ -164,6 +188,8 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
       const opponent = teams.find((candidate) => candidate.id === entry[0]);
       return opponent ? { teamId: opponent.id, teamName: opponent.name, ...entry[1] } : null;
     };
+    const opportunities = bouncebackOpportunities.get(team.id) ?? 0;
+    const bounceWins = bouncebackWins.get(team.id) ?? 0;
     return {
       teamId: team.id,
       teamName: team.name,
@@ -178,6 +204,10 @@ async function buildAllTimeAnalytics(currentSeasonLabel: string): Promise<Analyt
       winRate,
       dominanceIndex,
       giantKillerWins: giantKillerWins.get(team.id) ?? 0,
+      expectationDelta: played ? ((expectationTotals.get(team.id) ?? 0) / played) * 100 : 0,
+      bouncebackWins: bounceWins,
+      bouncebackOpportunities: opportunities,
+      bouncebackRate: opportunities ? bounceWins / opportunities : 0,
       favouriteOpponent: toOpponent(favourite),
       bogeyOpponent: toOpponent(bogey),
     };
