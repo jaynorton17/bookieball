@@ -33,6 +33,7 @@ import './table-position-journey.css';
 import './readability-fixes.css';
 import './analytics-v2.css';
 import './analytics-tv.css';
+import './home-readable-scroll.css';
 
 installBookieBallFetchCache();
 
