@@ -35,19 +35,19 @@ function TeamMark({ team, size = 34 }: { team?: Team; size?: number }) {
   ) : null;
 }
 
-function Podium({ rows, color, teamById }: { rows: GraphicRow[]; color: string; teamById: Map<number, Team> }) {
+function Podium({ rows, color, teamById, archive = false }: { rows: GraphicRow[]; color: string; teamById: Map<number, Team>; archive?: boolean }) {
   const top = rows.slice(0, 3);
   if (!top.length) return null;
   const order = [top[1], top[0], top[2]].filter(Boolean) as GraphicRow[];
   return (
-    <div className="home-analytics-podium">
+    <div className={`home-analytics-podium${archive ? ' is-archive' : ''}`}>
       {order.map((row) => {
         const placing = row.rank;
         const team = row.teamId ? teamById.get(row.teamId) : undefined;
         return (
           <article key={`${row.rank}-${row.name}`} className={`home-podium-place place-${placing}`} style={{ ['--graphic-accent' as string]: color }}>
             <span className="home-podium-rank">#{placing}</span>
-            <TeamMark team={team} />
+            <TeamMark team={team} size={archive && placing === 1 ? 48 : 38} />
             <strong>{row.name}</strong>
             <b>{row.value}</b>
             {row.detail ? <small>{row.detail}</small> : null}
@@ -64,24 +64,22 @@ function RivalrySpotlight({ rows, color, teamById }: { rows: GraphicRow[]; color
   const [left, right] = row.name.split(/\s+vs\s+/i);
   const teamA = row.teamAId ? teamById.get(row.teamAId) : undefined;
   const teamB = row.teamBId ? teamById.get(row.teamBId) : undefined;
+  const [leftWins = '—', draws = '—', rightWins = '—'] = row.value.split(/\s*-\s*/);
 
   return (
     <div className="home-rivalry-spotlight" style={{ ['--graphic-accent' as string]: color }}>
       <article className="home-rivalry-side">
-        <TeamMark team={teamA} size={58} />
-        <span>TEAM A</span>
+        <TeamMark team={teamA} size={78} />
         <strong>{left ?? row.name}</strong>
       </article>
 
       <div className="home-rivalry-record">
-        <span>ALL-TIME HEAD TO HEAD</span>
-        <b>{row.value}</b>
-        <small>WINS&nbsp;&nbsp;·&nbsp;&nbsp;DRAWS&nbsp;&nbsp;·&nbsp;&nbsp;WINS</small>
+        <span>ALL-TIME W · D · W</span>
+        <div className="home-rivalry-scoreboard"><b>{leftWins}</b><em>—</em><b>{draws}</b><em>—</em><b>{rightWins}</b></div>
       </div>
 
       <article className="home-rivalry-side right">
-        <TeamMark team={teamB} size={58} />
-        <span>TEAM B</span>
+        <TeamMark team={teamB} size={78} />
         <strong>{right ?? ''}</strong>
       </article>
 
@@ -94,7 +92,7 @@ function RivalrySpotlight({ rows, color, teamById }: { rows: GraphicRow[]; color
 }
 
 function Bars({ rows, color, teamById }: { rows: GraphicRow[]; color: string; teamById: Map<number, Team> }) {
-  const shown = rows.slice(0, 10);
+  const shown = rows.slice(0, 8);
   const values = shown.map((row) => numberFrom(row.value));
   const max = Math.max(1, ...values.map((value) => Math.abs(value)));
   return (
@@ -118,7 +116,24 @@ function Bars({ rows, color, teamById }: { rows: GraphicRow[]; color: string; te
   );
 }
 
-const BAR_SLIDES = new Set(['ratings', 'profit']);
+function SpinOrbs({ rows, teamById }: { rows: GraphicRow[]; teamById: Map<number, Team> }) {
+  return (
+    <div className="home-spin-orbs">
+      {rows.slice(0, 3).map((row) => {
+        const team = row.teamId ? teamById.get(row.teamId) : undefined;
+        return <article key={`${row.rank}-${row.name}`} className={`home-spin-orb place-${row.rank}`}>
+          <span>#{row.rank}</span>
+          <div className="home-spin-ball"><TeamMark team={team} size={row.rank === 1 ? 58 : 48} /></div>
+          <strong>{row.name}</strong>
+          <b>{row.value}</b>
+          {row.detail ? <small>{row.detail}</small> : null}
+        </article>;
+      })}
+    </div>
+  );
+}
+
+const BAR_SLIDES = new Set(['profit', 'all-time-profit']);
 
 export function HomeAnalyticsGraphic({
   slideId,
@@ -132,11 +147,17 @@ export function HomeAnalyticsGraphic({
   teamById: Map<number, Team>;
 }) {
   if (slideId === 'bookiedor') return <Podium rows={rows} color={color} teamById={teamById} />;
+  if (slideId === 'all-time-points') return <Podium rows={rows} color={color} teamById={teamById} archive />;
+  if (slideId === 'all-time-spins') return <SpinOrbs rows={rows} teamById={teamById} />;
   if (slideId.startsWith('rivalry-')) return <RivalrySpotlight rows={rows} color={color} teamById={teamById} />;
   if (BAR_SLIDES.has(slideId)) return <Bars rows={rows} color={color} teamById={teamById} />;
   return null;
 }
 
 export function isHomeGraphicSlide(slideId: string): boolean {
-  return slideId === 'bookiedor' || slideId.startsWith('rivalry-') || BAR_SLIDES.has(slideId);
+  return slideId === 'bookiedor'
+    || slideId === 'all-time-points'
+    || slideId === 'all-time-spins'
+    || slideId.startsWith('rivalry-')
+    || BAR_SLIDES.has(slideId);
 }
