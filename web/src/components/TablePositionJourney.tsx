@@ -24,7 +24,8 @@ type Props = {
 };
 
 function gwNumber(gw: string): number {
-  return Number(gw.replace('GW', '')) || 99;
+  const parsed = Number(gw.replace('GW', ''));
+  return Number.isFinite(parsed) ? parsed : 99;
 }
 
 function rowForTeam(snapshot: TableJourneySnapshot, teamId: number): TableJourneyRow | undefined {
@@ -123,13 +124,21 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
     return <section ref={rootRef} className="table-position-journey is-empty"><div className="table-position-journey-head"><div><span>POSITION REPLAY</span><h4>{title}</h4></div></div><p className="muted">{emptyLabel}</p></section>;
   }
 
+  const statusLabel = current?.gw === 'GW0' && step === 0
+    ? 'STARTING GRID'
+    : step >= ordered.length - 1
+      ? 'CURRENT POSITION'
+      : playing
+        ? 'REPLAYING'
+        : 'PAUSED';
+
   return (
     <section ref={rootRef} className={`table-position-journey${dense ? ' is-dense' : ''}`} aria-label={`${title} position journey`}>
       <div className="table-position-journey-head">
         <div><span>POSITION REPLAY</span><h4>{title}</h4>{dense && <p>Dense table replay · {playbackMs / 1000}s per gameweek</p>}</div>
         <div className="table-position-journey-now">
           <strong>{current?.gw ?? ordered[0].gw}</strong>
-          <small>{step >= ordered.length - 1 ? 'CURRENT POSITION' : playing ? 'REPLAYING' : 'PAUSED'}</small>
+          <small>{statusLabel}</small>
           <div className="table-position-controls">
             <button type="button" onClick={previous} disabled={step === 0}>‹ Prev</button>
             <button type="button" onClick={() => setPlaying((value) => !value)} disabled={step >= ordered.length - 1}>{playing ? 'Ⅱ Pause' : '▶ Play'}</button>
@@ -177,7 +186,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
         </div>
 
         {dense && <aside className="table-position-key" aria-label={`${current?.gw ?? ''} ranking key`}>
-          <div className="table-position-key-head"><span>{current?.gw}</span><strong>LIVE RANK KEY</strong></div>
+          <div className="table-position-key-head"><span>{current?.gw}</span><strong>{current?.gw === 'GW0' ? 'STARTING GRID' : 'LIVE RANK KEY'}</strong></div>
           <div className="table-position-key-grid">{currentRows.map(({ team, row }) => <div key={`key-${team.teamId}`} className="table-position-key-row"><b>#{row.rank}</b><TeamBadge name={team.teamName} ballColor={team.ballColor ?? null} ringColor={team.ringColor ?? null} textColor={team.textColor ?? null} size={17} /><span>{team.teamName}</span></div>)}</div>
         </aside>}
       </div>
