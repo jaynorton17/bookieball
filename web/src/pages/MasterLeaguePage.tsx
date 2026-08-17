@@ -81,6 +81,7 @@ export function MasterLeaguePage() {
 
   const currentGwFixtures = useMemo(() => (state ? fixtures.filter((fixture) => fixture.gw === state.currentGw) : []), [fixtures, state]);
   const topFive = useMemo(() => table.slice().sort((a, b) => a.rank - b.rank).slice(0, 5), [table]);
+  const teamById = useMemo(() => new Map(table.map((row) => [row.teamId, row])), [table]);
   const leaderPoints = topFive[0]?.points ?? 0;
   const fifthPoints = topFive[topFive.length - 1]?.points ?? 0;
   const raceSpan = Math.max(1, leaderPoints - fifthPoints + 3);
@@ -109,6 +110,7 @@ export function MasterLeaguePage() {
 
   const currentGwIndex = useMemo(() => state ? GAMEWEEKS.indexOf(state.currentGw) : -1, [state]);
   const nextGw = currentGwIndex >= 0 && currentGwIndex < GAMEWEEKS.length - 1 ? GAMEWEEKS[currentGwIndex + 1] : null;
+  const nextGwFixtures = useMemo(() => nextGw ? fixtures.filter((fixture) => fixture.gw === nextGw) : [], [fixtures, nextGw]);
 
   useEffect(() => {
     if (!state) return;
@@ -158,6 +160,16 @@ export function MasterLeaguePage() {
     getSecondarySort: (fixture) => fixture.id,
   });
 
+  const fixtureCard = (fixture: MasterFixture, upcoming = false) => {
+    const home = teamById.get(fixture.homeTeamId);
+    const away = teamById.get(fixture.awayTeamId);
+    return <article key={`${upcoming ? 'next' : 'current'}-${fixture.id}`} className={`master-score-card${upcoming ? ' is-next' : ''}`}>
+      <div className="master-score-team"><TeamBadge name={fixture.homeTeam} ballColor={home?.ballColor ?? null} ringColor={home?.ringColor ?? null} textColor={home?.textColor ?? null} size={24} /><strong>{fixture.homeTeam}</strong></div>
+      <div className="master-score-centre"><span>{upcoming || fixture.result === 'pending' ? 'VS' : fixture.result === 'draw' ? 'DRAW' : 'RESULT'}</span><b>{upcoming || fixture.result === 'pending' ? 'VS' : `${formatProfit(fixture.homeProfit)}  –  ${formatProfit(fixture.awayProfit)}`}</b></div>
+      <div className="master-score-team is-away"><strong>{fixture.awayTeam}</strong><TeamBadge name={fixture.awayTeam} ballColor={away?.ballColor ?? null} ringColor={away?.ringColor ?? null} textColor={away?.textColor ?? null} size={24} /></div>
+    </article>;
+  };
+
   return (
     <section className="page page-wide competition-page competition-page-master">
       <div className="competition-page-shell">
@@ -191,15 +203,18 @@ export function MasterLeaguePage() {
           {baselineGw && fixtureToolsOpen && <p className="muted">Movement baseline: {baselineGw}</p>}
         </div>
 
-        <div className="panel">
+        <div className="panel master-table-panel">
           <h3>Master League Table</h3>
           <TablePositionJourney snapshots={journey} title="Master League · GW1 to current" />
           {loading ? <p className="muted">Loading table...</p> : table.length === 0 ? <p className="muted">No table rows yet.</p> : <div className="table-scroll"><table className="scoreboard-table master-league-table"><thead><tr><th>#</th><th>Team</th><th>PLD</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>Spins</th><th>Profit</th><th>Form</th><th>Move</th></tr></thead><tbody>{table.map((row) => { const badge = movementBadge(row.teamId); return <tr key={`master-row-${row.teamId}`}><td>{row.rank}</td><td><span className="master-team-cell">{masterChampionTeamId === row.teamId && <span className="champion-c-badge" title="Mathematical champion">C</span>}<TeamBadge name={row.teamName} ballColor={row.ballColor} ringColor={row.ringColor} textColor={row.textColor} size={18} /><span>{row.teamName}</span></span></td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.draws}</td><td>{row.points}</td><td>{row.spins}</td><td>{formatProfit(row.profit)}</td><td><div className="form-mini-row">{formForTeam(row.teamId).map((result, index) => <span key={`master-form-${row.teamId}-${index}-${result}`} className={`form-badge ${result === 'W' ? 'form-win' : result === 'D' ? 'form-draw' : 'form-loss'}`}>{result}</span>)}</div></td><td><span className={badge.className}>{badge.label}</span></td></tr>; })}</tbody></table></div>}
         </div>
 
-        <div className="panel"><h3>{state?.currentGw ?? 'Current'} Fixtures</h3>{currentGwFixtures.length === 0 ? <p className="muted">No fixtures generated for this gameweek yet.</p> : <div className="master-fixture-list">{currentGwFixtures.map((fixture) => <div key={`master-current-${fixture.id}`} className="master-fixture-row"><strong>{fixture.homeTeam}</strong><span>{fixture.result === 'pending' ? 'vs' : `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`}</span><strong>{fixture.awayTeam}</strong></div>)}</div>}</div>
+        <section className="master-week-board">
+          <div className="panel master-week-panel"><div className="panel-header"><div><span className="master-week-kicker">CURRENT GAMEWEEK</span><h3>{state?.currentGw ?? 'Current'} Scores</h3></div><span className="news-chip">{currentGwFixtures.length} games</span></div>{currentGwFixtures.length === 0 ? <p className="muted">No fixtures generated for this gameweek yet.</p> : <div className="master-score-list">{currentGwFixtures.map((fixture) => fixtureCard(fixture))}</div>}</div>
+          <div className="panel master-week-panel is-next"><div className="panel-header"><div><span className="master-week-kicker">NEXT GAMEWEEK</span><h3>{nextGw ?? '—'} Fixtures</h3></div><span className="news-chip">{nextGwFixtures.length} games</span></div>{!nextGw ? <p className="muted">No next gameweek remaining.</p> : nextGwFixtures.length === 0 ? <p className="muted">No fixtures generated for {nextGw} yet.</p> : <div className="master-score-list">{nextGwFixtures.map((fixture) => fixtureCard(fixture, true))}</div>}</div>
+        </section>
 
-        <details className="panel"><summary><strong>Season Fixture Board</strong> <span className="muted">· {fixtures.length} fixtures</span></summary>{fixturesByGw.length === 0 ? <p className="muted">No fixtures available yet.</p> : <div className="master-fixture-groups" style={{ marginTop: 10 }}>{fixturesByGw.map((group) => <div key={`master-group-${group.gw}`} className="master-fixture-group"><h4>{group.gw}</h4>{group.fixtures.map((fixture) => <div key={`master-group-row-${fixture.id}`} className="master-fixture-row"><span>{fixture.homeTeam}</span><span>{fixture.result === 'pending' ? 'vs' : `${fixture.homeProfit.toFixed(2)} - ${fixture.awayProfit.toFixed(2)}`}</span><span>{fixture.awayTeam}</span></div>)}</div>)}</div>}</details>
+        <details className="panel"><summary><strong>Season Fixture Board</strong> <span className="muted">· {fixtures.length} fixtures</span></summary>{fixturesByGw.length === 0 ? <p className="muted">No fixtures available yet.</p> : <div className="master-fixture-groups" style={{ marginTop: 10 }}>{fixturesByGw.map((group) => <div key={`master-group-${group.gw}`} className="master-fixture-group"><h4>{group.gw}</h4>{group.fixtures.map((fixture) => <div key={`master-group-row-${fixture.id}`} className="master-fixture-row"><span>{fixture.homeTeam}</span><strong className="master-fixture-score">{fixture.result === 'pending' ? 'VS' : `${formatProfit(fixture.homeProfit)} – ${formatProfit(fixture.awayProfit)}`}</strong><span>{fixture.awayTeam}</span></div>)}</div>)}</div>}</details>
       </div>
     </section>
   );

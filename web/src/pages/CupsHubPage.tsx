@@ -7,14 +7,10 @@ import { api } from '../lib/api';
 type Team = Awaited<ReturnType<typeof api.teams>>[number];
 type CupFixture = Awaited<ReturnType<typeof api.cup>>[number];
 type MasterCupFixture = Awaited<ReturnType<typeof api.masterCupFixtures>>[number];
+type SuperCupFixture = Awaited<ReturnType<typeof api.superCup>>[number];
 type PathStep = { label: string; state: 'advanced' | 'out' | 'champion' | 'live' | 'waiting'; opponent?: string };
 type TeamPath = { teamName: string; teamId?: number; steps: PathStep[]; status: string; champion: boolean };
 
-const cupTiles = [
-  { to: '/super-cup', eyebrow: 'Curtain Raiser', badge: 'GW1', title: 'Super Cup', description: 'Season opener.', tone: 'showcase', trophy: 'super' as const },
-  { to: '/cup-draw', eyebrow: 'Main Knockout', badge: '32 slots', title: 'BookieBall Cup', description: 'Live bracket and draw.', tone: 'cup', trophy: 'cup' as const },
-  { to: '/master-cup', eyebrow: 'Seeded Knockout', badge: 'Top 16', title: 'Master Cup', description: 'Seeded elite knockout.', tone: 'elite', trophy: 'master' as const },
-];
 const masterStageOrder: MasterCupFixture['stage'][] = ['round_of_16', 'quarter_final', 'semi_final', 'final'];
 
 function masterStageLabel(stage: MasterCupFixture['stage']): string {
@@ -31,6 +27,10 @@ function statusColor(state: PathStep['state']): string {
   if (state === 'out') return '#ff7a84';
   if (state === 'live') return '#5eb7ff';
   return 'rgba(255,255,255,.18)';
+}
+
+function formatProfit(value: number): string {
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 }
 
 function buildCupPaths(fixtures: CupFixture[], teams: Team[]): TeamPath[] {
@@ -104,22 +104,34 @@ function TournamentOverview({ title, to, paths, teams }: { title: string; to: st
   );
 }
 
+function CupCurrentCard({ title, to, trophy, round, status, matchup, score, detail }: { title: string; to: string; trophy: 'super' | 'cup' | 'master'; round: string; status: string; matchup: string; score: string; detail: string }) {
+  return <Link to={to} className={`cup-current-card is-${trophy}`}>
+    <div className="cup-current-card-top"><div><span>CURRENT ROUND</span><strong>{round}</strong></div><CompetitionTrophyMark variant={trophy} className="cup-current-trophy" /></div>
+    <h2>{title}</h2>
+    <div className="cup-current-status">{status}</div>
+    <div className="cup-current-match"><strong>{matchup}</strong><b>{score}</b></div>
+    <small>{detail}</small>
+  </Link>;
+}
+
 export function CupsHubPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [cupFixtures, setCupFixtures] = useState<CupFixture[]>([]);
   const [masterCupFixtures, setMasterCupFixtures] = useState<MasterCupFixture[]>([]);
+  const [superCupFixtures, setSuperCupFixtures] = useState<SuperCupFixture[]>([]);
   const [season, setSeason] = useState('');
 
   useEffect(() => {
     let active = true;
     void api.state().then(async (state) => {
-      const [teamRows, cupRows, masterRows] = await Promise.all([
+      const [teamRows, cupRows, masterRows, superRows] = await Promise.all([
         api.teams().catch(() => []),
         api.cup(undefined, state.currentSeason).catch(() => []),
         api.masterCupFixtures(undefined, true, state.currentSeason).catch(() => []),
+        api.superCup(state.currentSeason).catch(() => []),
       ]);
       if (!active) return;
-      setSeason(state.currentSeason); setTeams(teamRows); setCupFixtures(cupRows); setMasterCupFixtures(masterRows);
+      setSeason(state.currentSeason); setTeams(teamRows); setCupFixtures(cupRows); setMasterCupFixtures(masterRows); setSuperCupFixtures(superRows);
     });
     return () => { active = false; };
   }, []);
@@ -128,19 +140,43 @@ export function CupsHubPage() {
   const masterPaths = useMemo(() => buildMasterCupPaths(masterCupFixtures, teams), [masterCupFixtures, teams]);
   const openBookieBallTies = cupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam).length;
   const openMasterTies = masterCupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam).length;
+
+  const activeCupRound = useMemo(() => {
+    const unresolved = cupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam).sort((a, b) => a.round - b.round || a.id - b.id);
+    const source = unresolved[0] ?? cupFixtures.slice().sort((a, b) => b.round - a.round || b.id - a.id)[0] ?? null;
+    return source ? { round: source.round, label: source.roundName } : null;
+  }, [cupFixtures]);
+  const activeCupFixtures = activeCupRound ? cupFixtures.filter((fixture) => fixture.round === activeCupRound.round) : [];
+  const nextCup = activeCupFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
   const latestCup = cupFixtures.filter((fixture) => fixture.winnerTeam).slice().sort((a, b) => b.id - a.id)[0] ?? null;
-  const nextCup = cupFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
-  const nextMaster = masterCupFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
+
+  const activeMasterStage = useMemo(() => {
+    const unresolved = masterCupFixtures.filter((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam);
+    const source = unresolved[0] ?? masterCupFixtures.slice().reverse().find((fixture) => fixture.homeTeam && fixture.awayTeam) ?? null;
+    return source ? { stage: source.stage, label: source.roundName } : null;
+  }, [masterCupFixtures]);
+  const activeMasterFixtures = activeMasterStage ? masterCupFixtures.filter((fixture) => fixture.stage === activeMasterStage.stage) : [];
+  const nextMaster = activeMasterFixtures.find((fixture) => !fixture.winnerTeam && fixture.homeTeam && fixture.awayTeam) ?? null;
+  const latestMaster = masterCupFixtures.filter((fixture) => fixture.winnerTeam).slice().sort((a, b) => b.id - a.id)[0] ?? null;
+
+  const superCup = superCupFixtures[0] ?? null;
+  const superComplete = Boolean(superCup?.played || superCup?.winnerTeam);
+  const liveCount = openBookieBallTies + openMasterTies + (superCup && !superComplete ? 1 : 0);
 
   return (
     <section className="page page-dashboard">
-      <div className="cups-compact-head"><div><h1>Cups</h1><p className="muted">{season ? `${season} knockout picture` : 'Loading knockout picture…'}</p></div><span className="news-chip">{openBookieBallTies + openMasterTies} live ties</span></div>
-      <div className="cup-quick-tiles">{cupTiles.map((tile) => <Link key={tile.to} to={tile.to} className={`hub-showcase-card hub-showcase-card-${tile.tone} cup-quick-tile`}><div className="hub-showcase-card-head"><span className="hub-showcase-card-kicker">{tile.eyebrow}</span><span className="hub-showcase-card-badge">{tile.badge}</span></div><CompetitionTrophyMark variant={tile.trophy} className="hub-showcase-card-trophy" /><h2>{tile.title}</h2><p>{tile.description}</p></Link>)}</div>
+      <div className="cups-compact-head"><div><h1>Cups</h1><p className="muted">{season ? `${season} · all three cup competitions` : 'Loading knockout picture…'}</p></div><span className="news-chip">{liveCount} live ties</span></div>
+
+      <section className="cup-current-grid" aria-label="Current cup rounds">
+        <CupCurrentCard title="Super Cup" to="/super-cup" trophy="super" round={superCup?.gw ?? 'GW1'} status={superComplete ? 'COMPLETE' : superCup ? 'LIVE / TO PLAY' : 'WAITING'} matchup={superCup ? `${superCup.homeTeam} vs ${superCup.awayTeam}` : 'Fixture not available'} score={superCup ? (superComplete ? `${formatProfit(superCup.homeProfit)}  –  ${formatProfit(superCup.awayProfit)}` : 'VS') : '—'} detail={superCup?.winnerTeam ? `${superCup.winnerTeam} won the Super Cup` : 'Season curtain-raiser'} />
+        <CupCurrentCard title="BookieBall Cup" to="/cup-draw" trophy="cup" round={activeCupRound?.label ?? 'Waiting'} status={nextCup ? `${activeCupFixtures.filter((fixture) => !fixture.winnerTeam).length} TIES LIVE` : latestCup ? 'ROUND COMPLETE' : 'WAITING'} matchup={nextCup ? `${nextCup.homeTeam} vs ${nextCup.awayTeam}` : latestCup ? `${latestCup.homeTeam} vs ${latestCup.awayTeam}` : 'No tie available'} score={nextCup ? 'VS' : latestCup ? `${formatProfit(latestCup.homeProfit)}  –  ${formatProfit(latestCup.awayProfit)}` : '—'} detail={latestCup?.winnerTeam ? `Latest: ${latestCup.winnerTeam} advanced` : 'Main knockout competition'} />
+        <CupCurrentCard title="Master Cup" to="/master-cup" trophy="master" round={activeMasterStage?.label ?? 'Waiting'} status={nextMaster ? `${activeMasterFixtures.filter((fixture) => !fixture.winnerTeam).length} TIES LIVE` : latestMaster ? 'ROUND COMPLETE' : 'WAITING'} matchup={nextMaster ? `${nextMaster.homeTeam} vs ${nextMaster.awayTeam}` : latestMaster ? `${latestMaster.homeTeam} vs ${latestMaster.awayTeam}` : 'No tie available'} score={nextMaster ? 'VS' : latestMaster ? `${formatProfit(latestMaster.homeProfit)}  –  ${formatProfit(latestMaster.awayProfit)}` : '—'} detail={latestMaster?.winnerTeam ? `Latest: ${latestMaster.winnerTeam} advanced` : 'Seeded elite knockout'} />
+      </section>
 
       <div className="cup-story-strip">
-        <article><span>LATEST CUP RESULT</span><strong>{latestCup ? `${latestCup.winnerTeam} advanced` : 'No result yet'}</strong><small>{latestCup ? `${latestCup.roundName} · ${latestCup.homeTeam} ${latestCup.homeProfit.toFixed(2)} – ${latestCup.awayProfit.toFixed(2)} ${latestCup.awayTeam}` : 'BookieBall Cup'}</small></article>
-        <article><span>NEXT BOOKIEBALL CUP TIE</span><strong>{nextCup ? `${nextCup.homeTeam} vs ${nextCup.awayTeam}` : 'No tie waiting'}</strong><small>{nextCup?.roundName ?? '—'}</small></article>
-        <article><span>NEXT MASTER CUP TIE</span><strong>{nextMaster ? `${nextMaster.homeTeam} vs ${nextMaster.awayTeam}` : 'No tie waiting'}</strong><small>{nextMaster?.roundName ?? '—'}</small></article>
+        <article><span>LATEST BOOKIEBALL CUP RESULT</span><strong>{latestCup?.winnerTeam ? `${latestCup.winnerTeam} advanced` : 'No result yet'}</strong><small>{latestCup ? `${latestCup.roundName} · ${latestCup.homeTeam} ${formatProfit(latestCup.homeProfit)} – ${formatProfit(latestCup.awayProfit)} ${latestCup.awayTeam}` : 'BookieBall Cup'}</small></article>
+        <article><span>NEXT BOOKIEBALL CUP TIE</span><strong>{nextCup ? `${nextCup.homeTeam} vs ${nextCup.awayTeam}` : 'No tie waiting'}</strong><small>{activeCupRound?.label ?? '—'}</small></article>
+        <article><span>NEXT MASTER CUP TIE</span><strong>{nextMaster ? `${nextMaster.homeTeam} vs ${nextMaster.awayTeam}` : 'No tie waiting'}</strong><small>{activeMasterStage?.label ?? '—'}</small></article>
       </div>
 
       <div className="cup-bracket-grid"><TournamentOverview title="BookieBall Cup" to="/cup-draw" paths={cupPaths} teams={teams} /><TournamentOverview title="Master Cup" to="/master-cup" paths={masterPaths} teams={teams} /></div>
