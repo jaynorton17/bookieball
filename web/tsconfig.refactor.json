@@ -6,7 +6,6 @@
   },
   "include": [
     "src/AppChromeEnhancements.tsx",
-    "src/main.tsx",
     "src/pages/HomePage.tsx",
     "src/pages/ReportsHubPage.tsx",
     "src/pages/HeadToHeadPage.tsx",
@@ -15,20 +14,20 @@
     "src/pages/MasterLeaguePage.tsx",
     "src/pages/TrioLeaguePage.tsx",
     "src/pages/TierLeaguePage.tsx",
-    "src/components/broadcast/**/*.tsx",
     "src/components/EntryKeyboardEnhancements.tsx",
     "src/components/GameshowTombolaCentrepiece.tsx",
     "src/components/HeadToHeadModal.tsx",
-    "src/components/PredictionBroadcastEnhancements.tsx",
-    "src/components/TeamJourneyBridge.tsx",
-    "src/components/TeamJourneyOverlay.tsx",
+    "src/components/broadcast/AutoScrollViewport.tsx",
+    "src/components/broadcast/CommandFixtureCard.tsx",
+    "src/components/broadcast/HomeAnalyticsGraphic.tsx",
+    "src/components/CompetitionTrophyMark.tsx",
+    "src/components/TeamBadge.tsx",
     "src/lib/api.ts",
     "src/lib/appEvents.ts",
     "src/lib/fetchCache.ts",
     "src/lib/competitionRegistry.ts",
-    "src/lib/historyModels.ts",
-    "src/lib/teamCareer.ts",
     "src/lib/allTimeAnalytics.ts",
-    "src/lib/divisionLabels.ts"
+    "src/lib/divisionLabels.ts",
+    "src/lib/formUtils.ts"
   ]
 }
