@@ -18,6 +18,7 @@ import './prediction-broadcast.css';
 import './no-zoom-overrides.css';
 import './gameshow-clean.css';
 import './tombola-centrepiece.css';
+import './tombola-manual-pick.css';
 
 installBookieBallFetchCache();
 

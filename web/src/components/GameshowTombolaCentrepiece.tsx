@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -13,7 +13,8 @@ type TombolaBall = {
 };
 
 type DrawPool = Awaited<ReturnType<typeof api.gameshowDrawPool>>;
-type TombolaPhase = 'loading' | 'mixing' | 'picked' | 'error';
+type DrawResult = Awaited<ReturnType<typeof api.drawTeam>>;
+type TombolaPhase = 'loading' | 'mixing' | 'picking' | 'picked' | 'error';
 
 type BallStyle = CSSProperties & {
   '--ball-x': string;
@@ -25,6 +26,11 @@ type BallStyle = CSSProperties & {
   '--ball-color': string;
   '--ball-ring': string;
   '--ball-text': string;
+};
+
+type PendingDrawResolver = {
+  resolve: (value: DrawResult) => void;
+  reject: (reason?: unknown) => void;
 };
 
 function initials(name: string): string {
@@ -59,10 +65,10 @@ function deterministicPosition(index: number, total: number) {
   const row = Math.floor(index / cols);
   const x = 11 + (col / Math.max(1, cols - 1)) * 78 + Math.sin(index * 1.61) * 2.7;
   const y = 9 + (row / Math.max(1, rows - 1)) * 63 + Math.cos(index * 1.27) * 2.2;
-  const driftX = 23 + (index % 5) * 10;
-  const driftY = 18 + (index % 7) * 7;
-  const duration = 1.05 + (index % 8) * 0.075;
-  return { x, y, driftX, driftY, duration, delay: index * 0.03 };
+  const driftX = 68 + (index % 5) * 22;
+  const driftY = 48 + (index % 7) * 13;
+  const duration = 0.44 + (index % 8) * 0.05;
+  return { x, y, driftX, driftY, duration, delay: index * 0.018 };
 }
 
 function readSelectedTeam(target: HTMLElement, validNames: Set<string>): string {
@@ -77,26 +83,37 @@ function readSelectedTeam(target: HTMLElement, validNames: Set<string>): string 
   return '';
 }
 
-function TombolaStage({ balls, phase, selectedName, error }: {
+function TombolaStage({
+  balls,
+  phase,
+  selectedName,
+  error,
+  onPickBall,
+}: {
   balls: TombolaBall[];
   phase: TombolaPhase;
   selectedName: string;
   error: string;
+  onPickBall: () => void;
 }) {
   const status = phase === 'picked'
     ? selectedName
-    : phase === 'mixing'
-      ? 'Air on — mixing every ball'
-      : phase === 'error'
-        ? 'Unable to build the draw pool'
-        : 'Loading the remaining team balls…';
+    : phase === 'picking'
+      ? 'Selecting one ball…'
+      : phase === 'mixing'
+        ? 'Air on — all balls live'
+        : phase === 'error'
+          ? 'Unable to build the draw pool'
+          : 'Loading the remaining team balls…';
   const detail = phase === 'picked'
     ? 'Selected team — draw locked.'
-    : phase === 'mixing'
-      ? 'Every remaining team is live in the glass.'
-      : phase === 'error'
-        ? error
-        : 'The glass will start mixing as soon as the live pool arrives.';
+    : phase === 'picking'
+      ? 'The plunger is firing now.'
+      : phase === 'mixing'
+        ? 'Press Pick Ball when you are ready to make the draw.'
+        : phase === 'error'
+          ? error
+          : 'The glass will start mixing as soon as the live pool arrives.';
 
   return (
     <div className={`tombola-portal-root tombola-centrepiece is-${phase}`} aria-live="polite">
@@ -153,6 +170,16 @@ function TombolaStage({ balls, phase, selectedName, error }: {
           <small>DRAW STATUS</small>
           <strong>{status}</strong>
           <span>{detail}</span>
+          {(phase === 'mixing' || phase === 'picking') && (
+            <button
+              type="button"
+              className="tombola-pick-button"
+              onClick={onPickBall}
+              disabled={phase === 'picking'}
+            >
+              {phase === 'picking' ? 'Picking…' : 'Pick Ball'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -166,6 +193,9 @@ export function GameshowTombolaCentrepiece() {
   const [phase, setPhase] = useState<TombolaPhase>('loading');
   const [selectedName, setSelectedName] = useState('');
   const [error, setError] = useState('');
+  const originalDrawTeamRef = useRef<typeof api.drawTeam | null>(null);
+  const pendingDrawResolversRef = useRef<PendingDrawResolver[]>([]);
+  const pickedResultRef = useRef<DrawResult | null>(null);
 
   useLayoutEffect(() => {
     if (location.pathname !== '/gameshow') {
@@ -188,6 +218,35 @@ export function GameshowTombolaCentrepiece() {
     if (!target) return undefined;
     target.classList.add('tombola-react-active');
     return () => target.classList.remove('tombola-react-active');
+  }, [target]);
+
+  useEffect(() => {
+    if (!target) return undefined;
+
+    const originalDrawTeam = api.drawTeam;
+    originalDrawTeamRef.current = originalDrawTeam;
+    pickedResultRef.current = null;
+    pendingDrawResolversRef.current = [];
+
+    const gatedDrawTeam: typeof api.drawTeam = async () => {
+      if (pickedResultRef.current) {
+        return pickedResultRef.current;
+      }
+      return new Promise<DrawResult>((resolve, reject) => {
+        pendingDrawResolversRef.current.push({ resolve, reject });
+      });
+    };
+
+    api.drawTeam = gatedDrawTeam;
+
+    return () => {
+      if (api.drawTeam === gatedDrawTeam) {
+        api.drawTeam = originalDrawTeam;
+      }
+      originalDrawTeamRef.current = null;
+      pendingDrawResolversRef.current = [];
+      pickedResultRef.current = null;
+    };
   }, [target]);
 
   useEffect(() => {
@@ -218,7 +277,7 @@ export function GameshowTombolaCentrepiece() {
         setBalls(nextBalls);
         mixTimer = window.setTimeout(() => {
           if (active) setPhase('mixing');
-        }, 850);
+        }, 550);
       })
       .catch((reason) => {
         if (!active) return;
@@ -232,10 +291,37 @@ export function GameshowTombolaCentrepiece() {
     };
   }, [target]);
 
+  const handlePickBall = useCallback(() => {
+    if (phase !== 'mixing') return;
+    const originalDrawTeam = originalDrawTeamRef.current;
+    if (!originalDrawTeam) {
+      setError('The live draw is not ready yet.');
+      setPhase('error');
+      return;
+    }
+
+    setPhase('picking');
+    setError('');
+    void originalDrawTeam()
+      .then((picked) => {
+        pickedResultRef.current = picked;
+        setSelectedName(picked.teamName);
+        setPhase('picked');
+        const waiters = pendingDrawResolversRef.current.splice(0);
+        waiters.forEach(({ resolve }) => resolve(picked));
+      })
+      .catch((reason) => {
+        const waiters = pendingDrawResolversRef.current.splice(0);
+        waiters.forEach(({ reject }) => reject(reason));
+        setError(reason instanceof Error ? reason.message : 'Unable to pick a team ball.');
+        setPhase('error');
+      });
+  }, [phase]);
+
   const validNames = useMemo(() => new Set(balls.map((ball) => ball.name)), [balls]);
 
   useEffect(() => {
-    if (!target || validNames.size === 0) return undefined;
+    if (!target || validNames.size === 0 || phase === 'picked') return undefined;
 
     const syncWinner = () => {
       const nextSelected = readSelectedTeam(target, validNames);
@@ -253,12 +339,18 @@ export function GameshowTombolaCentrepiece() {
       attributeFilter: ['class'],
     });
     return () => observer.disconnect();
-  }, [target, validNames]);
+  }, [phase, target, validNames]);
 
   if (!target) return null;
 
   return createPortal(
-    <TombolaStage balls={balls} phase={phase} selectedName={selectedName} error={error} />,
+    <TombolaStage
+      balls={balls}
+      phase={phase}
+      selectedName={selectedName}
+      error={error}
+      onPickBall={handlePickBall}
+    />,
     target,
   );
 }
