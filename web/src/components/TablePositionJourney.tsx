@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { TeamBadge } from './TeamBadge';
 
 export type TableJourneyRow = {
@@ -81,7 +81,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
         <div className="table-position-journey-now"><strong>{current?.gw ?? ordered[0].gw}</strong><small>{step >= ordered.length - 1 ? 'CURRENT POSITION' : 'REPLAYING'}</small><button type="button" onClick={() => setStep(0)} disabled={step === 0}>↻ Replay</button></div>
       </div>
 
-      <div className="table-position-stage" style={{ '--journey-ranks': maxRank } as React.CSSProperties}>
+      <div className="table-position-stage" style={{ '--journey-ranks': maxRank } as CSSProperties}>
         <div className="table-position-ranks" aria-hidden="true">
           {Array.from({ length: maxRank }, (_, index) => <span key={`rank-${index + 1}`} style={{ top: `${(index / rankDenominator) * 100}%` }}>#{index + 1}</span>)}
         </div>
@@ -100,7 +100,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
               return `${x},${y}`;
             }).filter((point): point is string => !!point).join(' ');
             if (!points.includes(' ')) return null;
-            return <polyline key={`trail-${team.teamId}`} points={points} style={{ '--journey-team-color': team.ballColor ?? '#f6c743' } as React.CSSProperties} />;
+            return <polyline key={`trail-${team.teamId}`} points={points} style={{ '--journey-team-color': team.ballColor ?? '#f6c743' } as CSSProperties} />;
           })}
         </svg>
 
