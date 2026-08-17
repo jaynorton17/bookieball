@@ -64,7 +64,6 @@ export function ReportsHubPage() {
   }, []);
 
   const teamById = useMemo(() => new Map((data?.teams ?? []).map((team) => [team.id, team])), [data?.teams]);
-  const ratingById = useMemo(() => new Map((data?.ratings ?? []).map((row) => [row.teamId, row])), [data?.ratings]);
 
   const consistency = useMemo(() => {
     if (!data) return [];
@@ -102,6 +101,9 @@ export function ReportsHubPage() {
     const rows = data?.bookieDor?.leaderboard ?? [];
     return rows.map((row) => ({ teamId: row.teamId, score: row.weightedCupScore + row.weightedMasterScore, cup: row.cupFinish })).sort((a, b) => b.score - a.score);
   }, [data?.bookieDor]);
+
+  const expectation = useMemo(() => (data?.archive.teams ?? []).slice().sort((a, b) => b.expectationDelta - a.expectationDelta), [data?.archive.teams]);
+  const bouncebacks = useMemo(() => (data?.archive.teams ?? []).filter((row) => row.bouncebackOpportunities > 0).slice().sort((a, b) => b.bouncebackRate - a.bouncebackRate || b.bouncebackOpportunities - a.bouncebackOpportunities), [data?.archive.teams]);
 
   const scatter = useMemo(() => {
     if (!data?.ratings.length) return [];
@@ -156,10 +158,12 @@ export function ReportsHubPage() {
       </div>
 
       <div className="analytics-card-grid">
-        <section className="panel"><div className="panel-header"><div><h3>Consistency Index</h3><p className="muted">Stable points output across seasons</p></div></div>{consistency.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={row.score.toFixed(0)} detail={`${row.seasons} seasons`} />)}</section>
-        <section className="panel"><div className="panel-header"><div><h3>Giant Killers</h3><p className="muted">Wins while entering 75+ Elo below opponent</p></div></div>{giantKillers.map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={String(row.giantKillerWins)} detail={`${row.wins} total wins`} />)}</section>
-        <section className="panel"><div className="panel-header"><div><h3>Momentum</h3><p className="muted">Recent rank and profit movement</p></div></div>{momentum.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={`${row.rankDelta>0?'▲':''}${row.rankDelta}`} detail={`${signed(row.profitDelta)} profit`} />)}</section>
-        <section className="panel"><div className="panel-header"><div><h3>Clutch Rating</h3><p className="muted">Current cup + Master contribution</p></div></div>{clutch.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={row.score.toFixed(1)} detail={row.cup} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Consistency</h3><p className="muted">Stable points across seasons</p></div></div>{consistency.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={row.score.toFixed(0)} detail={`${row.seasons} seasons`} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Giant Killers</h3><p className="muted">Wins from 75+ Elo below</p></div></div>{giantKillers.map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={String(row.giantKillerWins)} detail={`${row.wins} total wins`} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Momentum</h3><p className="muted">Recent rank + profit movement</p></div></div>{momentum.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={`${row.rankDelta>0?'▲':''}${row.rankDelta}`} detail={`${signed(row.profitDelta)} profit`} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Clutch</h3><p className="muted">Cup + Master contribution</p></div></div>{clutch.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={row.score.toFixed(1)} detail={row.cup} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Expectation Δ</h3><p className="muted">Actual result score vs Elo expectation</p></div></div>{expectation.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={`${row.expectationDelta>=0?'+':''}${row.expectationDelta.toFixed(1)}`} detail={`${row.played} matches`} />)}</section>
+        <section className="panel"><div className="panel-header"><div><h3>Bounceback</h3><p className="muted">Wins immediately after defeat</p></div></div>{bouncebacks.slice(0,5).map((row) => <TeamLine key={row.teamId} team={teamById.get(row.teamId)} value={`${(row.bouncebackRate*100).toFixed(0)}%`} detail={`${row.bouncebackWins}/${row.bouncebackOpportunities} chances`} />)}</section>
       </div>
 
       <div className="analytics-bottom-grid">
