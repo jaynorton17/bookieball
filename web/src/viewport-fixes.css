@@ -24,6 +24,27 @@
   .trophy-cabinet-stats-records .trophy-cabinet-stat strong{font-size:11px!important}
 }
 
+@media (max-height:950px) and (min-width:1101px){
+  .analytics-pass{gap:6px!important}
+  .analytics-pass-head{padding:3px 2px 1px!important}
+  .analytics-pass-head h1{font-size:32px!important}
+  .analytics-kpi-row{gap:5px!important}
+  .analytics-kpi-row article{padding:5px 8px!important}
+  .analytics-main-grid{min-height:190px!important;gap:6px!important}
+  .analytics-main-grid>.panel,.analytics-card-grid>.panel,.analytics-bottom-grid>.panel{padding:7px 9px!important}
+  .analytics-scatter{height:150px!important}
+  .analytics-podium{height:152px!important;padding-top:2px!important}
+  .analytics-podium-place.place-1{height:144px!important}
+  .analytics-podium-place.place-2{height:120px!important}
+  .analytics-podium-place.place-3{height:102px!important}
+  .analytics-card-grid,.analytics-bottom-grid{gap:6px!important}
+  .analytics-team-line{min-height:26px!important;padding:2px 0!important}
+  .analytics-era-row{gap:4px!important}
+  .analytics-era-row>div{padding:4px 6px!important}
+  .analytics-rivalry{min-height:22px!important}
+  .analytics-story-strip{min-height:28px!important;padding:3px 8px!important}
+}
+
 @media (max-height:800px) and (min-width:1101px){
   .h2h-page-head h1{font-size:25px!important}
   .h2h-page-head p{display:none!important}
