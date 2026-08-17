@@ -23,8 +23,9 @@ type CardRecord = {
   teamAWins: number;
   teamBWins: number;
   draws: number;
-  averageMargin: number;
   lastMeeting: RivalryAnalytics['lastMeeting'];
+  recentMeetings: RivalryAnalytics['recentMeetings'];
+  currentStreak: string;
 };
 
 function signed(value: number): string {
@@ -32,6 +33,11 @@ function signed(value: number): string {
 }
 function norm(name: string): string { return name.trim().toLowerCase(); }
 function pairKey(home: string, away: string): string { return `${norm(home)}|${norm(away)}`; }
+function recentResult(meeting: RivalryAnalytics['recentMeetings'][number], teamName: string): 'W' | 'D' | 'L' {
+  if (meeting.result === 'draw') return 'D';
+  const winner = meeting.result === 'home' ? meeting.homeTeam : meeting.awayTeam;
+  return norm(winner) === norm(teamName) ? 'W' : 'L';
+}
 
 export function HeadToHeadPage() {
   const [state, setState] = useState<{ currentSeason: string; currentGw: string } | null>(null);
@@ -76,16 +82,18 @@ export function HeadToHeadPage() {
         teamAWins: row.teamAWins,
         teamBWins: row.teamBWins,
         draws: row.draws,
-        averageMargin: row.averageMargin,
         lastMeeting: row.lastMeeting,
+        recentMeetings: row.recentMeetings,
+        currentStreak: row.currentStreak,
       });
       map.set(pairKey(row.teamBName, row.teamAName), {
         played: row.meetings,
         teamAWins: row.teamBWins,
         teamBWins: row.teamAWins,
         draws: row.draws,
-        averageMargin: row.averageMargin,
         lastMeeting: row.lastMeeting,
+        recentMeetings: row.recentMeetings,
+        currentStreak: row.currentStreak,
       });
     });
     return map;
@@ -103,7 +111,7 @@ export function HeadToHeadPage() {
       <div className="h2h-page-head">
         <div>
           <h1>Head to Head</h1>
-          <p className="muted">{state ? `${state.currentSeason} ${state.currentGw}` : 'Current gameweek'} · all-time rivalry records since S1</p>
+          <p className="muted">{state ? `${state.currentSeason} ${state.currentGw}` : 'Current gameweek'} · division rivalry records since S1</p>
         </div>
         <span className="news-chip">{currentFixtures.length} live matchups</span>
       </div>
@@ -130,7 +138,7 @@ export function HeadToHeadPage() {
                   </div>
                   <div className="h2h-fight-main">
                     <div className="h2h-fight-team">
-                      <TeamBadge name={fixture.homeTeam} ballColor={home?.ballColor ?? null} ringColor={home?.ringColor ?? null} textColor={home?.textColor ?? null} size={28} />
+                      <TeamBadge name={fixture.homeTeam} ballColor={home?.ballColor ?? null} ringColor={home?.ringColor ?? null} textColor={home?.textColor ?? null} size={32} />
                       <span>{fixture.homeTeam}</span>
                     </div>
                     <div className="h2h-fight-score">
@@ -139,12 +147,13 @@ export function HeadToHeadPage() {
                     </div>
                     <div className="h2h-fight-team">
                       <span>{fixture.awayTeam}</span>
-                      <TeamBadge name={fixture.awayTeam} ballColor={away?.ballColor ?? null} ringColor={away?.ringColor ?? null} textColor={away?.textColor ?? null} size={28} />
+                      <TeamBadge name={fixture.awayTeam} ballColor={away?.ballColor ?? null} ringColor={away?.ringColor ?? null} textColor={away?.textColor ?? null} size={32} />
                     </div>
                   </div>
+                  {record?.recentMeetings.length ? <div className="h2h-last-five"><span>LAST 5</span><div>{record.recentMeetings.map((meeting, index) => { const result = recentResult(meeting, fixture.homeTeam); return <i key={`${meeting.season}-${meeting.gw}-${index}`} className={`is-${result.toLowerCase()}`} title={`${meeting.season} ${meeting.gw}`}>{result}</i>; })}</div><strong>{record.currentStreak}</strong></div> : null}
                   <div className="h2h-fight-foot">
-                    <span>{latest ? `Last: ${latest.season} ${latest.gw} · ${latest.homeTeam} ${signed(latest.homeProfit)} vs ${signed(latest.awayProfit)} ${latest.awayTeam}` : 'No previous meeting'}</span>
-                    <span>{record?.played ? `Avg margin ${record.averageMargin.toFixed(2)}` : 'Click for full series'}</span>
+                    <span>{latest ? `Previous: ${latest.season} ${latest.gw} · ${latest.homeTeam} ${signed(latest.homeProfit)} vs ${signed(latest.awayProfit)} ${latest.awayTeam}` : 'No previous meeting'}</span>
+                    <span>Click for full series</span>
                   </div>
                 </article>
               );
