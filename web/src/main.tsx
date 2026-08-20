@@ -8,6 +8,7 @@ import { PredictionBroadcastEnhancements } from './components/PredictionBroadcas
 import { TeamJourneyBridge } from './components/TeamJourneyBridge';
 import { GameshowTombolaCentrepiece } from './components/GameshowTombolaCentrepiece';
 import { GameshowDrawResultEnhancement } from './components/GameshowDrawResultEnhancement';
+import { HomeLiveTableEnhancement } from './components/HomeLiveTableEnhancement';
 import { installBookieBallFetchCache } from './lib/fetchCache';
 import './styles.css';
 import './laptop-fit.css';
@@ -32,10 +33,12 @@ import './final-hub-polish.css';
 import './division-final-polish.css';
 import './viewport-final-polish.css';
 import './table-position-journey.css';
+import './table-position-continuous.css';
 import './readability-fixes.css';
 import './analytics-v2.css';
 import './analytics-tv.css';
 import './home-readable-scroll.css';
+import './home-detailed-live-table.css';
 
 installBookieBallFetchCache();
 
@@ -48,6 +51,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PredictionBroadcastEnhancements />
       <GameshowTombolaCentrepiece />
       <GameshowDrawResultEnhancement />
+      <HomeLiveTableEnhancement />
       <App />
     </BrowserRouter>
   </React.StrictMode>,

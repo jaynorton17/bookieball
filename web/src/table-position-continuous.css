@@ -1,0 +1,16 @@
+/* The gameweek clock and the ball transition are the same duration, so each ball is always travelling toward the next weekly position instead of moving then waiting. */
+.table-position-journey .table-position-ball,
+.table-position-journey.is-dense .table-position-ball {
+  transition:
+    left 1s linear,
+    top 1s linear,
+    opacity .2s ease !important;
+  will-change: left, top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-position-journey .table-position-ball,
+  .table-position-journey.is-dense .table-position-ball {
+    transition-duration: .01ms !important;
+  }
+}
