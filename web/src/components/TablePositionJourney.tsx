@@ -58,7 +58,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
 
   const maxRank = useMemo(() => Math.max(1, ...ordered.flatMap((snapshot) => snapshot.rows.map((row) => row.rank))), [ordered]);
   const dense = teamRows.length > 10 || maxRank > 10;
-  const playbackMs = dense ? 2500 : 1400;
+  const playbackMs = 1000;
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
 
@@ -95,7 +95,7 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
     }
     const timer = window.setTimeout(() => setStep((value) => Math.min(value + 1, ordered.length - 1)), playbackMs);
     return () => window.clearTimeout(timer);
-  }, [ordered.length, playbackMs, playing, step]);
+  }, [ordered.length, playing, step]);
 
   const current = ordered[Math.min(step, Math.max(0, ordered.length - 1))];
   const movementSnapshots = ordered.slice(0, Math.min(step + 1, ordered.length));
@@ -131,14 +131,14 @@ export function TablePositionJourney({ snapshots, title = 'Table Journey', divis
     : step >= ordered.length - 1
       ? 'CURRENT POSITION'
       : playing
-        ? 'REPLAYING'
+        ? 'MOVING'
         : 'PAUSED';
   const displayTitle = ordered[0]?.gw === 'GW0' ? title.replace(/GW\d+ to current/i, 'GW0 to current') : title;
 
   return (
     <section ref={rootRef} className={`table-position-journey${dense ? ' is-dense' : ''}`} aria-label={`${displayTitle} position journey`}>
       <div className="table-position-journey-head">
-        <div><span>POSITION REPLAY</span><h4>{displayTitle}</h4>{dense && <p>Dense table replay · {playbackMs / 1000}s per gameweek</p>}</div>
+        <div><span>POSITION REPLAY</span><h4>{displayTitle}</h4>{dense && <p>Continuous replay · 1 second between gameweeks</p>}</div>
         <div className="table-position-journey-now">
           <strong>{current?.gw ?? ordered[0].gw}</strong>
           <small>{statusLabel}</small>
