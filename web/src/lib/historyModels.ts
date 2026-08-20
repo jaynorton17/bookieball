@@ -13,10 +13,40 @@ export type CompetitionFinish = {
   runnerUp?: boolean;
 };
 
+export type TeamSeasonStats = {
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  profit: number;
+  spins: number;
+};
+
+export type TrophyCount = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type TeamCareerSummary = {
+  totalProfit: number;
+  totalPoints: number;
+  allTimePointsRank: number | null;
+  totalPlayed: number;
+  totalWins: number;
+  totalDraws: number;
+  totalLosses: number;
+  totalSpins: number;
+  totalHonours: number;
+  trophies: TrophyCount[];
+};
+
 export type TeamSeasonCareer = {
   season: string;
   teamId: number;
   teamName: string;
+  stats: TeamSeasonStats | null;
   competitions: Record<CompetitionKey, CompetitionFinish>;
 };
 
@@ -33,6 +63,7 @@ export type KnockoutJourneyStep = {
 export type TeamCareer = {
   teamId: number;
   teamName: string;
+  summary: TeamCareerSummary;
   seasons: TeamSeasonCareer[];
   knockoutJourney: KnockoutJourneyStep[];
 };

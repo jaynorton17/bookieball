@@ -39,6 +39,7 @@ import './analytics-v2.css';
 import './analytics-tv.css';
 import './home-readable-scroll.css';
 import './home-detailed-live-table.css';
+import './team-journey-career.css';
 
 installBookieBallFetchCache();
 
