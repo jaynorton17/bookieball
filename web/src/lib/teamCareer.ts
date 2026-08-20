@@ -1,5 +1,6 @@
 import { api } from './api';
-import type { CompetitionFinish, TeamCareer, TeamSeasonCareer, KnockoutJourneyStep } from './historyModels';
+import { displayDivisionName } from './divisionLabels';
+import type { CompetitionFinish, TeamCareer, TeamSeasonCareer, KnockoutJourneyStep, TrophyCount } from './historyModels';
 import type { CompetitionKey } from './competitionRegistry';
 
 let careerCache = new Map<number, Promise<TeamCareer>>();
@@ -22,6 +23,14 @@ function stageLabel(stage: string): string {
   return label(stage);
 }
 
+function seasonNumber(season: string): number {
+  return Number(season.replace(/\D/g, '')) || 0;
+}
+
+function winnerCount(rows: Array<{ teamName: string }> | undefined, teamName: string): number {
+  return (rows ?? []).filter((row) => row.teamName === teamName).length;
+}
+
 export function clearTeamCareerCache(teamId?: number): void {
   if (teamId === undefined) careerCache.clear();
   else careerCache.delete(teamId);
@@ -32,10 +41,13 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
   if (existing) return existing;
 
   const pending = (async () => {
-    const [teams, storyPayload, historyPayload] = await Promise.all([
+    const [teams, storyPayload, historyPayload, allTime, trophyRoom, state] = await Promise.all([
       api.teams(),
       api.teamHistoryStoryBulk([teamId]),
       api.teamSeasonHistory(teamId),
+      api.allTimeLeagues().catch(() => null),
+      api.trophyRoom().catch(() => null),
+      api.state().catch(() => null),
     ]);
     const team = teams.find((row) => row.id === teamId);
     if (!team) throw new Error(`Unknown team ${teamId}`);
@@ -48,7 +60,7 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
       ...(story?.trioLeagueJourney ?? []).map((row) => row.season),
       ...(story?.tierLeagueJourney ?? []).map((row) => row.season),
       ...history.map((row) => row.season),
-    ])).sort((a, b) => Number(a.replace('S', '')) - Number(b.replace('S', '')));
+    ])).sort((a, b) => seasonNumber(a) - seasonNumber(b));
 
     const [masterCups, cups, superCups] = await Promise.all([
       Promise.all(seasons.map(async (season) => [season, await api.masterCupFixtures(undefined, true, season).catch(() => [])] as const)),
@@ -83,11 +95,11 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
           ? { competition: 'tier' as const, entered: true, label: `${tier.division} #${tier.rank}/${tier.total}`, division: tier.division, rank: tier.rank, total: tier.total }
           : emptyFinish('tier'),
         bookieball_cup: historyRow?.cupFinish && historyRow.cupFinish !== 'none'
-          ? { competition: 'bookieball_cup' as const, entered: true, label: label(historyRow.cupFinish), division: null }
+          ? { competition: 'bookieball_cup' as const, entered: true, label: label(historyRow.cupFinish), division: null, winner: historyRow.cupFinish.toLowerCase().includes('winner') }
           : emptyFinish('bookieball_cup'),
         master_cup: emptyFinish('master_cup'),
         super_cup: historyRow?.superCupFinish && historyRow.superCupFinish !== 'none'
-          ? { competition: 'super_cup' as const, entered: true, label: label(historyRow.superCupFinish), division: null }
+          ? { competition: 'super_cup' as const, entered: true, label: label(historyRow.superCupFinish), division: null, winner: historyRow.superCupFinish.toLowerCase().includes('winner') }
           : emptyFinish('super_cup'),
       } satisfies Record<CompetitionKey, CompetitionFinish>;
 
@@ -136,10 +148,64 @@ export function loadTeamCareer(teamId: number): Promise<TeamCareer> {
         });
       }
 
-      return { season, teamId, teamName: team.name, competitions };
+      const stats = historyRow ? {
+        played: historyRow.played,
+        wins: historyRow.wins,
+        draws: historyRow.draws,
+        losses: historyRow.losses,
+        points: historyRow.points,
+        profit: historyRow.profit,
+        spins: historyRow.spins,
+      } : null;
+
+      return { season, teamId, teamName: team.name, stats, competitions };
     });
 
-    return { teamId, teamName: team.name, seasons: seasonRows, knockoutJourney };
+    const allTimeRow = allTime?.pointsTable.find((row) => row.teamId === teamId) ?? null;
+    const fallbackStats = history.reduce((totals, row) => ({
+      played: totals.played + row.played,
+      wins: totals.wins + row.wins,
+      draws: totals.draws + row.draws,
+      losses: totals.losses + row.losses,
+      points: totals.points + row.points,
+      profit: totals.profit + row.profit,
+      spins: totals.spins + row.spins,
+    }), { played: 0, wins: 0, draws: 0, losses: 0, points: 0, profit: 0, spins: 0 });
+
+    const trophies: TrophyCount[] = [];
+    const pushTrophy = (key: string, trophyLabel: string, count: number) => trophies.push({ key, label: trophyLabel, count });
+    pushTrophy('bookie-dor', "Bookie d'Or", winnerCount(trophyRoom?.bookieDor, team.name));
+    pushTrophy('bookieball-cup', 'BookieBall Cup', winnerCount(trophyRoom?.cup, team.name));
+    pushTrophy('master-league', 'Master League', winnerCount(trophyRoom?.masterLeague, team.name));
+    pushTrophy('master-cup', 'Master Cup', winnerCount(trophyRoom?.masterCup, team.name));
+    pushTrophy('super-cup', 'Super Cup', winnerCount(trophyRoom?.superCup, team.name));
+
+    const completedBefore = state ? seasonNumber(state.currentSeason) : Number.POSITIVE_INFINITY;
+    const trioTitles = (story?.trioLeagueJourney ?? []).filter((row) => row.rank === 1 && seasonNumber(row.season) < completedBefore).length;
+    pushTrophy('trio-league', 'Trio League', trioTitles);
+
+    Object.entries(trophyRoom?.divisions ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([division, winners]) => pushTrophy(`division-${division}`, displayDivisionName(division), winnerCount(winners, team.name)));
+    Object.entries(trophyRoom?.tierLeagues ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([division, winners]) => pushTrophy(`tier-${division}`, `Tier · ${division}`, winnerCount(winners, team.name)));
+
+    const totalHonours = trophies.reduce((sum, trophy) => sum + trophy.count, 0);
+    const summary = {
+      totalProfit: allTimeRow?.profit ?? fallbackStats.profit,
+      totalPoints: allTimeRow?.points ?? fallbackStats.points,
+      allTimePointsRank: allTimeRow?.rank ?? null,
+      totalPlayed: allTimeRow?.played ?? fallbackStats.played,
+      totalWins: allTimeRow?.wins ?? fallbackStats.wins,
+      totalDraws: allTimeRow?.draws ?? fallbackStats.draws,
+      totalLosses: allTimeRow?.losses ?? fallbackStats.losses,
+      totalSpins: allTimeRow?.spins ?? fallbackStats.spins,
+      totalHonours,
+      trophies,
+    };
+
+    return { teamId, teamName: team.name, summary, seasons: seasonRows, knockoutJourney };
   })();
 
   careerCache.set(teamId, pending);
